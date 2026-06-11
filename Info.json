@@ -10,7 +10,7 @@
   "preferencesPage": "preferences.html",
   "helpPage": "README.md",
   "preferenceDefaults": {
-    "enabledByDefault": false,
+    "enabledByDefault": true,
     "hideNativeSubtitles": true,
     "fontScale": 1.0,
     "popupScale": 0.92,

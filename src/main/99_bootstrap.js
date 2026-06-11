@@ -7,18 +7,26 @@ ensureBundledBackendInstalled().catch(error => {
 
 event.on("iina.window-loaded", () => {
   initializeOverlay();
-  setEnabled(prefBool("enabledByDefault", false));
+  setEnabled(prefBool("enabledByDefault", true));
 });
 event.on("mpv.file-loaded", () => {
   lastSubtitle = null;
   lookupCache = Object.create(null);
   lookupInFlight = Object.create(null);
-  if (enabled) pollSubtitle();
+  if (enabled) startPolling();
 });
-event.on("mpv.end-file", () => { resetLookupPopupPause(); publishSubtitle(""); });
+event.on("mpv.end-file", () => {
+  resetLookupPopupPause();
+  stopPolling();
+  publishSubtitle("");
+});
+event.on("iina.window-will-close", () => {
+  resetLookupPopupPause();
+  stopPolling();
+});
 try {
   if (core.window.loaded) {
     initializeOverlay();
-    setEnabled(prefBool("enabledByDefault", false));
+    setEnabled(prefBool("enabledByDefault", true));
   }
 } catch (_) {}

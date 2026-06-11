@@ -153,9 +153,11 @@ function publishSubtitle(text) {
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  ensureBackendWorker(activeDictionaryPaths()).catch(error => {
-    debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
-  });
+  if (normalized && isJapaneseish(normalized) && activeDictionaryPaths().length) {
+    ensureBackendWorker(activeDictionaryPaths()).catch(error => {
+      debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
+    });
+  }
 }
 function pollSubtitle() {
   if (!enabled) return;
