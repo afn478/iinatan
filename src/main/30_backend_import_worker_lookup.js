@@ -107,11 +107,27 @@ async function importDictionaryZip(zipPath, existingTaskId) {
 }
 async function chooseAndImportDictionary() {
   try {
-    const zipPath = utils.chooseFile("Choose a dictionary .zip", { allowedFileTypes: ["zip"] });
+    debugLog("manual dictionary import: opening file chooser");
+    if (!utils || typeof utils.chooseFile !== "function") {
+      throw new Error("This IINA build does not expose utils.chooseFile.");
+    }
+    let zipPath = "";
+    try {
+      zipPath = utils.chooseFile("Choose a dictionary .zip", { allowedFileTypes: ["zip"] });
+    } catch (error) {
+      debugWarn("manual dictionary import chooser with zip filter failed: " + compactError(error));
+      zipPath = utils.chooseFile("Choose a dictionary .zip", {});
+    }
+    debugLog("manual dictionary import: chooser returned " + JSON.stringify(String(zipPath || "").slice(0, 260)));
     if (!zipPath) return;
+    zipPath = String(zipPath);
+    if (!/\.zip$/i.test(zipPath)) {
+      throw new Error("Selected file is not a .zip dictionary: " + zipPath);
+    }
     await importDictionaryZip(zipPath);
   } catch (error) {
     const msg = "Could not add dictionary: " + compactError(error);
+    debugError("manual dictionary import failed: " + compactError(error));
     setOverlayStatus(msg, "error", 12000);
     alert(msg);
   }

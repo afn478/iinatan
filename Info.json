@@ -42,7 +42,8 @@
     "video-overlay",
     "network-request",
     "file-system",
-    "show-osd"
+    "show-osd",
+    "show-alert"
   ],
   "allowedDomains": [
     "*"
