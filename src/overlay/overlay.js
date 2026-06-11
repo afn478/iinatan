@@ -21,7 +21,12 @@
       maxEntries: 3,
       maxGlossesPerEntry: 4,
       scanLength: 24,
-      hoverRequestTimeoutMs: 6000,
+      language: {
+        id: 'ja',
+        label: 'Japanese',
+        wordMode: 'rightward-prefix'
+      },
+      hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false
     },
     hideTimer: null,
@@ -56,13 +61,43 @@
     } catch (_) {}
     try { console.log('[iinatan overlay] ' + String(message || '')); } catch (_) {}
   }
-  function isJapaneseish(text) { return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(text || ''); }
   function flattenSubtitleText(text) {
     return String(text || '')
       .replace(/\r/g, '')
       .replace(/\n+/g, ' ')
       .replace(/[ \t\f\v]{2,}/g, ' ')
       .trim();
+  }
+
+  function activeLanguage() {
+    return state.config.language || { id: state.config.lookupLanguage || 'ja', wordMode: 'rightward-prefix' };
+  }
+
+  function isLookupableChar(ch) {
+    const lang = activeLanguage();
+    const s = String(ch || '');
+    if (lang.id === 'en') return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’-]/.test(s);
+    if (lang.id === 'ko') return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(s);
+    return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(s);
+  }
+
+  function findLookupRun(pos) {
+    const lang = activeLanguage();
+    const isWholeWordMode = lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run';
+    if (!isWholeWordMode) return null;
+    if (!state.chars.length || pos < 0 || pos >= state.chars.length || !isLookupableChar(state.chars[pos])) return null;
+    let start = pos;
+    let end = pos + 1;
+    while (start > 0 && isLookupableChar(state.chars[start - 1])) start--;
+    while (end < state.chars.length && isLookupableChar(state.chars[end])) end++;
+    return { start, end, text: state.chars.slice(start, end).join('') };
+  }
+
+  function lookupPreviewForPosition(pos) {
+    const run = findLookupRun(pos);
+    if (run) return run;
+    const len = Math.max(1, state.config.scanLength || 24);
+    return { start: pos, end: Math.min(state.chars.length, pos + len), text: state.chars.slice(pos, pos + len).join('') };
   }
 
   function applyConfig(config) {
@@ -114,9 +149,10 @@
       if (ch === '\n') { frag.appendChild(document.createTextNode(' ')); continue; }
       if (/\s/.test(ch)) { frag.appendChild(document.createTextNode(' ')); continue; }
       const span = document.createElement('span');
-      span.className = 'char ' + (isJapaneseish(ch) ? 'lookupable' : 'nonlookup');
+      const lookupable = isLookupableChar(ch);
+      span.className = 'char ' + (lookupable ? 'lookupable' : 'nonlookup');
       span.textContent = ch;
-      if (isJapaneseish(ch)) {
+      if (lookupable) {
         span.setAttribute('data-clickable', 'true');
         span.dataset.pos = String(i);
         span.addEventListener('mouseenter', onCharEnter);
@@ -153,6 +189,19 @@
   function lookupMatchLength(stored) {
     const matched = topMatchedText(stored);
     return Math.max(1, charsCount(matched || ''));
+  }
+
+  function resultMatchStart(stored, fallback) {
+    const result = stored && stored.result ? stored.result : {};
+    const n = Number(result.matchStart);
+    return Number.isFinite(n) ? Math.max(0, n) : fallback;
+  }
+
+  function activateStoredMatch(stored, preview) {
+    const fallbackStart = preview && Number.isFinite(Number(preview.start)) ? Number(preview.start) : (state.currentPos || 0);
+    const start = resultMatchStart(stored, fallbackStart);
+    const matched = topMatchedText(stored) || (preview && preview.text) || '';
+    activateMatchRange(start, matched);
   }
 
   // Deliberately do not reuse cached lookup results across later character
@@ -208,16 +257,16 @@
     const pos = Number(target.dataset.pos || 0);
     overlayDebug("char enter pos=" + pos + " char=" + JSON.stringify(target.textContent || "") + " cached=" + String(!!state.lookupByPos[pos]));
     state.currentPos = pos;
-    const suffixPreview = state.chars.slice(pos, pos + Math.max(1, state.config.scanLength || 24)).join('');
+    const preview = lookupPreviewForPosition(pos);
     const stored = state.lookupByPos[pos];
     if (stored) {
-      activateMatchRange(pos, topMatchedText(stored) || suffixPreview.slice(0, 1));
-      showPopup(target, suffixPreview, '<div class="loading">Rendering…</div>');
+      activateStoredMatch(stored, preview);
+      showPopup(target, preview.text, '<div class="loading">Rendering…</div>');
       renderStoredLookup(stored);
       return;
     }
-    activateMatchRange(pos, suffixPreview.slice(0, 1));
-    showPopup(target, suffixPreview, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
+    activateMatchRange(preview.start, preview.text || target.textContent || '');
+    showPopup(target, preview.text, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
     requestLookupFromPlugin(pos);
   }
 
@@ -649,7 +698,9 @@
     }
     const first = entries[0];
     const heading = first.matched || (first.term && first.term.expression) || '';
-    if (state.currentPos !== null && state.currentPos !== undefined) activateMatchRange(state.currentPos, heading);
+    if (state.currentPos !== null && state.currentPos !== undefined) {
+      activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
+    }
     const reading = first.term && first.term.reading ? first.term.reading : '';
     const maxEntries = Math.max(1, state.config.maxEntries || 3);
     const maxGlosses = Math.max(1, state.config.maxGlossesPerEntry || 4);

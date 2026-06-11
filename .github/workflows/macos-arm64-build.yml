@@ -1,13 +1,23 @@
 name: macOS Apple Silicon build
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Create/update a GitHub Release with the package asset
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Release tag to publish when publish_release is true, for example v1.6.0
+        required: false
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -36,16 +46,35 @@ jobs:
       - name: Verify generated files are committed
         run: git diff --exit-code -- main.js overlay.html
 
+      - name: Run JavaScript tests and syntax checks
+        run: npm test
+
       - name: Compile bundled lookup engine
         run: |
           bash scripts/build_native_backend.sh
           file bin/iina-hoshi-dicts
 
+      - name: Validate installable root layout
+        run: npm run validate:release
+
       - name: Package plugin
         run: python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz
+
+      - name: Validate package layout
+        run: python3 scripts/build_plugin.py --validate-package dist/iinatan.iinaplgz
 
       - name: Upload plugin package
         uses: actions/upload-artifact@v4
         with:
           name: iinatan-plugin
           path: dist/iinatan.iinaplgz
+
+      - name: Publish GitHub release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test -n "$RELEASE_TAG"
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes "iinatan $RELEASE_TAG"
+          gh release upload "$RELEASE_TAG" dist/iinatan.iinaplgz --clobber

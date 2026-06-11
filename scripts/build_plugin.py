@@ -1,9 +1,34 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import argparse
+import json
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+REQUIRED_PLUGIN_FILES = [
+    "Info.json",
+    "main.js",
+    "global.js",
+    "overlay.html",
+    "preferences.html",
+    "README.md",
+    "package.json",
+]
+OPTIONAL_PACKAGE_FILES = [
+    "ARCHITECTURE.md",
+    "SETTINGS_AUDIT.md",
+]
+REQUIRED_PACKAGE_FILES = REQUIRED_PLUGIN_FILES + [
+    "bin/iina-hoshi-dicts",
+]
+PACKAGE_FILE_ALLOWLIST = REQUIRED_PACKAGE_FILES + OPTIONAL_PACKAGE_FILES
+LANGUAGE_PARTS = [
+    "common.js",
+    "japanese.js",
+    "english.js",
+    "korean.js",
+    "registry.js",
+]
 
 def js_raw_template_literal(value: str) -> str:
     # Keep String.raw safe: escape template delimiters/interpolation.
@@ -12,7 +37,14 @@ def js_raw_template_literal(value: str) -> str:
 def build_files() -> None:
     main_dir = ROOT / "src" / "main"
     parts = []
-    for path in sorted(main_dir.glob("[0-7][0-9]_*.js")):
+    first = main_dir / "00_context_state_paths.js"
+    parts.append(first.read_text())
+
+    language_dir = ROOT / "src" / "languages"
+    for name in LANGUAGE_PARTS:
+        parts.append((language_dir / name).read_text())
+
+    for path in sorted(main_dir.glob("[1-7][0-9]_*.js")):
         parts.append(path.read_text())
 
     parts.append((main_dir / "99_bootstrap.js").read_text())
@@ -42,20 +74,80 @@ def should_package(path: Path, output: Path) -> bool:
 
 def package(output: Path) -> None:
     build_files()
+    validate_root_layout(require_backend=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
-        for path in ROOT.rglob("*"):
+        for rel_name in PACKAGE_FILE_ALLOWLIST:
+            path = ROOT / rel_name
             if path.is_file() and should_package(path, output):
-                z.write(path, path.relative_to(ROOT))
+                z.write(path, rel_name)
+    validate_package(output)
+
+def validate_root_layout(require_backend: bool = False) -> None:
+    missing = [name for name in REQUIRED_PLUGIN_FILES if not (ROOT / name).is_file()]
+    if require_backend and not (ROOT / "bin" / "iina-hoshi-dicts").is_file():
+        missing.append("bin/iina-hoshi-dicts")
+    if missing:
+        raise SystemExit("Missing required plugin files: " + ", ".join(missing))
+
+    info = json.loads((ROOT / "Info.json").read_text())
+    required_info = {
+        "name": str,
+        "identifier": str,
+        "version": str,
+        "entry": str,
+        "globalEntry": str,
+        "preferencesPage": str,
+        "ghRepo": str,
+        "ghVersion": int,
+    }
+    bad = []
+    for key, typ in required_info.items():
+        if key not in info or not isinstance(info[key], typ):
+            bad.append(key)
+    if bad:
+        raise SystemExit("Info.json is missing or has invalid fields: " + ", ".join(bad))
+    if info["entry"] != "main.js":
+        raise SystemExit("Info.json entry must be main.js")
+    if info["globalEntry"] != "global.js":
+        raise SystemExit("Info.json globalEntry must be global.js")
+    if info["preferencesPage"] != "preferences.html":
+        raise SystemExit("Info.json preferencesPage must be preferences.html")
+    if "/" not in info["ghRepo"]:
+        raise SystemExit("Info.json ghRepo must be in owner/repo form")
+
+def validate_package(path: Path) -> None:
+    if not path.is_file():
+        raise SystemExit("Package does not exist: " + str(path))
+    with zipfile.ZipFile(path, "r") as z:
+        names = set(z.namelist())
+        missing = [name for name in REQUIRED_PACKAGE_FILES if name not in names]
+        if missing:
+            raise SystemExit("Package is missing required files: " + ", ".join(missing))
+        forbidden_prefixes = (".git/", ".github/", "build/", "dist/", "vendor/", "src/")
+        forbidden = sorted(name for name in names if name.startswith(forbidden_prefixes))
+        if forbidden:
+            raise SystemExit("Package contains non-runtime files: " + ", ".join(forbidden[:8]))
+        info = json.loads(z.read("Info.json").decode("utf-8"))
+        for field in ("entry", "globalEntry", "preferencesPage"):
+            if info.get(field) not in names:
+                raise SystemExit("Package Info.json references missing " + field + ": " + str(info.get(field)))
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build iinatan generated runtime files/package.")
     parser.add_argument("--package", type=Path, help="Optional .iinaplgz output path.")
+    parser.add_argument("--validate", action="store_true", help="Validate root plugin metadata/layout after building.")
+    parser.add_argument("--require-backend", action="store_true", help="Require bin/iina-hoshi-dicts during --validate.")
+    parser.add_argument("--validate-package", type=Path, help="Validate an existing .iinaplgz package.")
     args = parser.parse_args()
     if args.package:
         package(args.package)
     else:
         build_files()
+    if args.validate:
+        validate_root_layout(require_backend=args.require_backend)
+    if args.validate_package:
+        validate_package(args.validate_package)
 
 if __name__ == "__main__":
     main()

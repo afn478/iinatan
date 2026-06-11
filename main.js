@@ -16,6 +16,7 @@ const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.
 let enabled = false;
 let initialized = false;
 let pollTimer = null;
+let activeSubtitlePollMs = 0;
 let lastSubtitle = null;
 let nativeSubVisibilityBeforeEnable = null;
 let requestSerial = 0;
@@ -26,9 +27,6 @@ let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
-let lineLookupTimer = null;
-let linePrecomputeActiveLineId = 0;
-let priorityLookupPositionsByLine = Object.create(null);
 let hoverLookupInFlight = false;
 let pendingHoverLookup = null;
 let hoverLookupSequence = 0;
@@ -76,7 +74,7 @@ function logEnabled() {
   try { return prefBool("debugLogEnabled", true); } catch (_) { return true; }
 }
 function verboseLogEnabled() {
-  try { return prefBool("debugLogVerbose", true); } catch (_) { return true; }
+  try { return prefBool("debugLogVerbose", false); } catch (_) { return false; }
 }
 function formatDebugMessage(message, level) {
   return "[iinatan " + VERSION + "]" + (level ? "[" + level + "] " : " ") + String(message || "");
@@ -302,6 +300,234 @@ async function clearDirFiles(dir) {
   } catch (_) {}
 }
 
+const IINATAN_LANGUAGE_COMMON = (() => {
+  const JAPANESE_CHAR_RE = /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/;
+  const LATIN_WORD_CHAR_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’-]/;
+  const KOREAN_CHAR_RE = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
+
+  function chars(text) {
+    return Array.from(String(text || ""));
+  }
+
+  function normalizeBasic(text) {
+    const raw = String(text || "");
+    try { return raw.normalize("NFKC"); } catch (_) { return raw; }
+  }
+
+  function clampPosition(position, length) {
+    return Math.max(0, Math.min(Number(position) || 0, Math.max(0, Number(length) || 0)));
+  }
+
+  function findRun(charsList, position, predicate) {
+    const pos = clampPosition(position, charsList.length);
+    if (!charsList.length || pos >= charsList.length || !predicate(charsList[pos])) return null;
+    let start = pos;
+    let end = pos + 1;
+    while (start > 0 && predicate(charsList[start - 1])) start--;
+    while (end < charsList.length && predicate(charsList[end])) end++;
+    return { start, end };
+  }
+
+  function slice(charsList, start, end) {
+    return charsList.slice(start, end).join("");
+  }
+
+  return {
+    JAPANESE_CHAR_RE,
+    LATIN_WORD_CHAR_RE,
+    KOREAN_CHAR_RE,
+    chars,
+    normalizeBasic,
+    clampPosition,
+    findRun,
+    slice
+  };
+})();
+
+const IINATAN_JAPANESE_LANGUAGE = (() => {
+  const common = IINATAN_LANGUAGE_COMMON;
+
+  function isHoverableChar(ch) {
+    return common.JAPANESE_CHAR_RE.test(String(ch || ""));
+  }
+
+  function hasLookupText(text) {
+    return common.JAPANESE_CHAR_RE.test(String(text || ""));
+  }
+
+  function lookupRequest(text, position, scanLength) {
+    const chars = common.chars(text);
+    const pos = common.clampPosition(position, chars.length);
+    const suffix = chars.slice(pos).join("");
+    if (!suffix || !isHoverableChar(chars[pos])) return null;
+    const length = Math.min(chars.length - pos, Math.max(1, Number(scanLength) || 24));
+    const lookupText = common.slice(chars, pos, pos + length);
+    return {
+      lookupText,
+      displayText: lookupText,
+      suffix,
+      lookupStart: pos,
+      lookupEnd: pos + length,
+      matchStart: pos,
+      backendMode: "yomitan-japanese",
+      scanLength: length,
+      cacheStrategy: "exact-position"
+    };
+  }
+
+  return {
+    id: "ja",
+    label: "Japanese",
+    experimental: false,
+    wordMode: "rightward-prefix",
+    deinflection: "hoshidicts-japanese",
+    dictionaryCompatibility: "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
+    isHoverableChar,
+    hasLookupText,
+    normalizeText: text => String(text || ""),
+    lookupRequest
+  };
+})();
+
+const IINATAN_ENGLISH_LANGUAGE = (() => {
+  const common = IINATAN_LANGUAGE_COMMON;
+
+  function isHoverableChar(ch) {
+    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+  }
+
+  function hasLookupText(text) {
+    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+  }
+
+  function lookupRequest(text, position) {
+    const normalized = common.normalizeBasic(text);
+    const chars = common.chars(normalized);
+    const pos = common.clampPosition(position, chars.length);
+    const run = common.findRun(chars, pos, isHoverableChar);
+    if (!run) return null;
+    const lookupText = common.slice(chars, run.start, run.end);
+    return {
+      lookupText,
+      displayText: lookupText,
+      suffix: chars.slice(pos).join(""),
+      lookupStart: run.start,
+      lookupEnd: run.end,
+      matchStart: run.start,
+      backendMode: "exact",
+      scanLength: common.chars(lookupText).length,
+      cacheStrategy: "exact-position"
+    };
+  }
+
+  return {
+    id: "en",
+    label: "English (experimental)",
+    experimental: true,
+    wordMode: "latin-word",
+    deinflection: "none",
+    dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact whole-word lookup only.",
+    isHoverableChar,
+    hasLookupText,
+    normalizeText: common.normalizeBasic,
+    lookupRequest
+  };
+})();
+
+const IINATAN_KOREAN_LANGUAGE = (() => {
+  const common = IINATAN_LANGUAGE_COMMON;
+
+  function isHoverableChar(ch) {
+    return common.KOREAN_CHAR_RE.test(String(ch || ""));
+  }
+
+  function hasLookupText(text) {
+    return common.KOREAN_CHAR_RE.test(String(text || ""));
+  }
+
+  function lookupRequest(text, position) {
+    const normalized = common.normalizeBasic(text);
+    const chars = common.chars(normalized);
+    const pos = common.clampPosition(position, chars.length);
+    const run = common.findRun(chars, pos, isHoverableChar);
+    if (!run) return null;
+    const lookupText = common.slice(chars, run.start, run.end);
+    return {
+      lookupText,
+      displayText: lookupText,
+      suffix: chars.slice(pos).join(""),
+      lookupStart: run.start,
+      lookupEnd: run.end,
+      matchStart: run.start,
+      backendMode: "exact",
+      scanLength: common.chars(lookupText).length,
+      cacheStrategy: "exact-position"
+    };
+  }
+
+  return {
+    id: "ko",
+    label: "Korean (experimental)",
+    experimental: true,
+    wordMode: "korean-run",
+    deinflection: "none",
+    dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact contiguous-Hangul lookup only.",
+    isHoverableChar,
+    hasLookupText,
+    normalizeText: common.normalizeBasic,
+    lookupRequest
+  };
+})();
+
+const IINATAN_LANGUAGE_REGISTRY = (() => {
+  const languages = [
+    IINATAN_JAPANESE_LANGUAGE,
+    IINATAN_ENGLISH_LANGUAGE,
+    IINATAN_KOREAN_LANGUAGE
+  ];
+  const byId = Object.create(null);
+  languages.forEach(language => { byId[language.id] = language; });
+
+  function get(id) {
+    return byId[String(id || "ja")] || byId.ja;
+  }
+
+  function selected() {
+    return get(pref("lookupLanguage", "ja"));
+  }
+
+  function overlayConfig(language) {
+    const selectedLanguage = language || selected();
+    return {
+      id: selectedLanguage.id,
+      label: selectedLanguage.label,
+      experimental: !!selectedLanguage.experimental,
+      wordMode: selectedLanguage.wordMode,
+      deinflection: selectedLanguage.deinflection,
+      dictionaryCompatibility: selectedLanguage.dictionaryCompatibility
+    };
+  }
+
+  return {
+    all: languages.slice(),
+    get,
+    selected,
+    overlayConfig
+  };
+})();
+
+function languageModuleById(id) {
+  return IINATAN_LANGUAGE_REGISTRY.get(id);
+}
+
+function selectedLanguageModule() {
+  return IINATAN_LANGUAGE_REGISTRY.selected();
+}
+
+function selectedLanguageOverlayConfig() {
+  return IINATAN_LANGUAGE_REGISTRY.overlayConfig(selectedLanguageModule());
+}
+
 function decodeEntities(s) {
   return String(s || "")
     .replace(/&nbsp;/g, " ")
@@ -326,7 +552,7 @@ function cleanSubtitleText(text) {
     .replace(/[ \t\f\v]{2,}/g, " ")
     .trim();
 }
-function isJapaneseish(text) { return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(text || ""); }
+function isJapaneseish(text) { return languageModuleById("ja").hasLookupText(text); }
 function mpvStringProp(names, fallback) {
   for (const name of names) {
     try {
@@ -429,10 +655,15 @@ function readSubtitleStyleConfig() {
   };
 }
 function overlayConfig() {
+  const language = selectedLanguageModule();
   return {
+    language: selectedLanguageOverlayConfig(),
+    lookupLanguage: language.id,
     fontScale: prefNumber("fontScale", 1.0),
     popupScale: prefNumber("popupScale", 0.92),
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
+    popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
+    popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
     ...readSubtitleStyleConfig(),
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
@@ -451,20 +682,32 @@ function readCurrentSubtitle() {
 function publishSubtitle(text) {
   const normalized = text || "";
   currentSubtitleLineId = ++subtitleLineSerial;
-  priorityLookupPositionsByLine = Object.create(null);
   debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  if (normalized && isJapaneseish(normalized) && activeDictionaryPaths().length) {
+  const language = selectedLanguageModule();
+  if (normalized && language.hasLookupText(normalized) && activeDictionaryPaths().length) {
     ensureBackendWorker(activeDictionaryPaths()).catch(error => {
       debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
     });
   }
 }
+function syncNativeSubtitleVisibility() {
+  if (!enabled) return;
+  try {
+    if (prefBool("hideNativeSubtitles", true)) {
+      mpv.set("sub-visibility", false);
+    } else if (nativeSubVisibilityBeforeEnable !== null) {
+      mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
+    }
+  } catch (error) { console.warn("Could not update native subtitle visibility: " + compactError(error)); }
+}
 function pollSubtitle() {
   if (!enabled) return;
+  refreshPollingInterval();
+  syncNativeSubtitleVisibility();
   const sub = readCurrentSubtitle();
   if (sub === lastSubtitle) return;
   lastSubtitle = sub;
@@ -690,6 +933,7 @@ async function writeWorkerStartScript() {
   const script = String.raw`#!/usr/bin/env bash
 set -eu
 DATA_ROOT="$1"
+SLEEP_MS="${"$"}{2:-2}"
 WORKER_ROOT="$DATA_ROOT/worker"
 BIN="$DATA_ROOT/bin/iina-hoshi-dicts"
 CONFIG="$WORKER_ROOT/config.tsv"
@@ -709,7 +953,7 @@ if [ -z "${"$"}{HOME:-}" ]; then
     mkdir -p "$HOME"
   fi
 fi
-nohup "$BIN" worker "$WORKER_ROOT" > "$LOG" 2>&1 < /dev/null &
+nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" > "$LOG" 2>&1 < /dev/null &
 echo $! > "$PID"
 `;
   file.write(workerStartScriptPath(), script);
@@ -739,7 +983,8 @@ async function startBackendWorkerProcess(dicts) {
   const fingerprint = workerFingerprint(dicts);
   writeWorkerConfig(dicts, fingerprint);
   await writeWorkerStartScript();
-  const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot()], dataRoot());
+  const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
+  const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot(), String(sleepMs)], dataRoot());
   if (!res || res.status !== 0) throw new Error("Could not start dictionary lookup: " + ((res && (res.stderr || res.stdout)) || "unknown error"));
 }
 function readWorkerReady() {
@@ -787,7 +1032,7 @@ async function clearPendingWorkerRequests() { await clearDirFiles(workerQueueDir
 function makeJsWorkerRequestId() {
   return "j" + String(Date.now()) + "-" + String(++requestSerial) + "-" + String(Math.floor(Math.random() * 1000000));
 }
-async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs) {
+async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries) {
   const ensureStartedAt = Date.now();
   await ensureBackendWorker(dicts);
   const ensureElapsedMs = Date.now() - ensureStartedAt;
@@ -799,7 +1044,9 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
     requestId: id,
     text: String(suffix || ""),
     scanLength: Math.max(1, Number(scanLength) || 24),
-    maxResults: Math.max(1, Number(maxResults) || 1)
+    maxResults: Math.max(1, Number(maxResults) || 1),
+    maxGlossaries: Math.max(1, Number(maxGlossaries) || 4),
+    mode: String(backendMode || "yomitan-japanese")
   };
   const startedAt = Date.now();
   debugVerbose("direct worker lookup write requestId=" + String(requestId || "") + " workerRequestId=" + id + " ensureMs=" + ensureElapsedMs + " text=" + JSON.stringify(String(suffix || "").slice(0, 80)));
@@ -824,12 +1071,14 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
   safeDelete(req);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
 }
-async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout) {
+async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries) {
   await ensureBackendWorker(dicts);
   const clientArgs = [
     "client", workerRoot(),
     "--max-results", String(maxResults),
+    "--max-glossaries", String(maxGlossaries),
     "--scan-length", String(scanLength),
+    "--mode", String(backendMode || "yomitan-japanese"),
     "--timeout-ms", String(timeout),
     "--", suffix
   ];
@@ -838,14 +1087,14 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
-async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId) {
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " directIpc=" + String(prefBool("directWorkerIpc", true)));
+async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries) {
+  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
-      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout);
+      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
       if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
@@ -855,39 +1104,55 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId)
   }
 
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
-  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout);
+  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }
 async function lookupAtPosition(text, position, requestId) {
-  const clean = cleanSubtitleText(text);
+  const language = selectedLanguageModule();
+  const clean = language.normalizeText(cleanSubtitleText(text));
   const chars = charsOf(clean);
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
-  const suffix = chars.slice(pos).join("");
-  if (!suffix || !isJapaneseish(suffix[0])) return { ok: true, text: clean, position: pos, suffix, results: [] };
+  const scanLength = Math.max(1, prefNumber("scanLength", 24));
+  const request = language.lookupRequest(clean, pos, scanLength);
+  if (!request || !request.lookupText) {
+    const suffix = chars.slice(pos).join("");
+    return { ok: true, text: clean, position: pos, suffix, language: language.id, results: [] };
+  }
   const dicts = activeDictionaryPaths();
   if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
-  const scanLength = Math.max(1, prefNumber("scanLength", 24));
-  // Keep native stdout small enough for IINA's utils.exec bridge. The popup
-  // is driven by the top parsed expression anyway; additional native results
-  // can make large Jitendex entries exceed stdout bridge limits.
-  const maxResults = 1;
-  // HoshiDicts only needs the text immediately to the right of the cursor.
-  // Passing the whole subtitle line is wasteful and can create pathological
-  // lookup work with long subtitle lines. Keep a bounded right-context.
-  const lookupText = chars.slice(pos, pos + Math.min(chars.length - pos, scanLength)).join("");
-  const key = dicts.join("|") + "\n" + lookupText + "\n" + scanLength + "\n" + maxResults;
+  const maxResults = Math.max(1, prefNumber("maxEntries", 3));
+  const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
+  const lookupText = request.lookupText;
+  const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
+  const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
+  const key = [
+    dicts.join("|"),
+    language.id,
+    backendMode,
+    clean,
+    pos,
+    lookupText,
+    effectiveScanLength,
+    maxResults,
+    maxGlossaries
+  ].join("\n");
   if (lookupCache[key]) {
-    debugVerbose("lookupAtPosition cache hit pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
+    debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
     return lookupCache[key];
   }
-  debugVerbose("lookupAtPosition cache miss pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, scanLength, maxResults, requestId);
+  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
+  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries);
   result.text = clean;
   result.position = pos;
-  result.suffix = suffix;
+  result.suffix = request.suffix;
   result.lookupText = lookupText;
+  result.lookupStart = request.lookupStart;
+  result.lookupEnd = request.lookupEnd;
+  result.matchStart = request.matchStart;
+  result.language = language.id;
+  result.backendMode = backendMode;
   lookupCache[key] = result;
   return result;
 }
@@ -914,109 +1179,6 @@ function parseLookupPayload(payload) {
   return { requestId: String(++requestSerial), position: 0, text: lastSubtitle || "" };
 }
 
-function lookupPositionsForLine(text, scanLength) {
-  const chars = charsOf(text);
-  const positions = [];
-  const limit = Math.min(chars.length, Math.max(1, prefNumber("maxLineLookupPositions", 64)));
-  for (let i = 0; i < limit; i++) {
-    if (isJapaneseish(chars[i])) positions.push(i);
-  }
-  return positions;
-}
-function scheduleLineLookupPrecompute(text, lineId) {
-  if (lineLookupTimer !== null) {
-    clearTimeout(lineLookupTimer);
-    lineLookupTimer = null;
-  }
-  if (!enabled || !text || !isJapaneseish(text)) {
-    postToOverlay("line-lookup-reset", { lineId });
-    return;
-  }
-  lineLookupTimer = setTimeout(() => {
-    lineLookupTimer = null;
-    precomputeLineLookups(text, lineId).catch(error => {
-      debugLog("line precompute top-level failed lineId=" + lineId + ": " + compactError(error));
-      postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: 0, message: compactError(error) });
-    });
-  }, Math.max(20, prefNumber("lineLookupDelayMs", 120)));
-}
-async function precomputeLineLookups(text, lineId) {
-  const clean = cleanSubtitleText(text);
-  if (!enabled || lineId !== currentSubtitleLineId || !clean || !isJapaneseish(clean)) return;
-  if (linePrecomputeActiveLineId && linePrecomputeActiveLineId === lineId) return;
-  const dicts = activeDictionaryPaths();
-  if (!dicts.length) {
-    debugLog("line precompute skipped: no enabled dictionaries");
-    postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: 0, message: "No enabled dictionaries are installed." });
-    return;
-  }
-  const scanLength = Math.max(1, prefNumber("scanLength", 24));
-  const positions = lookupPositionsForLine(clean, scanLength);
-  if (!positions.length) return;
-  const pending = positions.slice();
-  const pendingSet = Object.create(null);
-  positions.forEach(p => { pendingSet[p] = true; });
-  const processed = Object.create(null);
-  function takeNextPosition() {
-    const pri = priorityLookupPositionsByLine[lineId] || [];
-    while (pri.length) {
-      const p = pri.shift();
-      if (pendingSet[p] && !processed[p]) {
-        const idx = pending.indexOf(p);
-        if (idx >= 0) pending.splice(idx, 1);
-        delete pendingSet[p];
-        return p;
-      }
-    }
-    const p = pending.shift();
-    if (p !== undefined) delete pendingSet[p];
-    return p;
-  }
-
-  debugLog("line precompute start lineId=" + lineId + " len=" + charsOf(clean).length + " positions=" + positions.length);
-  postToOverlay("line-lookup-progress", { lineId, ok: true, done: 0, total: positions.length, message: "Preparing dictionary lookups…" });
-  try {
-    await ensureBackendWorker(dicts);
-  } catch (error) {
-    debugLog("line precompute worker failed lineId=" + lineId + ": " + compactError(error));
-    postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: positions.length, message: "Dictionary lookup is not ready: " + compactError(error) });
-    return;
-  }
-
-  linePrecomputeActiveLineId = lineId;
-  let done = 0;
-  try {
-    while (pending.length || ((priorityLookupPositionsByLine[lineId] || []).length && done < positions.length)) {
-      if (!enabled || lineId !== currentSubtitleLineId) {
-        debugLog("line precompute cancelled lineId=" + lineId + " at done=" + done);
-        return;
-      }
-      const pos = takeNextPosition();
-      if (pos === undefined || processed[pos]) continue;
-      processed[pos] = true;
-      try {
-        const result = await lookupAtPosition(clean, pos, null);
-        done++;
-        postToOverlay("line-lookup-result", { lineId, position: pos, ok: true, result });
-        debugLog("line lookup result lineId=" + lineId + " pos=" + pos + " count=" + (result && result.results ? result.results.length : 0));
-      } catch (error) {
-        done++;
-        const msg = compactError(error);
-        postToOverlay("line-lookup-result", { lineId, position: pos, ok: false, error: msg });
-        debugLog("line lookup failed lineId=" + lineId + " pos=" + pos + ": " + msg);
-      }
-      if (done === positions.length || done % 3 === 0) {
-        postToOverlay("line-lookup-progress", { lineId, ok: true, done, total: positions.length, message: "Prepared " + done + "/" + positions.length + " lookup positions." });
-      }
-      await sleep(Math.max(0, prefNumber("lineLookupYieldMs", 10)));
-    }
-    debugLog("line precompute done lineId=" + lineId + " total=" + positions.length);
-    postToOverlay("line-lookup-progress", { lineId, ok: true, done, total: positions.length, message: "Dictionary lookups ready." });
-  } finally {
-    if (linePrecomputeActiveLineId === lineId) linePrecomputeActiveLineId = 0;
-  }
-}
-
 async function handleLookupAt(payload) {
   try {
     payload = parseLookupPayload(payload);
@@ -1030,6 +1192,7 @@ async function handleLookupAt(payload) {
   const text = payload && typeof payload.text === "string" ? payload.text : (lastSubtitle || "");
   const position = payload && payload.position !== undefined ? Number(payload.position) : 0;
   debugLog("lookup-at received requestId=" + requestId + " pos=" + position + " textLen=" + String(text || "").length + " payloadType=" + typeof payload);
+  postToOverlay("config", overlayConfig());
   postToOverlay("lookup-ack", { requestId, message: "Plugin received hover request." });
   postToOverlay("lookup-status", { requestId, message: "Plugin received hover request." });
   const inflightKey = cleanSubtitleText(text) + "\n" + position;
@@ -1098,6 +1261,7 @@ function handleBridgeLookup(payload) {
 
   // Ack immediately. The overlay uses this to stop retrying the WebSocket lookup
   // request, so pause heartbeats + mouseenter spam cannot flood the lookup queue.
+  postToOverlay("config", overlayConfig());
   postToOverlay("lookup-request-ack", { requestId, lineId, position });
 
   if (!enabled || lineId !== currentSubtitleLineId) {
@@ -1232,7 +1396,6 @@ function resetLookupPopupPause() {
   lookupPopupLastHeartbeatAt = 0;
 }
 
-
 function initializeOverlay() {
   ensureOverlayBridge();
   if (initialized) return;
@@ -1255,15 +1418,30 @@ function initializeOverlay() {
   overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 }
 function startPolling() {
-  debugLog("startPolling subtitlePollMs=" + Math.max(80, prefNumber("subtitlePollMs", 120)));
+  const nextMs = configuredSubtitlePollMs();
+  debugLog("startPolling subtitlePollMs=" + nextMs);
   if (pollTimer !== null) clearInterval(pollTimer);
-  pollTimer = setInterval(pollSubtitle, Math.max(80, prefNumber("subtitlePollMs", 120)));
+  activeSubtitlePollMs = nextMs;
+  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
   pollSubtitle();
+}
+function configuredSubtitlePollMs() {
+  return Math.max(80, prefNumber("subtitlePollMs", 120));
+}
+function refreshPollingInterval() {
+  if (pollTimer === null) return;
+  const nextMs = configuredSubtitlePollMs();
+  if (nextMs === activeSubtitlePollMs) return;
+  debugLog("subtitlePollMs changed " + activeSubtitlePollMs + " -> " + nextMs);
+  clearInterval(pollTimer);
+  activeSubtitlePollMs = nextMs;
+  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
 }
 function stopPolling() {
   debugLog("stopPolling");
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = null;
+  activeSubtitlePollMs = 0;
   lastSubtitle = null;
   lookupInFlight = Object.create(null);
 }
@@ -1278,7 +1456,7 @@ function setEnabled(next) {
   if (enabled) {
     try {
       nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
-      if (prefBool("hideNativeSubtitles", true)) mpv.set("sub-visibility", false);
+      syncNativeSubtitleVisibility();
     } catch (error) { console.warn("Could not update native subtitle visibility: " + compactError(error)); }
     overlay.show();
     startPolling();
@@ -1354,6 +1532,44 @@ function runLookupParserUnitTests() {
   }
   if (failures.length) alert("Lookup parser unit tests failed:\n" + failures.join("\n"));
   else alert("Lookup parser unit tests passed: " + tests.length + "/" + tests.length + ".");
+}
+function runLanguageUnitTests() {
+  const failures = [];
+  function check(ok, message) { if (!ok) failures.push(message); }
+  const ja = languageModuleById("ja");
+  const en = languageModuleById("en");
+  const ko = languageModuleById("ko");
+  check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
+  check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
+  check(en.isHoverableChar("r"), "Latin should be English-hoverable");
+  const englishText = "I am running fast";
+  const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
+  check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
+  check(enReq && enReq.suffix !== "nning", "English should not query partial rightward suffixes");
+  check(enReq && enReq.backendMode === "exact", "English should use exact lookup");
+  const jaReq = ja.lookupRequest("魔法使い", 1, 24);
+  check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
+  const koReq = ko.lookupRequest("한국어 공부", 1, 24);
+  check(koReq && koReq.lookupText === "한국어", "Korean should query the contiguous Hangul run");
+  if (failures.length) alert("Language unit tests failed:\n" + failures.join("\n"));
+  else alert("Language unit tests passed.");
+}
+function runSettingsAuditChecks() {
+  const failures = [];
+  function check(ok, message) { if (!ok) failures.push(message); }
+  const cfg = overlayConfig();
+  check(cfg.language && cfg.language.id, "language config should be present");
+  check(Number.isFinite(Number(cfg.scanLength)) && cfg.scanLength >= 1, "scanLength should be numeric");
+  check(Number.isFinite(Number(cfg.maxEntries)) && cfg.maxEntries >= 1, "maxEntries should be numeric");
+  check(Number.isFinite(Number(cfg.maxGlossesPerEntry)) && cfg.maxGlossesPerEntry >= 1, "maxGlossesPerEntry should be numeric");
+  check(Number.isFinite(Number(cfg.popupMaxHeightVh)) && cfg.popupMaxHeightVh >= 20, "popupMaxHeightVh should be sent to overlay");
+  check(Number.isFinite(Number(cfg.popupSubtitleGapPx)) && cfg.popupSubtitleGapPx >= 12, "popupSubtitleGapPx should be sent to overlay");
+  check(typeof prefBool("directWorkerIpc", true) === "boolean", "directWorkerIpc should be boolean-readable");
+  check(typeof prefBool("fallbackToClientExec", true) === "boolean", "fallbackToClientExec should be boolean-readable");
+  check(Number.isFinite(prefNumber("directIpcPollMs", 2)), "directIpcPollMs should be numeric");
+  check(Number.isFinite(prefNumber("workerIdleSleepMs", 2)), "workerIdleSleepMs should be numeric");
+  if (failures.length) alert("Settings audit checks failed:\n" + failures.join("\n"));
+  else alert("Settings audit checks passed.");
 }
 function testBackendLookup() {
   (async () => {
@@ -1533,6 +1749,8 @@ function rebuildMenu() {
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
+    addSubMenuItemCompat(debugMenu, menu.item("Run Language Unit Tests", () => runLanguageUnitTests()));
+    addSubMenuItemCompat(debugMenu, menu.item("Run Settings Audit Checks", () => runSettingsAuditChecks()));
     addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
     addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
     addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));

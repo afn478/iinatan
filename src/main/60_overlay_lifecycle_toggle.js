@@ -20,15 +20,30 @@ function initializeOverlay() {
   overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 }
 function startPolling() {
-  debugLog("startPolling subtitlePollMs=" + Math.max(80, prefNumber("subtitlePollMs", 120)));
+  const nextMs = configuredSubtitlePollMs();
+  debugLog("startPolling subtitlePollMs=" + nextMs);
   if (pollTimer !== null) clearInterval(pollTimer);
-  pollTimer = setInterval(pollSubtitle, Math.max(80, prefNumber("subtitlePollMs", 120)));
+  activeSubtitlePollMs = nextMs;
+  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
   pollSubtitle();
+}
+function configuredSubtitlePollMs() {
+  return Math.max(80, prefNumber("subtitlePollMs", 120));
+}
+function refreshPollingInterval() {
+  if (pollTimer === null) return;
+  const nextMs = configuredSubtitlePollMs();
+  if (nextMs === activeSubtitlePollMs) return;
+  debugLog("subtitlePollMs changed " + activeSubtitlePollMs + " -> " + nextMs);
+  clearInterval(pollTimer);
+  activeSubtitlePollMs = nextMs;
+  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
 }
 function stopPolling() {
   debugLog("stopPolling");
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = null;
+  activeSubtitlePollMs = 0;
   lastSubtitle = null;
   lookupInFlight = Object.create(null);
 }
@@ -43,7 +58,7 @@ function setEnabled(next) {
   if (enabled) {
     try {
       nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
-      if (prefBool("hideNativeSubtitles", true)) mpv.set("sub-visibility", false);
+      syncNativeSubtitleVisibility();
     } catch (error) { console.warn("Could not update native subtitle visibility: " + compactError(error)); }
     overlay.show();
     startPolling();

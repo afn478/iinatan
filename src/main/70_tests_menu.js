@@ -25,6 +25,44 @@ function runLookupParserUnitTests() {
   if (failures.length) alert("Lookup parser unit tests failed:\n" + failures.join("\n"));
   else alert("Lookup parser unit tests passed: " + tests.length + "/" + tests.length + ".");
 }
+function runLanguageUnitTests() {
+  const failures = [];
+  function check(ok, message) { if (!ok) failures.push(message); }
+  const ja = languageModuleById("ja");
+  const en = languageModuleById("en");
+  const ko = languageModuleById("ko");
+  check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
+  check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
+  check(en.isHoverableChar("r"), "Latin should be English-hoverable");
+  const englishText = "I am running fast";
+  const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
+  check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
+  check(enReq && enReq.suffix !== "nning", "English should not query partial rightward suffixes");
+  check(enReq && enReq.backendMode === "exact", "English should use exact lookup");
+  const jaReq = ja.lookupRequest("魔法使い", 1, 24);
+  check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
+  const koReq = ko.lookupRequest("한국어 공부", 1, 24);
+  check(koReq && koReq.lookupText === "한국어", "Korean should query the contiguous Hangul run");
+  if (failures.length) alert("Language unit tests failed:\n" + failures.join("\n"));
+  else alert("Language unit tests passed.");
+}
+function runSettingsAuditChecks() {
+  const failures = [];
+  function check(ok, message) { if (!ok) failures.push(message); }
+  const cfg = overlayConfig();
+  check(cfg.language && cfg.language.id, "language config should be present");
+  check(Number.isFinite(Number(cfg.scanLength)) && cfg.scanLength >= 1, "scanLength should be numeric");
+  check(Number.isFinite(Number(cfg.maxEntries)) && cfg.maxEntries >= 1, "maxEntries should be numeric");
+  check(Number.isFinite(Number(cfg.maxGlossesPerEntry)) && cfg.maxGlossesPerEntry >= 1, "maxGlossesPerEntry should be numeric");
+  check(Number.isFinite(Number(cfg.popupMaxHeightVh)) && cfg.popupMaxHeightVh >= 20, "popupMaxHeightVh should be sent to overlay");
+  check(Number.isFinite(Number(cfg.popupSubtitleGapPx)) && cfg.popupSubtitleGapPx >= 12, "popupSubtitleGapPx should be sent to overlay");
+  check(typeof prefBool("directWorkerIpc", true) === "boolean", "directWorkerIpc should be boolean-readable");
+  check(typeof prefBool("fallbackToClientExec", true) === "boolean", "fallbackToClientExec should be boolean-readable");
+  check(Number.isFinite(prefNumber("directIpcPollMs", 2)), "directIpcPollMs should be numeric");
+  check(Number.isFinite(prefNumber("workerIdleSleepMs", 2)), "workerIdleSleepMs should be numeric");
+  if (failures.length) alert("Settings audit checks failed:\n" + failures.join("\n"));
+  else alert("Settings audit checks passed.");
+}
 function testBackendLookup() {
   (async () => {
     try {
@@ -203,6 +241,8 @@ function rebuildMenu() {
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
+    addSubMenuItemCompat(debugMenu, menu.item("Run Language Unit Tests", () => runLanguageUnitTests()));
+    addSubMenuItemCompat(debugMenu, menu.item("Run Settings Audit Checks", () => runSettingsAuditChecks()));
     addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
     addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
     addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));

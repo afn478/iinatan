@@ -1,0 +1,32 @@
+# Settings Audit
+
+This audit covers every key in `Info.json` `preferenceDefaults`, its preference UI, runtime read path, verified behavior, and caveats.
+
+| Setting | Default | UI control | Implementation | Verified behavior / caveat |
+| --- | ---: | --- | --- | --- |
+| `enabledByDefault` | `true` | Playback checkbox | `src/main/99_bootstrap.js` | Enables iinatan when a window loads. Changing it affects newly opened windows or the next plugin startup. |
+| `hideNativeSubtitles` | `true` | Playback checkbox | `src/main/60_overlay_lifecycle_toggle.js`, `src/main/10_subtitle_text_style.js` | While iinatan is enabled, native subtitles are hidden or restored according to the live preference during subtitle polling. |
+| `lookupLanguage` | `ja` | Language select | `src/languages/registry.js`, `src/main/10_subtitle_text_style.js`, `src/main/30_backend_import_worker_lookup.js`, `src/overlay/overlay.js` | Japanese is default. English and Korean are experimental exact/no-deinflection paths. Applied on next overlay config push, subtitle update, or hover lookup. |
+| `fontScale` | `1.0` | Appearance number `0.5..2.0` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Scales the rendered subtitle overlay. Applied on config push. |
+| `popupScale` | `0.92` | Appearance number `0.6..1.4` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Scales dictionary popup. Applied on config push and popup placement. |
+| `popupMaxWidth` | `440` | Appearance number `260..900` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Sets popup CSS max width. Applied on config push. |
+| `maxEntries` | `3` | Popup number `1..12` | `src/main/10_subtitle_text_style.js`, `src/main/30_backend_import_worker_lookup.js`, `src/native/iina_hoshi.cpp`, `src/overlay/overlay.js` | Limits backend results and rendered entries. Cache key includes this value, so changed values produce fresh lookups. |
+| `maxGlossesPerEntry` | `4` | Popup number `1..20` | `src/main/10_subtitle_text_style.js`, `src/main/30_backend_import_worker_lookup.js`, `src/native/iina_hoshi.cpp`, `src/overlay/overlay.js` | Limits native glossary payload and overlay rendering. Cache key includes this value. |
+| `scanLength` | `24` | Popup number `1..80` | `src/languages/japanese.js`, `src/main/30_backend_import_worker_lookup.js`, `src/native/iina_hoshi.cpp`, `src/overlay/overlay.js` | Japanese scans bounded right-context. Exact languages ignore rightward suffix behavior and use the whole hovered word/run. |
+| `hoverRequestTimeoutMs` | `15000` | Advanced number `1500..60000` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Controls overlay-side hover timeout. Applied on config push or next hover. |
+| `backendTimeoutMs` | `30000` | Advanced number `5000..120000` | `src/main/30_backend_import_worker_lookup.js` | Controls backend process/worker startup waits. Applied per backend operation. |
+| `importTimeoutMs` | `1800000` | Dictionary number `30000..7200000` | `src/main/30_backend_import_worker_lookup.js` | Controls dictionary import timeout. Applied on next import. |
+| `lowRamImport` | `true` | Dictionary checkbox | `src/main/30_backend_import_worker_lookup.js` | Selects `--low-ram` vs `--normal-ram` for the native importer. Applied on next import. |
+| `subtitlePollMs` | `120` | Appearance number `80..1000` | `src/main/60_overlay_lifecycle_toggle.js` | Controls subtitle polling. While enabled, the interval refreshes when the next poll observes a changed value. |
+| `popupMaxHeightVh` | `34` | Appearance number `20..60` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Caps popup height as a percent of window height and also respects subtitle-safe space. Applied on config push and popup placement. |
+| `popupSubtitleGapPx` | `34` | Appearance number `12..96` | `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Keeps popup away from subtitle band by this gap. Applied on config push and popup placement. |
+| `pauseWhilePopupVisible` | `true` | Playback checkbox | `src/main/50_overlay_bridge_pause.js` | Pauses playback when popup visibility events arrive. Does not auto-resume by design. Applied live on each visibility event. |
+| `lookupTimeoutMs` | `9000` | Popup number `1500..30000` | `src/main/30_backend_import_worker_lookup.js`, `src/overlay/overlay.js` | Controls direct-worker lookup timeout and client fallback timeout. Applied per lookup. |
+| `debugLogEnabled` | `true` | Diagnostics checkbox | `src/main/00_context_state_paths.js`, `src/main/10_subtitle_text_style.js` | Enables main diagnostic log writes and IINA log output. Applied live at each log call. |
+| `debugLogVerbose` | `false` | Diagnostics checkbox | `src/main/00_context_state_paths.js`, `src/main/10_subtitle_text_style.js`, `src/overlay/overlay.js` | Enables verbose main/overlay diagnostics. Applied live for main logs and on overlay config push for overlay logs. |
+| `directWorkerIpc` | `true` | Advanced checkbox | `src/main/30_backend_import_worker_lookup.js` | Uses filesystem request/response files against the persistent worker. Applied per lookup. |
+| `fallbackToClientExec` | `true` | Advanced checkbox | `src/main/30_backend_import_worker_lookup.js` | If direct IPC fails, invokes the backend client command. Applied per lookup. |
+| `directIpcPollMs` | `2` | Advanced number `1..100` | `src/main/30_backend_import_worker_lookup.js` | Sleep interval while JavaScript waits for direct worker response files. Applied inside each lookup loop. |
+| `workerIdleSleepMs` | `2` | Advanced number `1..100` | `src/main/30_backend_import_worker_lookup.js`, `src/native/iina_hoshi.cpp` | Sleep interval for the native worker when idle. Applied the next time the worker starts. |
+
+Removed historical settings: `workerPollMs`, `lineLookupDelayMs`, `lineLookupYieldMs`, and `maxLineLookupPositions`. The current lookup architecture performs serialized hover lookup instead of full-line precompute, so those keys no longer had a live behavior to audit.

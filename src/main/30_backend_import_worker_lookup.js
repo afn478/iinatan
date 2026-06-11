@@ -156,6 +156,7 @@ async function writeWorkerStartScript() {
   const script = String.raw`#!/usr/bin/env bash
 set -eu
 DATA_ROOT="$1"
+SLEEP_MS="${"$"}{2:-2}"
 WORKER_ROOT="$DATA_ROOT/worker"
 BIN="$DATA_ROOT/bin/iina-hoshi-dicts"
 CONFIG="$WORKER_ROOT/config.tsv"
@@ -175,7 +176,7 @@ if [ -z "${"$"}{HOME:-}" ]; then
     mkdir -p "$HOME"
   fi
 fi
-nohup "$BIN" worker "$WORKER_ROOT" > "$LOG" 2>&1 < /dev/null &
+nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" > "$LOG" 2>&1 < /dev/null &
 echo $! > "$PID"
 `;
   file.write(workerStartScriptPath(), script);
@@ -205,7 +206,8 @@ async function startBackendWorkerProcess(dicts) {
   const fingerprint = workerFingerprint(dicts);
   writeWorkerConfig(dicts, fingerprint);
   await writeWorkerStartScript();
-  const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot()], dataRoot());
+  const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
+  const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot(), String(sleepMs)], dataRoot());
   if (!res || res.status !== 0) throw new Error("Could not start dictionary lookup: " + ((res && (res.stderr || res.stdout)) || "unknown error"));
 }
 function readWorkerReady() {
@@ -253,7 +255,7 @@ async function clearPendingWorkerRequests() { await clearDirFiles(workerQueueDir
 function makeJsWorkerRequestId() {
   return "j" + String(Date.now()) + "-" + String(++requestSerial) + "-" + String(Math.floor(Math.random() * 1000000));
 }
-async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs) {
+async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries) {
   const ensureStartedAt = Date.now();
   await ensureBackendWorker(dicts);
   const ensureElapsedMs = Date.now() - ensureStartedAt;
@@ -265,7 +267,9 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
     requestId: id,
     text: String(suffix || ""),
     scanLength: Math.max(1, Number(scanLength) || 24),
-    maxResults: Math.max(1, Number(maxResults) || 1)
+    maxResults: Math.max(1, Number(maxResults) || 1),
+    maxGlossaries: Math.max(1, Number(maxGlossaries) || 4),
+    mode: String(backendMode || "yomitan-japanese")
   };
   const startedAt = Date.now();
   debugVerbose("direct worker lookup write requestId=" + String(requestId || "") + " workerRequestId=" + id + " ensureMs=" + ensureElapsedMs + " text=" + JSON.stringify(String(suffix || "").slice(0, 80)));
@@ -290,12 +294,14 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
   safeDelete(req);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
 }
-async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout) {
+async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries) {
   await ensureBackendWorker(dicts);
   const clientArgs = [
     "client", workerRoot(),
     "--max-results", String(maxResults),
+    "--max-glossaries", String(maxGlossaries),
     "--scan-length", String(scanLength),
+    "--mode", String(backendMode || "yomitan-japanese"),
     "--timeout-ms", String(timeout),
     "--", suffix
   ];
@@ -304,14 +310,14 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
-async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId) {
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " directIpc=" + String(prefBool("directWorkerIpc", true)));
+async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries) {
+  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
-      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout);
+      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
       if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
@@ -321,39 +327,55 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId)
   }
 
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
-  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout);
+  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }
 async function lookupAtPosition(text, position, requestId) {
-  const clean = cleanSubtitleText(text);
+  const language = selectedLanguageModule();
+  const clean = language.normalizeText(cleanSubtitleText(text));
   const chars = charsOf(clean);
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
-  const suffix = chars.slice(pos).join("");
-  if (!suffix || !isJapaneseish(suffix[0])) return { ok: true, text: clean, position: pos, suffix, results: [] };
+  const scanLength = Math.max(1, prefNumber("scanLength", 24));
+  const request = language.lookupRequest(clean, pos, scanLength);
+  if (!request || !request.lookupText) {
+    const suffix = chars.slice(pos).join("");
+    return { ok: true, text: clean, position: pos, suffix, language: language.id, results: [] };
+  }
   const dicts = activeDictionaryPaths();
   if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
-  const scanLength = Math.max(1, prefNumber("scanLength", 24));
-  // Keep native stdout small enough for IINA's utils.exec bridge. The popup
-  // is driven by the top parsed expression anyway; additional native results
-  // can make large Jitendex entries exceed stdout bridge limits.
-  const maxResults = 1;
-  // HoshiDicts only needs the text immediately to the right of the cursor.
-  // Passing the whole subtitle line is wasteful and can create pathological
-  // lookup work with long subtitle lines. Keep a bounded right-context.
-  const lookupText = chars.slice(pos, pos + Math.min(chars.length - pos, scanLength)).join("");
-  const key = dicts.join("|") + "\n" + lookupText + "\n" + scanLength + "\n" + maxResults;
+  const maxResults = Math.max(1, prefNumber("maxEntries", 3));
+  const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
+  const lookupText = request.lookupText;
+  const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
+  const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
+  const key = [
+    dicts.join("|"),
+    language.id,
+    backendMode,
+    clean,
+    pos,
+    lookupText,
+    effectiveScanLength,
+    maxResults,
+    maxGlossaries
+  ].join("\n");
   if (lookupCache[key]) {
-    debugVerbose("lookupAtPosition cache hit pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
+    debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
     return lookupCache[key];
   }
-  debugVerbose("lookupAtPosition cache miss pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, scanLength, maxResults, requestId);
+  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
+  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries);
   result.text = clean;
   result.position = pos;
-  result.suffix = suffix;
+  result.suffix = request.suffix;
   result.lookupText = lookupText;
+  result.lookupStart = request.lookupStart;
+  result.lookupEnd = request.lookupEnd;
+  result.matchStart = request.matchStart;
+  result.language = language.id;
+  result.backendMode = backendMode;
   lookupCache[key] = result;
   return result;
 }

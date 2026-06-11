@@ -16,6 +16,7 @@ const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.
 let enabled = false;
 let initialized = false;
 let pollTimer = null;
+let activeSubtitlePollMs = 0;
 let lastSubtitle = null;
 let nativeSubVisibilityBeforeEnable = null;
 let requestSerial = 0;
@@ -26,9 +27,6 @@ let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
-let lineLookupTimer = null;
-let linePrecomputeActiveLineId = 0;
-let priorityLookupPositionsByLine = Object.create(null);
 let hoverLookupInFlight = false;
 let pendingHoverLookup = null;
 let hoverLookupSequence = 0;
@@ -76,7 +74,7 @@ function logEnabled() {
   try { return prefBool("debugLogEnabled", true); } catch (_) { return true; }
 }
 function verboseLogEnabled() {
-  try { return prefBool("debugLogVerbose", true); } catch (_) { return true; }
+  try { return prefBool("debugLogVerbose", false); } catch (_) { return false; }
 }
 function formatDebugMessage(message, level) {
   return "[iinatan " + VERSION + "]" + (level ? "[" + level + "] " : " ") + String(message || "");

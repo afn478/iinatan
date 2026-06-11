@@ -52,6 +52,7 @@ function handleBridgeLookup(payload) {
 
   // Ack immediately. The overlay uses this to stop retrying the WebSocket lookup
   // request, so pause heartbeats + mouseenter spam cannot flood the lookup queue.
+  postToOverlay("config", overlayConfig());
   postToOverlay("lookup-request-ack", { requestId, lineId, position });
 
   if (!enabled || lineId !== currentSubtitleLineId) {
@@ -185,4 +186,3 @@ function resetLookupPopupPause() {
   lookupPopupPauseShouldResume = false;
   lookupPopupLastHeartbeatAt = 0;
 }
-

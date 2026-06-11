@@ -14,12 +14,14 @@
 #include <thread>
 #include <vector>
 
+#include <utf8.h>
+
 #include "hoshidicts/deinflector.hpp"
 #include "hoshidicts/importer.hpp"
 #include "hoshidicts/lookup.hpp"
 #include "hoshidicts/query.hpp"
 
-static constexpr const char* WRAPPER_VERSION = "1.5.6";
+static constexpr const char* WRAPPER_VERSION = "1.6.0";
 namespace fs = std::filesystem;
 
 static std::string json_escape(const std::string& s) {
@@ -94,7 +96,7 @@ static std::string compact_glossary(const std::string& s) {
   if (start != std::string::npos && (trimmed[start] == '[' || trimmed[start] == '{')) return s;
   return utf8_prefix(s, 2000);
 }
-static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_string, int max_results, int scan_length) {
+static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_string, int max_results, int scan_length, int max_glossaries) {
   auto results = lookup.lookup(lookup_string, max_results, static_cast<size_t>(std::max(1, scan_length)));
   std::ostringstream out;
   out << "{\"ok\":true,\"lookupString\":" << json_quote(lookup_string)
@@ -117,9 +119,42 @@ static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_stri
         << ",\"reading\":" << json_quote(r.term.reading)
         << ",\"rules\":" << json_quote(r.term.rules)
         << ",\"glossaries\":[";
-    size_t glossary_limit = std::min<size_t>(r.term.glossaries.size(), 4);
+    size_t glossary_limit = std::min<size_t>(r.term.glossaries.size(), static_cast<size_t>(std::max(1, max_glossaries)));
     for (size_t g = 0; g < glossary_limit; ++g) {
       const auto& gl = r.term.glossaries[g];
+      if (g) out << ",";
+      out << "{\"dict\":" << json_quote(gl.dict_name)
+          << ",\"glossary\":" << json_quote(compact_glossary(gl.glossary))
+          << ",\"definitionTags\":" << json_quote(gl.definition_tags)
+          << ",\"termTags\":" << json_quote(gl.term_tags) << "}";
+    }
+    out << "]}}";
+  }
+  out << "]}\n";
+  return out.str();
+}
+static std::string exact_lookup_to_json(DictionaryQuery& query, const std::string& lookup_string, int max_results, int max_glossaries) {
+  auto terms = query.query(lookup_string);
+  if (terms.size() > static_cast<size_t>(max_results)) terms.resize(static_cast<size_t>(std::max(1, max_results)));
+  std::ostringstream out;
+  out << "{\"ok\":true,\"lookupString\":" << json_quote(lookup_string)
+      << ",\"scanLength\":" << utf8::distance(lookup_string.begin(), lookup_string.end())
+      << ",\"mode\":\"exact\""
+      << ",\"resultCount\":" << terms.size()
+      << ",\"results\":[";
+  for (size_t i = 0; i < terms.size(); ++i) {
+    const auto& term = terms[i];
+    if (i) out << ",";
+    out << "{\"matched\":" << json_quote(lookup_string)
+        << ",\"deinflected\":" << json_quote(lookup_string)
+        << ",\"preprocessorSteps\":0"
+        << ",\"trace\":[],\"term\":{\"expression\":" << json_quote(term.expression)
+        << ",\"reading\":" << json_quote(term.reading)
+        << ",\"rules\":" << json_quote(term.rules)
+        << ",\"glossaries\":[";
+    size_t glossary_limit = std::min<size_t>(term.glossaries.size(), static_cast<size_t>(std::max(1, max_glossaries)));
+    for (size_t g = 0; g < glossary_limit; ++g) {
+      const auto& gl = term.glossaries[g];
       if (g) out << ",";
       out << "{\"dict\":" << json_quote(gl.dict_name)
           << ",\"glossary\":" << json_quote(compact_glossary(gl.glossary))
@@ -195,28 +230,34 @@ static void cmd_import(int argc, char** argv) {
   std::cout << "}\n";
   if (!r.success) std::exit(1);
 }
-static std::vector<std::string> parse_lookup_args(int argc, char** argv, std::string& lookup_string, int& max_results, int& scan_length) {
+static std::vector<std::string> parse_lookup_args(int argc, char** argv, std::string& lookup_string, int& max_results, int& scan_length, int& max_glossaries, std::string& mode) {
   std::vector<std::string> dict_paths;
-  max_results = 8; scan_length = 24;
+  max_results = 8; scan_length = 24; max_glossaries = 4; mode = "yomitan-japanese";
   for (int i = 2; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--max-results" && i + 1 < argc) max_results = std::max(1, to_int(argv[++i], max_results));
     else if (arg == "--scan-length" && i + 1 < argc) scan_length = std::max(1, to_int(argv[++i], scan_length));
+    else if (arg == "--max-glossaries" && i + 1 < argc) max_glossaries = std::max(1, to_int(argv[++i], max_glossaries));
+    else if (arg == "--mode" && i + 1 < argc) mode = argv[++i];
     else if (arg == "--" && i + 1 < argc) { lookup_string = argv[++i]; break; }
     else dict_paths.push_back(arg);
   }
   return dict_paths;
 }
 static void cmd_lookup(int argc, char** argv) {
-  std::string lookup_string; int max_results = 8; int scan_length = 24;
-  auto dict_paths = parse_lookup_args(argc, argv, lookup_string, max_results, scan_length);
+  std::string lookup_string; int max_results = 8; int scan_length = 24; int max_glossaries = 4; std::string mode;
+  auto dict_paths = parse_lookup_args(argc, argv, lookup_string, max_results, scan_length, max_glossaries, mode);
   if (dict_paths.empty()) { print_error("no dictionary paths supplied"); std::exit(2); }
   if (lookup_string.empty()) { print_error("no lookup string supplied"); std::exit(2); }
   DictionaryQuery dict_query;
   for (const auto& p : dict_paths) dict_query.add_term_dict(p);
+  if (mode == "exact") {
+    std::cout << exact_lookup_to_json(dict_query, lookup_string, max_results, max_glossaries);
+    return;
+  }
   Deinflector deinflector;
   Lookup lookup(dict_query, deinflector);
-  std::cout << lookup_to_json(lookup, lookup_string, max_results, scan_length);
+  std::cout << lookup_to_json(lookup, lookup_string, max_results, scan_length, max_glossaries);
 }
 struct WorkerConfig { std::string fingerprint; std::vector<std::string> dicts; };
 static WorkerConfig read_worker_config(const fs::path& config_path) {
@@ -272,11 +313,16 @@ static void cmd_worker(int argc, char** argv) {
         if (!provided_id.empty()) request_id = provided_id;
         resp = responses / (request_id + ".json");
         std::string text = json_get_string(body, "text");
+        std::string mode = json_get_string(body, "mode");
+        if (mode.empty()) mode = "yomitan-japanese";
         int max_results = std::max(1, json_get_int(body, "maxResults", 8));
+        int max_glossaries = std::max(1, json_get_int(body, "maxGlossaries", 4));
         int scan_length = std::max(1, json_get_int(body, "scanLength", 24));
         if (text.empty()) throw std::runtime_error("lookup request did not include text");
-        std::cerr << "lookup request " << request_id << " text_bytes=" << text.size() << " scan=" << scan_length << " max=" << max_results << "\n";
-        std::string out = lookup_to_json(lookup, text, max_results, scan_length);
+        std::cerr << "lookup request " << request_id << " text_bytes=" << text.size() << " scan=" << scan_length << " max=" << max_results << " glossaries=" << max_glossaries << " mode=" << mode << "\n";
+        std::string out = (mode == "exact")
+            ? exact_lookup_to_json(dict_query, text, max_results, max_glossaries)
+            : lookup_to_json(lookup, text, max_results, scan_length, max_glossaries);
         write_file_atomic(resp, out);
         std::cerr << "lookup response " << request_id << " bytes=" << out.size() << "\n";
       } catch (const std::exception& e) {
@@ -298,16 +344,20 @@ static std::string make_request_id() {
   return std::string("c") + std::to_string(wall) + "-" + std::to_string(static_cast<unsigned long long>(tid));
 }
 static void cmd_client(int argc, char** argv) {
-  if (argc < 4) { print_error("usage: client <worker_dir> [--max-results n] [--scan-length n] [--timeout-ms n] -- <lookup_string>"); std::exit(2); }
+  if (argc < 4) { print_error("usage: client <worker_dir> [--max-results n] [--max-glossaries n] [--scan-length n] [--mode mode] [--timeout-ms n] -- <lookup_string>"); std::exit(2); }
   fs::path root = argv[2];
   int max_results = 8;
   int scan_length = 24;
+  int max_glossaries = 4;
   int timeout_ms = 30000;
+  std::string mode = "yomitan-japanese";
   std::string lookup_string;
   for (int i = 3; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--max-results" && i + 1 < argc) max_results = std::max(1, to_int(argv[++i], max_results));
     else if (arg == "--scan-length" && i + 1 < argc) scan_length = std::max(1, to_int(argv[++i], scan_length));
+    else if (arg == "--max-glossaries" && i + 1 < argc) max_glossaries = std::max(1, to_int(argv[++i], max_glossaries));
+    else if (arg == "--mode" && i + 1 < argc) mode = argv[++i];
     else if (arg == "--timeout-ms" && i + 1 < argc) timeout_ms = std::max(1000, to_int(argv[++i], timeout_ms));
     else if (arg == "--" && i + 1 < argc) { lookup_string = argv[++i]; break; }
   }
@@ -328,7 +378,9 @@ static void cmd_client(int argc, char** argv) {
   payload << "{\"requestId\":" << json_quote(request_id)
           << ",\"text\":" << json_quote(lookup_string)
           << ",\"scanLength\":" << scan_length
-          << ",\"maxResults\":" << max_results << "}\n";
+          << ",\"maxResults\":" << max_results
+          << ",\"maxGlossaries\":" << max_glossaries
+          << ",\"mode\":" << json_quote(mode) << "}\n";
   write_file_atomic(req, payload.str());
   const long long deadline = now_millis() + timeout_ms;
   std::error_code ec;
@@ -350,7 +402,7 @@ static void cmd_client(int argc, char** argv) {
 }
 
 static void cmd_version() {
-  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false}\n";
+  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"modes\":[\"yomitan-japanese\",\"exact\"]}\n";
 }
 int main(int argc, char** argv) {
   try {

@@ -1,7 +1,10 @@
 .DS_Store
 *.iinaplgz
 dist/
-bin/
+bin/*
+!bin/
+!bin/iina-hoshi-dicts
 build/
 __pycache__/
 *.pyc
+GOAL.md

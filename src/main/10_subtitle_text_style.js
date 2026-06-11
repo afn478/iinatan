@@ -22,7 +22,7 @@ function cleanSubtitleText(text) {
     .replace(/[ \t\f\v]{2,}/g, " ")
     .trim();
 }
-function isJapaneseish(text) { return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(text || ""); }
+function isJapaneseish(text) { return languageModuleById("ja").hasLookupText(text); }
 function mpvStringProp(names, fallback) {
   for (const name of names) {
     try {
@@ -125,10 +125,15 @@ function readSubtitleStyleConfig() {
   };
 }
 function overlayConfig() {
+  const language = selectedLanguageModule();
   return {
+    language: selectedLanguageOverlayConfig(),
+    lookupLanguage: language.id,
     fontScale: prefNumber("fontScale", 1.0),
     popupScale: prefNumber("popupScale", 0.92),
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
+    popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
+    popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
     ...readSubtitleStyleConfig(),
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
@@ -147,20 +152,32 @@ function readCurrentSubtitle() {
 function publishSubtitle(text) {
   const normalized = text || "";
   currentSubtitleLineId = ++subtitleLineSerial;
-  priorityLookupPositionsByLine = Object.create(null);
   debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  if (normalized && isJapaneseish(normalized) && activeDictionaryPaths().length) {
+  const language = selectedLanguageModule();
+  if (normalized && language.hasLookupText(normalized) && activeDictionaryPaths().length) {
     ensureBackendWorker(activeDictionaryPaths()).catch(error => {
       debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
     });
   }
 }
+function syncNativeSubtitleVisibility() {
+  if (!enabled) return;
+  try {
+    if (prefBool("hideNativeSubtitles", true)) {
+      mpv.set("sub-visibility", false);
+    } else if (nativeSubVisibilityBeforeEnable !== null) {
+      mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
+    }
+  } catch (error) { console.warn("Could not update native subtitle visibility: " + compactError(error)); }
+}
 function pollSubtitle() {
   if (!enabled) return;
+  refreshPollingInterval();
+  syncNativeSubtitleVisibility();
   const sub = readCurrentSubtitle();
   if (sub === lastSubtitle) return;
   lastSubtitle = sub;

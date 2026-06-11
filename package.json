@@ -4,7 +4,14 @@
   "private": true,
   "description": "Hover Japanese subtitles to see dictionary popups in IINA",
   "scripts": {
+    "build": "python3 scripts/build_plugin.py",
+    "package": "python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz",
+    "validate": "python3 scripts/build_plugin.py --validate",
+    "validate:release": "python3 scripts/build_plugin.py --validate --require-backend",
+    "test": "node tests/languages.test.js && node tests/check_generated_syntax.js && python3 scripts/build_plugin.py --validate",
     "pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
-    "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link ."
+    "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link .",
+    "iina:pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
+    "iina:link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link ."
   }
 }
