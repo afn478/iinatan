@@ -30,16 +30,24 @@ function runLanguageUnitTests() {
   function check(ok, message) { if (!ok) failures.push(message); }
   const ja = languageModuleById("ja");
   const en = languageModuleById("en");
+  const fr = languageModuleById("fr");
+  const de = languageModuleById("de");
   const ko = languageModuleById("ko");
   check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
   check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
   check(en.isHoverableChar("r"), "Latin should be English-hoverable");
   check(ja.lookupMode === "yomitan-japanese", "Japanese should declare Yomitan/HoshiDicts mode");
   check(en.lookupMode === "exact", "English should declare exact lookup mode");
+  check(fr.lookupMode === "exact", "French should declare exact lookup mode");
+  check(de.lookupMode === "exact", "German should declare exact lookup mode");
   check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
   check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
+  check(typeof fr.dictionaryMatches === "function", "French should expose dictionary compatibility checks");
+  check(typeof de.dictionaryMatches === "function", "German should expose dictionary compatibility checks");
   check(ja.lookupUnit === "character", "Japanese should use character lookup units");
   check(en.lookupUnit === "word", "English should use word lookup units");
+  check(fr.lookupUnit === "word", "French should use word lookup units");
+  check(de.lookupUnit === "word", "German should use word lookup units");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
@@ -48,6 +56,10 @@ function runLanguageUnitTests() {
   check(enReq && enReq.cacheStrategy === "word-span", "English should use word-span cache semantics");
   check(en.lookupRequest("RUNNING", 1, 24).lookupText === "running", "English should lowercase lookup text");
   check(en.lookupRequest("Don't", 1, 24).lookupText === "don't", "English should preserve apostrophes while lowercasing");
+  const frReq = fr.lookupRequest("L’Homme", 2, 24);
+  check(frReq && frReq.candidates.some(c => c.text === "homme"), "French should generate elision-tail candidates");
+  const deReq = de.lookupRequest("Ich stehe morgen früh auf.", 5, 24);
+  check(deReq && deReq.candidates.some(c => c.text === "aufstehen"), "German should generate split-verb candidates");
   const jaReq = ja.lookupRequest("魔法使い", 1, 24);
   check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
   check(jaReq && jaReq.cacheStrategy === "exact-position", "Japanese should keep exact-position cache semantics");

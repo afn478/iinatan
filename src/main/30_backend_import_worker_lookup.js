@@ -490,14 +490,17 @@ async function lookupAtPosition(text, position, requestId) {
   if (setupMessage) throw new Error(setupMessage);
   const maxResults = Math.max(1, prefNumber("maxEntries", 3));
   const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
-  const lookupText = request.lookupText;
+  const candidates = Array.isArray(request.candidates) && request.candidates.length
+    ? request.candidates.filter(c => c && c.text).map(c => Object.assign({}, c, { text: String(c.text || "") }))
+    : [{ text: request.lookupText, source: "lookupText", reason: "single lookup text", language: language.id, displayText: request.displayText }];
+  const lookupText = candidates[0] && candidates[0].text;
   const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
   const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
   const languageCacheKey = request.cacheKey || [
     request.cacheStrategy || "",
     request.lookupStart,
     request.lookupEnd,
-    lookupText
+    candidates.map(c => c.text).join("|")
   ].join(":");
   const key = [
     dicts.join("|"),
@@ -513,12 +516,30 @@ async function lookupAtPosition(text, position, requestId) {
     debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
     return lookupCache[key];
   }
-  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " candidates=" + JSON.stringify(candidates.map(c => ({ text: c.text, source: c.source, reason: c.reason })).slice(0, 24)));
+  let result = null;
+  let candidateUsed = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
+    debugVerbose("lookupAtPosition candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text) + " source=" + String(candidate.source || "") + " reason=" + String(candidate.reason || ""));
+    const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+    if (!result) result = candidateResult;
+    if (candidateResult && candidateResult.results && candidateResult.results.length) {
+      result = candidateResult;
+      candidateUsed = candidate;
+      debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " resultCount=" + candidateResult.results.length);
+      break;
+    }
+  }
+  if (!result) result = { ok: true, results: [] };
+  if (!candidateUsed) debugVerbose("lookupAtPosition no candidate matched language=" + language.id + " candidates=" + candidates.map(c => c.text).join(", "));
   result.text = clean;
   result.position = pos;
   result.suffix = request.suffix;
-  result.lookupText = lookupText;
+  result.lookupText = candidateUsed ? candidateUsed.text : lookupText;
+  result.lookupCandidates = candidates;
+  result.candidateUsed = candidateUsed;
   result.lookupStart = request.lookupStart;
   result.lookupEnd = request.lookupEnd;
   result.matchStart = request.matchStart;

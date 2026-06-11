@@ -2,6 +2,8 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
   const languages = [
     IINATAN_JAPANESE_LANGUAGE,
     IINATAN_ENGLISH_LANGUAGE,
+    IINATAN_FRENCH_LANGUAGE,
+    IINATAN_GERMAN_LANGUAGE,
     IINATAN_KOREAN_LANGUAGE
   ];
   const byId = Object.create(null);

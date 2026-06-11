@@ -1,6 +1,6 @@
 # iinatan
 
-iinatan is an IINA plugin that shows dictionary popups when you hover subtitle text. Japanese is the supported default path and uses a bundled HoshiDicts/Yomitan-compatible lookup engine; English and Korean are experimental exact-match paths for compatible dictionaries.
+iinatan is an IINA plugin that shows dictionary popups when you hover subtitle text. Japanese is the supported default path and uses a bundled HoshiDicts/Yomitan-compatible lookup engine; English, French, German, and Korean are experimental paths for compatible dictionaries.
 
 ## Install From GitHub
 
@@ -28,7 +28,9 @@ You can also use **Import Yomitan Dictionary ZIP...** for local Yomitan-compatib
 
 If the file picker is unavailable in your IINA build, use **Reveal Manual Import Folder**, place one Yomitan `.zip` in that folder, then choose **Import ZIP from Manual Import Folder**. That fallback imports the local ZIP directly and does not require the recommended dictionary flow.
 
-Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection. English lookup lowercases the queried word before exact lookup, so hovering `Running` queries `running`. Experimental English/Korean modes treat whole words/runs as one hover unit and only enable dictionaries that look compatible with the selected language; if none are installed or enabled, iinatan keeps native subtitles visible and shows a language-specific setup message instead of starting a broken lookup worker.
+Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English lowercases the queried word before exact lookup, so hovering `Running` queries `running`. French and German use a compact Yomitan-style candidate/deinflection layer before exact backend lookup: French tries apostrophe variants and known elision tails such as `l’homme` plus `homme`; German tries capitalization variants and conservative separable-verb candidates such as `stehe ... auf` plus `aufstehen`. Korean performs exact contiguous-Hangul lookup.
+
+Experimental modes treat whole words/runs as one hover unit and only enable dictionaries that look compatible with the selected language; if none are installed or enabled, iinatan keeps native subtitles visible and shows a language-specific setup message instead of starting a broken lookup worker. If dictionary metadata is ambiguous, import or enable a dictionary whose title/path starts with the headword language code, such as `fr-*` for French or `de-*` for German.
 
 ## Settings
 
@@ -94,7 +96,7 @@ Diagnostic logs are available from **Plugins -> iinatan -> Debug**. The plugin w
 
 Useful debug actions:
 
-- **Run Language Unit Tests** checks the selected language registry assumptions, including Japanese rightward-prefix lookup and Latin whole-word lookup.
+- **Run Language Unit Tests** checks the selected language registry assumptions, including Japanese rightward-prefix lookup, Latin whole-word lookup, French elision candidates, and German split-verb candidates.
 - **Run Settings Audit Checks** verifies that key settings are readable and propagated into overlay config.
 - **Run Lookup Performance Benchmark** measures worker lookup latency with installed dictionaries.
 - **Test File Picker API** opens the same picker used by manual dictionary import and reports success, cancellation, or API failure.
@@ -104,7 +106,7 @@ If lookups fail, first confirm that at least one dictionary is installed and ena
 
 If manual dictionary import does nothing or cannot open the picker, run **Debug -> Test File Picker API** and check `debug.log`. You can always use **Dictionaries -> Reveal Manual Import Folder** followed by **Import ZIP from Manual Import Folder** to import a local Yomitan `.zip`.
 
-If English or Korean mode says no compatible dictionaries are installed, import or enable a Yomitan dictionary whose metadata/path identifies that language, such as an English-headword `en-*` dictionary for English. Japanese mode continues to use the existing Jitendex/HoshiDicts path.
+If an experimental language mode says no compatible dictionaries are installed, import or enable a Yomitan dictionary whose metadata/path identifies that language, such as an English-headword `en-*`, French-headword `fr-*`, German-headword `de-*`, or Korean-headword `ko-*` dictionary. Japanese mode continues to use the existing Jitendex/HoshiDicts path.
 
 ## Changelog
 

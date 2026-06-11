@@ -304,7 +304,9 @@ async function clearDirFiles(dir) {
 
 const IINATAN_LANGUAGE_COMMON = (() => {
   const JAPANESE_CHAR_RE = /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/;
-  const LATIN_WORD_CHAR_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’-]/;
+  const LATIN_WORD_CHAR_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/;
+  const APOSTROPHE_RE = /['’ʼ＇‘‛]/g;
+  const EDGE_PUNCTUATION_RE = /^[\s.,!?;:()[\]{}"“”«»‹›…]+|[\s.,!?;:()[\]{}"“”«»‹›…]+$/g;
   const KOREAN_CHAR_RE = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
 
   function chars(text) {
@@ -317,7 +319,42 @@ const IINATAN_LANGUAGE_COMMON = (() => {
   }
 
   function normalizeLatinLookup(text) {
-    return normalizeBasic(text).trim().toLowerCase();
+    return trimLookupPunctuation(normalizeBasic(text)).toLowerCase();
+  }
+
+  function normalizeApostrophes(text) {
+    return String(text || "").replace(APOSTROPHE_RE, "'");
+  }
+
+  function trimLookupPunctuation(text) {
+    return String(text || "").replace(EDGE_PUNCTUATION_RE, "").trim();
+  }
+
+  function candidateKey(text) {
+    return String(text || "").normalize ? String(text || "").normalize("NFC") : String(text || "");
+  }
+
+  function pushUniqueCandidate(list, seen, candidate) {
+    if (!candidate || !candidate.text) return;
+    const text = String(candidate.text || "");
+    const key = candidateKey(text);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    list.push(Object.assign({
+      normalizedText: text,
+      source: "candidate",
+      reason: "candidate"
+    }, candidate, { text }));
+  }
+
+  function dictionaryIdentity(dict) {
+    return [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path,
+      dict && dict.indexUrl,
+      dict && dict.downloadUrl
+    ].join(" ").toLowerCase();
   }
 
   function clampPosition(position, length) {
@@ -342,12 +379,187 @@ const IINATAN_LANGUAGE_COMMON = (() => {
     JAPANESE_CHAR_RE,
     LATIN_WORD_CHAR_RE,
     KOREAN_CHAR_RE,
+    APOSTROPHE_RE,
     chars,
     normalizeBasic,
     normalizeLatinLookup,
+    normalizeApostrophes,
+    trimLookupPunctuation,
     clampPosition,
     findRun,
-    slice
+    slice,
+    pushUniqueCandidate,
+    dictionaryIdentity
+  };
+})();
+
+const IINATAN_DEINFLECTION = (() => {
+  function arrayOf(value) {
+    return Array.isArray(value) ? value : (value ? [value] : []);
+  }
+
+  function conditionDefaults(descriptor) {
+    const out = Object.create(null);
+    (descriptor.conditions || []).forEach(condition => {
+      if (condition.isDefault !== false) out[condition.name] = true;
+      (condition.subconditions || []).forEach(sub => {
+        if (sub.isDefault) out[sub.name] = true;
+      });
+    });
+    return out;
+  }
+
+  function conditionsMatch(active, required) {
+    const names = arrayOf(required);
+    if (!names.length) return true;
+    return names.some(name => !!active[name]);
+  }
+
+  function nextConditions(active, outNames) {
+    const names = arrayOf(outNames);
+    if (!names.length) return Object.assign(Object.create(null), active);
+    const out = Object.create(null);
+    names.forEach(name => { out[name] = true; });
+    return out;
+  }
+
+  function conditionsKey(conditions) {
+    return Object.keys(conditions || {}).sort().join(",");
+  }
+
+  function suffixInflection(inflectedSuffix, deinflectedSuffix, conditionsIn, conditionsOut, reason) {
+    return {
+      type: "suffix",
+      inflected: String(inflectedSuffix || ""),
+      deinflected: String(deinflectedSuffix || ""),
+      conditionsIn: arrayOf(conditionsIn),
+      conditionsOut: arrayOf(conditionsOut),
+      reason: reason || "suffix:" + inflectedSuffix + ">" + deinflectedSuffix
+    };
+  }
+
+  function prefixInflection(inflectedPrefix, deinflectedPrefix, conditionsIn, conditionsOut, reason) {
+    return {
+      type: "prefix",
+      inflected: String(inflectedPrefix || ""),
+      deinflected: String(deinflectedPrefix || ""),
+      conditionsIn: arrayOf(conditionsIn),
+      conditionsOut: arrayOf(conditionsOut),
+      reason: reason || "prefix:" + inflectedPrefix + ">" + deinflectedPrefix
+    };
+  }
+
+  function wholeWordInflection(inflectedWord, deinflectedWord, conditionsIn, conditionsOut, reason) {
+    return {
+      type: "whole",
+      inflected: String(inflectedWord || ""),
+      deinflected: String(deinflectedWord || ""),
+      conditionsIn: arrayOf(conditionsIn),
+      conditionsOut: arrayOf(conditionsOut),
+      reason: reason || "whole:" + inflectedWord + ">" + deinflectedWord
+    };
+  }
+
+  function customInflection(apply, conditionsIn, conditionsOut, reason) {
+    return {
+      type: "custom",
+      apply,
+      conditionsIn: arrayOf(conditionsIn),
+      conditionsOut: arrayOf(conditionsOut),
+      reason: reason || "custom"
+    };
+  }
+
+  function applyRule(text, rule) {
+    if (rule.type === "suffix") {
+      if (!rule.inflected || !text.endsWith(rule.inflected)) return [];
+      return [text.slice(0, text.length - rule.inflected.length) + rule.deinflected];
+    }
+    if (rule.type === "prefix") {
+      if (!rule.inflected || !text.startsWith(rule.inflected)) return [];
+      return [rule.deinflected + text.slice(rule.inflected.length)];
+    }
+    if (rule.type === "whole") {
+      return text === rule.inflected ? [rule.deinflected] : [];
+    }
+    if (rule.type === "custom" && typeof rule.apply === "function") {
+      const applied = rule.apply(text);
+      return Array.isArray(applied) ? applied : (applied ? [applied] : []);
+    }
+    return [];
+  }
+
+  function createTransformer(descriptor) {
+    const defaults = conditionDefaults(descriptor || {});
+    const rules = (descriptor && descriptor.rules) || [];
+    const maxResults = Math.max(1, (descriptor && descriptor.maxResults) || 96);
+    const maxDepth = Math.max(1, (descriptor && descriptor.maxDepth) || 4);
+
+    function transform(sourceText) {
+      const source = String(sourceText || "");
+      if (!source) return [];
+      const results = [{
+        text: source,
+        conditions: Object.assign(Object.create(null), defaults),
+        trace: []
+      }];
+      const seen = Object.create(null);
+      seen[source + "\t" + conditionsKey(defaults)] = true;
+      for (let i = 0; i < results.length && results.length < maxResults; i++) {
+        const current = results[i];
+        if (current.trace.length >= maxDepth) continue;
+        for (let r = 0; r < rules.length && results.length < maxResults; r++) {
+          const rule = rules[r];
+          if (!conditionsMatch(current.conditions, rule.conditionsIn)) continue;
+          const applied = applyRule(current.text, rule);
+          for (let a = 0; a < applied.length && results.length < maxResults; a++) {
+            const text = String(applied[a] || "");
+            if (!text || text === current.text) continue;
+            const conditions = nextConditions(current.conditions, rule.conditionsOut);
+            const trace = current.trace.concat([rule.reason || rule.type || "rule"]);
+            const key = text + "\t" + conditionsKey(conditions) + "\t" + trace.join("|");
+            if (seen[key]) continue;
+            seen[key] = true;
+            results.push({ text, conditions, trace });
+          }
+        }
+      }
+      return results;
+    }
+
+    return { transform };
+  }
+
+  function appendTransforms(list, seen, baseCandidate, transformer, language, maxDerived) {
+    if (!transformer || typeof transformer.transform !== "function" || !baseCandidate || !baseCandidate.text) return;
+    const transformed = transformer.transform(baseCandidate.text);
+    const limit = Math.max(1, Number(maxDerived) || 24);
+    let added = 0;
+    for (let i = 0; i < transformed.length && added < limit; i++) {
+      const result = transformed[i];
+      if (!result || !result.text || result.text === baseCandidate.text) continue;
+      IINATAN_LANGUAGE_COMMON.pushUniqueCandidate(list, seen, {
+        text: result.text,
+        normalizedText: result.text,
+        source: "deinflection",
+        reason: result.trace && result.trace.length ? result.trace.join(" -> ") : "deinflected",
+        deinflectedFrom: baseCandidate.text,
+        deinflectionTrace: result.trace || [],
+        language,
+        displayText: baseCandidate.displayText,
+        range: baseCandidate.range
+      });
+      added++;
+    }
+  }
+
+  return {
+    suffixInflection,
+    prefixInflection,
+    wholeWordInflection,
+    customInflection,
+    createTransformer,
+    appendTransforms
   };
 })();
 
@@ -466,6 +678,499 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
   };
 })();
 
+const IINATAN_FRENCH_LANGUAGE = (() => {
+  const common = IINATAN_LANGUAGE_COMMON;
+  const deinflect = IINATAN_DEINFLECTION;
+  const ELIDED_PREFIXES = {
+    c: true,
+    d: true,
+    j: true,
+    l: true,
+    m: true,
+    n: true,
+    qu: true,
+    s: true,
+    t: true
+  };
+
+  const transformer = deinflect.createTransformer({
+    maxDepth: 3,
+    maxResults: 72,
+    conditions: [
+      { name: "v", isDefault: true },
+      { name: "n", isDefault: true },
+      { name: "adj", isDefault: true },
+      { name: "adv", isDefault: true },
+      { name: "aux", isDefault: true }
+    ],
+    rules: [
+      deinflect.wholeWordInflection("suis", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("es", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("est", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("sommes", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("êtes", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("sont", "être", "aux", "v", "être"),
+      deinflect.wholeWordInflection("ai", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("as", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("a", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("avons", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("avez", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("ont", "avoir", "aux", "v", "avoir"),
+      deinflect.wholeWordInflection("compris", "comprendre", "v", "v", "irregular past participle"),
+      deinflect.suffixInflection("ées", "er", "v", "v", "past participle -ées"),
+      deinflect.suffixInflection("ée", "er", "v", "v", "past participle -ée"),
+      deinflect.suffixInflection("és", "er", "v", "v", "past participle -és"),
+      deinflect.suffixInflection("é", "er", "v", "v", "past participle -é"),
+      deinflect.suffixInflection("çons", "cer", "v", "v", "present -çons"),
+      deinflect.suffixInflection("geons", "ger", "v", "v", "present -geons"),
+      deinflect.suffixInflection("e", "er", "v", "v", "present -e"),
+      deinflect.suffixInflection("es", "er", "v", "v", "present -es"),
+      deinflect.suffixInflection("ons", "er", "v", "v", "present -ons"),
+      deinflect.suffixInflection("ez", "er", "v", "v", "present -ez"),
+      deinflect.suffixInflection("ent", "er", "v", "v", "present -ent"),
+      deinflect.suffixInflection("is", "ir", "v", "v", "present -is"),
+      deinflect.suffixInflection("it", "ir", "v", "v", "present -it"),
+      deinflect.suffixInflection("issons", "ir", "v", "v", "present -issons"),
+      deinflect.suffixInflection("issez", "ir", "v", "v", "present -issez"),
+      deinflect.suffixInflection("issent", "ir", "v", "v", "present -issent"),
+      deinflect.suffixInflection("amment", "ant", "adv", "adj", "adverb -amment"),
+      deinflect.suffixInflection("emment", "ent", "adv", "adj", "adverb -emment"),
+      deinflect.suffixInflection("ment", "", "adv", "adj", "adverb -ment")
+    ]
+  });
+
+  function isHoverableChar(ch) {
+    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+  }
+
+  function hasLookupText(text) {
+    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+  }
+
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\bfrench\b/.test(primary) ||
+      /\bfrancais\b/.test(primary) ||
+      /\bfrançais\b/.test(primary) ||
+      /(^|[^a-z])fr[-_/]/.test(primary) ||
+      /(^|[^a-z])fra[-_/]/.test(primary) ||
+      /(^|[^a-z])fre[-_/]/.test(primary);
+  }
+
+  function addBaseCandidate(list, seen, text, displayText, range, source, reason) {
+    const candidateText = common.trimLookupPunctuation(text);
+    if (!candidateText) return;
+    common.pushUniqueCandidate(list, seen, {
+      text: candidateText,
+      normalizedText: candidateText,
+      source,
+      reason,
+      language: "fr",
+      displayText,
+      range
+    });
+  }
+
+  function addElisionTails(list, seen, text, displayText, range) {
+    const normalized = common.normalizeApostrophes(text);
+    const match = /^([a-zà-öø-ÿ]+)'(.+)$/i.exec(normalized);
+    if (!match) return;
+    const prefix = match[1].toLowerCase();
+    if (!ELIDED_PREFIXES[prefix]) return;
+    addBaseCandidate(list, seen, match[2], displayText, range, "french-elision", "elided prefix " + prefix + "'");
+  }
+
+  function generateCandidates(displayText, range) {
+    const normalized = common.normalizeBasic(displayText);
+    const trimmed = common.trimLookupPunctuation(normalized);
+    const lowerOriginal = trimmed.toLowerCase();
+    const lowerApostrophe = common.normalizeApostrophes(lowerOriginal);
+    const list = [];
+    const seen = Object.create(null);
+    const candidateRange = range || null;
+
+    addBaseCandidate(list, seen, lowerOriginal, displayText, candidateRange, "surface", "lowercase surface");
+    addBaseCandidate(list, seen, lowerApostrophe, displayText, candidateRange, "apostrophe-normalized", "apostrophe variants");
+    addElisionTails(list, seen, lowerOriginal, displayText, candidateRange);
+    addElisionTails(list, seen, lowerApostrophe, displayText, candidateRange);
+
+    const baseCount = list.length;
+    for (let i = 0; i < baseCount; i++) {
+      deinflect.appendTransforms(list, seen, list[i], transformer, "fr", 18);
+    }
+    return list;
+  }
+
+  function lookupRequest(text, position) {
+    const normalized = common.normalizeBasic(text);
+    const chars = common.chars(normalized);
+    const pos = common.clampPosition(position, chars.length);
+    const run = common.findRun(chars, pos, isHoverableChar);
+    if (!run) return null;
+    const displayText = common.slice(chars, run.start, run.end);
+    const candidates = generateCandidates(displayText, { start: run.start, end: run.end });
+    if (!candidates.length) return null;
+    return {
+      lookupText: candidates[0].text,
+      displayText,
+      suffix: chars.slice(pos).join(""),
+      lookupStart: run.start,
+      lookupEnd: run.end,
+      matchStart: run.start,
+      backendMode: "exact",
+      scanLength: common.chars(candidates[0].text).length,
+      cacheStrategy: "word-candidates",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + candidates.map(c => c.text).join("|"),
+      candidates
+    };
+  }
+
+  return {
+    id: "fr",
+    label: "French (experimental)",
+    experimental: true,
+    lookupUnit: "word",
+    wordMode: "latin-word",
+    lookupMode: "exact",
+    deinflection: "yomitan-style-french",
+    deinflectionMode: "yomitan-style-french",
+    dictionaryCompatibility: "Yomitan-compatible French-headword term dictionaries; apostrophe/elision-aware exact lookup.",
+    isHoverableChar,
+    hasLookupText,
+    dictionaryMatches,
+    normalizeText: common.normalizeBasic,
+    generateCandidates,
+    lookupRequest
+  };
+})();
+
+const IINATAN_GERMAN_LANGUAGE = (() => {
+  const common = IINATAN_LANGUAGE_COMMON;
+  const deinflect = IINATAN_DEINFLECTION;
+  const MAX_RIGHT_CONTEXT_CHARS = 96;
+  const MAX_RIGHT_CONTEXT_WORDS = 12;
+  const GERMAN_WORD_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+$/;
+  const GERMAN_TOKEN_RE = /[A-Za-zÀ-ÖØ-öø-ÿ]+/g;
+  const ABBREVIATIONS = [
+    "bzw.", "bspw.", "ca.", "d.h.", "dr.", "etc.", "evtl.", "ggf.", "inkl.",
+    "i.d.r.", "m.e.", "nr.", "prof.", "s.", "sog.", "u.a.", "u.u.", "usw.",
+    "v.a.", "vgl.", "z.b.", "z.t.", "zzgl."
+  ];
+  const SEPARABLE_PREFIXES = [
+    "ab", "an", "auf", "aus", "bei", "dar", "ein", "empor", "entgegen", "entlang",
+    "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
+    "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
+    "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein", "hinüber",
+    "hinunter", "hinweg", "hinzu", "hoch", "los", "mit", "nach", "nieder",
+    "statt", "teil", "um", "vor", "voran", "voraus", "vorbei", "vorüber", "weg",
+    "weiter", "wieder", "zu", "zurück", "zusammen"
+  ];
+  const PREFIX_SET = SEPARABLE_PREFIXES.reduce((out, prefix) => {
+    out[prefix] = true;
+    return out;
+  }, Object.create(null));
+  const IRREGULAR_FINITE_VERBS = {
+    bin: ["sein"],
+    bist: ["sein"],
+    ist: ["sein"],
+    sind: ["sein"],
+    seid: ["sein"],
+    war: ["sein"],
+    waren: ["sein"],
+    habe: ["haben"],
+    hast: ["haben"],
+    hat: ["haben"],
+    haben: ["haben"],
+    habt: ["haben"],
+    hatte: ["haben"],
+    hatten: ["haben"],
+    kann: ["können"],
+    kannst: ["können"],
+    können: ["können"],
+    könnt: ["können"],
+    muss: ["müssen"],
+    musst: ["müssen"],
+    müssen: ["müssen"],
+    müsst: ["müssen"],
+    will: ["wollen"],
+    willst: ["wollen"],
+    wollen: ["wollen"],
+    wollt: ["wollen"],
+    darf: ["dürfen"],
+    darfst: ["dürfen"],
+    dürfen: ["dürfen"],
+    dürft: ["dürfen"],
+    soll: ["sollen"],
+    sollst: ["sollen"],
+    sollen: ["sollen"],
+    sollt: ["sollen"],
+    mag: ["mögen"],
+    magst: ["mögen"],
+    mögen: ["mögen"],
+    mögt: ["mögen"],
+    geht: ["gehen"],
+    gehe: ["gehen"],
+    gehst: ["gehen"],
+    gibst: ["geben"],
+    gibt: ["geben"],
+    hilft: ["helfen"],
+    helfe: ["helfen"],
+    hilfst: ["helfen"],
+    lese: ["lesen"],
+    liest: ["lesen"],
+    nimmt: ["nehmen"],
+    nimmst: ["nehmen"],
+    sehe: ["sehen"],
+    siehst: ["sehen"],
+    sieht: ["sehen"],
+    spreche: ["sprechen"],
+    sprichst: ["sprechen"],
+    spricht: ["sprechen"],
+    stehe: ["stehen"],
+    stehst: ["stehen"],
+    steht: ["stehen"],
+    tue: ["tun"],
+    tust: ["tun"],
+    tut: ["tun"],
+    werde: ["werden"],
+    wirst: ["werden"],
+    wird: ["werden"]
+  };
+
+  const transformer = deinflect.createTransformer({
+    maxDepth: 3,
+    maxResults: 80,
+    conditions: [
+      { name: "v", isDefault: true },
+      { name: "n", isDefault: true },
+      { name: "adj", isDefault: true }
+    ],
+    rules: [
+      deinflect.suffixInflection("ungen", "en", "n", "v", "nominalization -ungen"),
+      deinflect.suffixInflection("ung", "en", "n", "v", "nominalization -ung"),
+      deinflect.suffixInflection("bar", "en", "adj", "v", "adjective -bar"),
+      deinflect.prefixInflection("un", "", "adj", "adj", "negative un-"),
+      deinflect.customInflection(getBasicPastParticiples, "v", "v", "past participle"),
+      deinflect.customInflection(getSeparablePastParticiples, "v", "v", "separable past participle"),
+      deinflect.customInflection(getZuInfinitives, "v", "v", "zu-infinitive"),
+      deinflect.suffixInflection("heit", "", "n", "adj", "nominalization -heit"),
+      deinflect.suffixInflection("keit", "", "n", "adj", "nominalization -keit")
+    ]
+  });
+
+  function isHoverableChar(ch) {
+    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+  }
+
+  function hasLookupText(text) {
+    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+  }
+
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\bgerman\b/.test(primary) ||
+      /\bdeutsch\b/.test(primary) ||
+      /(^|[^a-z])de[-_/]/.test(primary) ||
+      /(^|[^a-z])deu[-_/]/.test(primary) ||
+      /(^|[^a-z])ger[-_/]/.test(primary);
+  }
+
+  function getBasicPastParticiples(text) {
+    const match = /^ge([a-zà-öø-ÿ]+)t$/i.exec(text);
+    if (!match) return [];
+    return [match[1] + "en", match[1] + "n"];
+  }
+
+  function getSeparablePastParticiples(text) {
+    const prefix = SEPARABLE_PREFIXES.join("|");
+    const match = new RegExp("^(" + prefix + ")ge([a-zà-öø-ÿ]+)t$", "i").exec(text);
+    if (!match) return [];
+    return [match[1] + match[2] + "en", match[1] + match[2] + "n"];
+  }
+
+  function getZuInfinitives(text) {
+    const prefix = SEPARABLE_PREFIXES.join("|");
+    const match = new RegExp("^(" + prefix + ")zu([a-zà-öø-ÿ]+)$", "i").exec(text);
+    return match ? [match[1] + match[2]] : [];
+  }
+
+  function addCandidate(list, seen, text, displayText, range, source, reason) {
+    const candidateText = common.trimLookupPunctuation(text);
+    if (!candidateText) return;
+    common.pushUniqueCandidate(list, seen, {
+      text: candidateText,
+      normalizedText: candidateText,
+      source,
+      reason,
+      language: "de",
+      displayText,
+      range
+    });
+  }
+
+  function addEszettVariants(list, seen, text, displayText, range) {
+    const ss = String(text || "").replace(/ẞ/g, "SS").replace(/ß/g, "ss");
+    const eszett = String(text || "").replace(/SS/g, "ẞ").replace(/ss/g, "ß");
+    addCandidate(list, seen, ss, displayText, range, "eszett", "eszett to ss");
+    addCandidate(list, seen, eszett, displayText, range, "eszett", "ss to eszett");
+  }
+
+  function finiteVerbInfinitives(word) {
+    const lower = String(word || "").toLowerCase();
+    const out = [];
+    const seen = Object.create(null);
+    function push(value) {
+      if (!value || seen[value]) return;
+      seen[value] = true;
+      out.push(value);
+    }
+    (IRREGULAR_FINITE_VERBS[lower] || []).forEach(push);
+    if (lower.endsWith("elst")) push(lower.slice(0, -4) + "eln");
+    if (lower.endsWith("elt")) push(lower.slice(0, -3) + "eln");
+    if (lower.endsWith("erst")) push(lower.slice(0, -4) + "ern");
+    if (lower.endsWith("ert")) push(lower.slice(0, -3) + "ern");
+    if (lower.endsWith("est")) push(lower.slice(0, -3) + "en");
+    if (lower.endsWith("et")) push(lower.slice(0, -2) + "en");
+    if (lower.endsWith("st")) push(lower.slice(0, -2) + "en");
+    if (lower.endsWith("t")) push(lower.slice(0, -1) + "en");
+    if (lower.endsWith("e")) push(lower.slice(0, -1) + "en");
+    if (lower.endsWith("en")) push(lower);
+    return out.filter(value => value.length > 3);
+  }
+
+  function abbreviationKey(text) {
+    return String(text || "").toLowerCase().replace(/\s+/g, "");
+  }
+
+  function isAbbreviationPeriod(line, index) {
+    const raw = String(line || "");
+    const before = abbreviationKey(raw.slice(Math.max(0, index - 16), index + 1));
+    if (ABBREVIATIONS.some(abbr => before.endsWith(abbr))) return true;
+    const after = abbreviationKey(raw.slice(index + 1, Math.min(raw.length, index + 8)));
+    if (/^[a-zà-öø-ÿ]\./.test(after)) return true;
+    const recent = raw.slice(Math.max(0, index - 12), index + 1).toLowerCase();
+    return /(?:^|[^a-zà-öø-ÿ])(?:[a-zà-öø-ÿ]{1,3}\.){2,}$/.test(recent.replace(/\s+/g, ""));
+  }
+
+  function rightContextWindow(text, start, end) {
+    const chars = common.chars(text);
+    const runEnd = common.clampPosition(end, chars.length);
+    const maxEnd = Math.min(chars.length, runEnd + MAX_RIGHT_CONTEXT_CHARS);
+    let stop = runEnd;
+    for (; stop < maxEnd; stop++) {
+      const ch = chars[stop];
+      if ((ch === "!" || ch === "?" || ch === ";" || ch === ":") && stop > runEnd) break;
+      if (ch === "." && stop > runEnd && !isAbbreviationPeriod(text, stop)) break;
+    }
+    let context = common.slice(chars, start, stop);
+    const tokens = context.match(GERMAN_TOKEN_RE) || [];
+    if (tokens.length > MAX_RIGHT_CONTEXT_WORDS) {
+      const wanted = tokens.slice(0, MAX_RIGHT_CONTEXT_WORDS).join(" ");
+      context = wanted;
+    }
+    return {
+      text: context,
+      end: start + common.chars(context).length,
+      maxChars: MAX_RIGHT_CONTEXT_CHARS,
+      maxWords: MAX_RIGHT_CONTEXT_WORDS
+    };
+  }
+
+  function splitVerbCandidates(contextText) {
+    const tokens = String(contextText || "").match(GERMAN_TOKEN_RE) || [];
+    if (tokens.length < 2) return [];
+    const finite = tokens[0];
+    const prefix = tokens[tokens.length - 1].toLowerCase();
+    if (!PREFIX_SET[prefix]) return [];
+    return finiteVerbInfinitives(finite).map(infinitive => prefix + infinitive);
+  }
+
+  function generateCandidates(displayText, range, fullText) {
+    const normalized = common.normalizeBasic(displayText);
+    const trimmed = common.trimLookupPunctuation(normalized);
+    const lower = trimmed.toLowerCase();
+    const list = [];
+    const seen = Object.create(null);
+    const candidateRange = range || null;
+    const rightContext = fullText && range ? rightContextWindow(fullText, range.start, range.end) : null;
+
+    addCandidate(list, seen, trimmed, displayText, candidateRange, "surface", "surface form");
+    addCandidate(list, seen, lower, displayText, candidateRange, "lowercase", "lowercase form");
+    addEszettVariants(list, seen, trimmed, displayText, candidateRange);
+    addEszettVariants(list, seen, lower, displayText, candidateRange);
+
+    const baseCount = list.length;
+    for (let i = 0; i < baseCount; i++) {
+      deinflect.appendTransforms(list, seen, list[i], transformer, "de", 16);
+    }
+
+    if (rightContext && GERMAN_WORD_RE.test(trimmed)) {
+      splitVerbCandidates(rightContext.text).forEach(candidate => {
+        addCandidate(list, seen, candidate, displayText, candidateRange, "german-split-verb", "bounded right-context separable prefix");
+      });
+    }
+    return { candidates: list, rightContext };
+  }
+
+  function lookupRequest(text, position) {
+    const normalized = common.normalizeBasic(text);
+    const chars = common.chars(normalized);
+    const pos = common.clampPosition(position, chars.length);
+    const run = common.findRun(chars, pos, isHoverableChar);
+    if (!run) return null;
+    const displayText = common.slice(chars, run.start, run.end);
+    const generated = generateCandidates(displayText, { start: run.start, end: run.end }, normalized);
+    const candidates = generated.candidates;
+    if (!candidates.length) return null;
+    return {
+      lookupText: candidates[0].text,
+      displayText,
+      suffix: chars.slice(pos).join(""),
+      lookupStart: run.start,
+      lookupEnd: run.end,
+      matchStart: run.start,
+      backendMode: "exact",
+      scanLength: common.chars(candidates[0].text).length,
+      cacheStrategy: "word-candidates",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + candidates.map(c => c.text).join("|"),
+      candidates,
+      rightContext: generated.rightContext
+    };
+  }
+
+  return {
+    id: "de",
+    label: "German (experimental)",
+    experimental: true,
+    lookupUnit: "word",
+    wordMode: "latin-word",
+    lookupMode: "exact",
+    deinflection: "yomitan-style-german",
+    deinflectionMode: "yomitan-style-german",
+    dictionaryCompatibility: "Yomitan-compatible German-headword term dictionaries; capitalization and separable-verb candidate lookup.",
+    isHoverableChar,
+    hasLookupText,
+    dictionaryMatches,
+    normalizeText: common.normalizeBasic,
+    generateCandidates,
+    rightContextWindow,
+    splitVerbCandidates,
+    lookupRequest
+  };
+})();
+
 const IINATAN_KOREAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
 
@@ -533,6 +1238,8 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
   const languages = [
     IINATAN_JAPANESE_LANGUAGE,
     IINATAN_ENGLISH_LANGUAGE,
+    IINATAN_FRENCH_LANGUAGE,
+    IINATAN_GERMAN_LANGUAGE,
     IINATAN_KOREAN_LANGUAGE
   ];
   const byId = Object.create(null);
@@ -1405,14 +2112,17 @@ async function lookupAtPosition(text, position, requestId) {
   if (setupMessage) throw new Error(setupMessage);
   const maxResults = Math.max(1, prefNumber("maxEntries", 3));
   const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
-  const lookupText = request.lookupText;
+  const candidates = Array.isArray(request.candidates) && request.candidates.length
+    ? request.candidates.filter(c => c && c.text).map(c => Object.assign({}, c, { text: String(c.text || "") }))
+    : [{ text: request.lookupText, source: "lookupText", reason: "single lookup text", language: language.id, displayText: request.displayText }];
+  const lookupText = candidates[0] && candidates[0].text;
   const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
   const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
   const languageCacheKey = request.cacheKey || [
     request.cacheStrategy || "",
     request.lookupStart,
     request.lookupEnd,
-    lookupText
+    candidates.map(c => c.text).join("|")
   ].join(":");
   const key = [
     dicts.join("|"),
@@ -1428,12 +2138,30 @@ async function lookupAtPosition(text, position, requestId) {
     debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
     return lookupCache[key];
   }
-  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " candidates=" + JSON.stringify(candidates.map(c => ({ text: c.text, source: c.source, reason: c.reason })).slice(0, 24)));
+  let result = null;
+  let candidateUsed = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
+    debugVerbose("lookupAtPosition candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text) + " source=" + String(candidate.source || "") + " reason=" + String(candidate.reason || ""));
+    const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+    if (!result) result = candidateResult;
+    if (candidateResult && candidateResult.results && candidateResult.results.length) {
+      result = candidateResult;
+      candidateUsed = candidate;
+      debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " resultCount=" + candidateResult.results.length);
+      break;
+    }
+  }
+  if (!result) result = { ok: true, results: [] };
+  if (!candidateUsed) debugVerbose("lookupAtPosition no candidate matched language=" + language.id + " candidates=" + candidates.map(c => c.text).join(", "));
   result.text = clean;
   result.position = pos;
   result.suffix = request.suffix;
-  result.lookupText = lookupText;
+  result.lookupText = candidateUsed ? candidateUsed.text : lookupText;
+  result.lookupCandidates = candidates;
+  result.candidateUsed = candidateUsed;
   result.lookupStart = request.lookupStart;
   result.lookupEnd = request.lookupEnd;
   result.matchStart = request.matchStart;
@@ -1847,16 +2575,24 @@ function runLanguageUnitTests() {
   function check(ok, message) { if (!ok) failures.push(message); }
   const ja = languageModuleById("ja");
   const en = languageModuleById("en");
+  const fr = languageModuleById("fr");
+  const de = languageModuleById("de");
   const ko = languageModuleById("ko");
   check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
   check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
   check(en.isHoverableChar("r"), "Latin should be English-hoverable");
   check(ja.lookupMode === "yomitan-japanese", "Japanese should declare Yomitan/HoshiDicts mode");
   check(en.lookupMode === "exact", "English should declare exact lookup mode");
+  check(fr.lookupMode === "exact", "French should declare exact lookup mode");
+  check(de.lookupMode === "exact", "German should declare exact lookup mode");
   check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
   check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
+  check(typeof fr.dictionaryMatches === "function", "French should expose dictionary compatibility checks");
+  check(typeof de.dictionaryMatches === "function", "German should expose dictionary compatibility checks");
   check(ja.lookupUnit === "character", "Japanese should use character lookup units");
   check(en.lookupUnit === "word", "English should use word lookup units");
+  check(fr.lookupUnit === "word", "French should use word lookup units");
+  check(de.lookupUnit === "word", "German should use word lookup units");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
@@ -1865,6 +2601,10 @@ function runLanguageUnitTests() {
   check(enReq && enReq.cacheStrategy === "word-span", "English should use word-span cache semantics");
   check(en.lookupRequest("RUNNING", 1, 24).lookupText === "running", "English should lowercase lookup text");
   check(en.lookupRequest("Don't", 1, 24).lookupText === "don't", "English should preserve apostrophes while lowercasing");
+  const frReq = fr.lookupRequest("L’Homme", 2, 24);
+  check(frReq && frReq.candidates.some(c => c.text === "homme"), "French should generate elision-tail candidates");
+  const deReq = de.lookupRequest("Ich stehe morgen früh auf.", 5, 24);
+  check(deReq && deReq.candidates.some(c => c.text === "aufstehen"), "German should generate split-verb candidates");
   const jaReq = ja.lookupRequest("魔法使い", 1, 24);
   check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
   check(jaReq && jaReq.cacheStrategy === "exact-position", "Japanese should keep exact-position cache semantics");

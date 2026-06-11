@@ -77,7 +77,7 @@
   function isLookupableChar(ch) {
     const lang = activeLanguage();
     const s = String(ch || '');
-    if (lang.id === 'en') return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’-]/.test(s);
+    if (lang.wordMode === 'latin-word' || lang.id === 'en' || lang.id === 'fr' || lang.id === 'de') return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/.test(s);
     if (lang.id === 'ko') return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(s);
     return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(s);
   }

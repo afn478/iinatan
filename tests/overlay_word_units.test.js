@@ -196,6 +196,28 @@ assert(lookupMessages()[1].position === quicklyStart, 'Quickly lookup should be 
 assert(overlay.state.currentAnchor === quicklyAnchor, 'Popup anchor should move for a different word');
 
 overlay.applyConfig({
+  language: { id: 'fr', label: 'French', lookupUnit: 'word', wordMode: 'latin-word' },
+  overlayBridgePort: 19741,
+  scanLength: 24
+});
+overlay.renderSubtitle('L’Homme arrive', 11);
+const frenchStart = 0;
+const frenchUnit = overlay.lookupUnitForPosition(2);
+assert(frenchUnit.pos === frenchStart, 'French apostrophe word should resolve to the word start');
+assert(frenchUnit.preview.text === 'L’Homme', 'French apostrophe word should stay one hover unit');
+
+overlay.applyConfig({
+  language: { id: 'de', label: 'German', lookupUnit: 'word', wordMode: 'latin-word' },
+  overlayBridgePort: 19741,
+  scanLength: 24
+});
+overlay.renderSubtitle('Die Häuser stehen', 12);
+const germanStart = 'Die '.length;
+const germanUnit = overlay.lookupUnitForPosition(germanStart + 2);
+assert(germanUnit.pos === germanStart, 'German umlaut word should resolve to the word start');
+assert(germanUnit.preview.text === 'Häuser', 'German umlaut word should stay one hover unit');
+
+overlay.applyConfig({
   language: { id: 'ja', label: 'Japanese', lookupUnit: 'character', wordMode: 'rightward-prefix' },
   overlayBridgePort: 19741,
   scanLength: 24

@@ -24,8 +24,11 @@ REQUIRED_PACKAGE_FILES = REQUIRED_PLUGIN_FILES + [
 PACKAGE_FILE_ALLOWLIST = REQUIRED_PACKAGE_FILES + OPTIONAL_PACKAGE_FILES
 LANGUAGE_PARTS = [
     "common.js",
+    "deinflection.js",
     "japanese.js",
     "english.js",
+    "french.js",
+    "german.js",
     "korean.js",
     "registry.js",
 ]
