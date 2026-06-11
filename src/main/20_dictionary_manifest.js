@@ -22,13 +22,41 @@ function readDictionaryIndexMetadata(dictPath) {
     return {};
   }
 }
+function normalizeDictionaryLanguage(value) {
+  const lang = String(value || "").trim().toLowerCase();
+  if (!lang) return "";
+  if (/^(ja|jpn|jp|japanese)$/.test(lang)) return "ja";
+  if (/^(en|eng|english)$/.test(lang)) return "en";
+  if (/^(fr|fra|fre|french|francais|français)$/.test(lang)) return "fr";
+  if (/^(de|deu|ger|german|deutsch)$/.test(lang)) return "de";
+  if (/^(ko|kor|korean)$/.test(lang)) return "ko";
+  return lang;
+}
+function dictionaryLanguageFromMetadata(meta, manifestEntry) {
+  const candidates = [
+    meta && meta.language,
+    meta && meta.lang,
+    meta && meta.sourceLanguage,
+    meta && meta.source_language,
+    meta && meta.targetLanguage,
+    meta && meta.target_language,
+    manifestEntry && manifestEntry.language
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeDictionaryLanguage(candidate);
+    if (normalized) return normalized;
+  }
+  return "unknown";
+}
 function dictionaryDirs() {
   try {
     if (!file.exists(dictRoot())) return [];
+    const manifest = readManifest();
     return file.list(dictRoot(), { includeSubDir: false })
       .filter(item => item && item.isDir)
       .map(item => {
         const meta = readDictionaryIndexMetadata(item.path);
+        const manifestEntry = (manifest.dictionaries && (manifest.dictionaries[item.filename] || manifest.dictionaries[meta.title])) || {};
         return {
           name: item.filename,
           path: item.path,
@@ -36,7 +64,14 @@ function dictionaryDirs() {
           revision: meta.revision || "",
           format: meta.format || null,
           indexUrl: meta.indexUrl || "",
-          downloadUrl: meta.downloadUrl || ""
+          downloadUrl: meta.downloadUrl || "",
+          language: dictionaryLanguageFromMetadata(meta, manifestEntry),
+          termCount: Number(manifestEntry.termCount || 0),
+          metaCount: Number(manifestEntry.metaCount || 0),
+          tagCount: Number(manifestEntry.tagCount || 0),
+          mediaCount: Number(manifestEntry.mediaCount || 0),
+          pitchCount: Number(manifestEntry.pitchCount || 0),
+          freqCount: Number(manifestEntry.freqCount || 0)
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -46,24 +81,39 @@ function dictionaryDirs() {
   }
 }
 function disabledDictionaryMap() { return readManifest().disabled || {}; }
-function languageCompatibleDictionaries(language, installed) {
+function dictionaryCompatibilityDetails(language, installed) {
   const lang = language || selectedLanguageModule();
   const dicts = installed || dictionaryDirs();
-  if (!lang || lang.id === "ja" || typeof lang.dictionaryMatches !== "function") return dicts;
-  return dicts.filter(d => {
-    try { return !!lang.dictionaryMatches(d); }
-    catch (error) {
+  const out = { compatible: [], unknown: [], incompatible: [] };
+  if (!lang || lang.id === "ja" || typeof lang.dictionaryMatches !== "function") {
+    out.compatible = dicts.slice();
+    return out;
+  }
+  dicts.forEach(d => {
+    try {
+      if (d && d.language && d.language !== "unknown") {
+        if (d.language === lang.id) out.compatible.push(d);
+        else out.incompatible.push(d);
+        return;
+      }
+      if (lang.dictionaryMatches(d)) out.compatible.push(d);
+      else out.unknown.push(d);
+    } catch (error) {
       debugWarn("Dictionary compatibility check failed language=" + String(lang.id || "") + " dict=" + String(d && d.name || "") + ": " + compactError(error));
-      return false;
+      out.unknown.push(d);
     }
   });
+  return out;
+}
+function languageCompatibleDictionaries(language, installed) {
+  return dictionaryCompatibilityDetails(language, installed).compatible;
 }
 function activeDictionaryEntries(language) {
   const installed = dictionaryDirs();
   const disabled = disabledDictionaryMap();
   const seen = Object.create(null);
   const out = [];
-  languageCompatibleDictionaries(language || selectedLanguageModule(), installed).filter(d => !disabled[d.name]).forEach(d => {
+  installed.filter(d => !disabled[d.name]).forEach(d => {
     const p = pathJoin(dictRoot(), d.name);
     if (!seen[p]) { seen[p] = true; out.push(d); }
   });
@@ -77,7 +127,15 @@ function dictionarySetupMessage(language, dicts) {
   const label = lang.label || lang.id || "selected language";
   if (dicts && dicts.length) return "";
   if (lang.id === "ja") return "No dictionaries installed/enabled. Use Plugins -> iinatan -> Dictionaries -> Add Jitendex.";
-  return "No " + label.replace(/\s*\(experimental\)\s*/i, "") + " dictionaries installed/enabled. Install or enable a compatible Yomitan dictionary ZIP.";
+  return "No dictionaries installed/enabled for " + label.replace(/\s*\(experimental\)\s*/i, "") + ". Import or enable a Yomitan dictionary ZIP.";
+}
+function dictionaryCompatibilityWarning(language, entries) {
+  const lang = language || selectedLanguageModule();
+  const dicts = entries || activeDictionaryEntries(lang);
+  if (!lang || lang.id === "ja" || !dicts.length || typeof lang.dictionaryMatches !== "function") return "";
+  const details = dictionaryCompatibilityDetails(lang, dicts);
+  if (details.compatible.length || details.unknown.length) return "";
+  return "No enabled dictionary is marked compatible with " + (lang.label || lang.id) + "; lookup will still try the enabled dictionaries.";
 }
 function workerFingerprint(dicts, language) {
   const lang = language || selectedLanguageModule();

@@ -358,8 +358,7 @@
   function lookupPreviewForPosition(pos) {
     const run = findLookupRun(pos);
     if (run) return run;
-    const len = Math.max(1, state.config.scanLength || 24);
-    return { start: pos, end: Math.min(state.chars.length, pos + len), text: state.chars.slice(pos, pos + len).join('') };
+    return { start: pos, end: Math.min(state.chars.length, pos + 1), text: state.chars.slice(pos, pos + 1).join('') };
   }
 
   function lookupUnitForPosition(pos) {
@@ -368,7 +367,7 @@
     const canonicalPos = run ? run.start : pos;
     return {
       pos: canonicalPos,
-      key: String(canonicalPos),
+      key: run ? ('word:' + run.start + ':' + run.end + ':' + run.text) : ('char:' + canonicalPos),
       preview,
       isWord: !!run
     };
@@ -485,6 +484,14 @@
     const matched = topMatchedText(stored) || (preview && preview.text) || '';
     activateMatchRange(start, matched);
   }
+  function activateNoResultMatch(stored) {
+    const result = stored && stored.result ? stored.result : {};
+    const fallback = lookupPreviewForPosition(state.currentPos || 0);
+    const start = Number.isFinite(Number(result.lookupStart)) ? Number(result.lookupStart) : fallback.start;
+    const end = Number.isFinite(Number(result.lookupEnd)) ? Number(result.lookupEnd) : fallback.end;
+    const text = state.chars.slice(start, Math.max(start + 1, end)).join('') || fallback.text || '';
+    activateMatchRange(start, text);
+  }
 
   // Deliberately do not reuse cached lookup results across later character
   // positions. HoshiDicts/Yomitan lookup is rightward-prefix based, but the
@@ -542,7 +549,7 @@
     const preview = unit.preview;
     const anchor = lookupAnchorForUnit(unit, target);
     const sameUnitVisible = state.currentPos === pos && !popupEl.classList.contains('hidden');
-    overlayDebug("char enter rawPos=" + rawPos + " unitPos=" + pos + " word=" + String(unit.isWord) + " char=" + JSON.stringify(target.textContent || "") + " cached=" + String(!!state.lookupByPos[pos]));
+    overlayDebug("char enter rawPos=" + rawPos + " unitPos=" + pos + " unitKey=" + unit.key + " word=" + String(unit.isWord) + " char=" + JSON.stringify(target.textContent || "") + " cached=" + String(!!state.lookupByPos[pos]));
     state.currentPos = pos;
     const stored = state.lookupByPos[pos];
     if (sameUnitVisible) {
@@ -986,6 +993,8 @@
     if (!entries.length) {
       const lang = activeLanguage();
       const label = lang.lookupUnit === 'word' || lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run' ? 'word' : 'character';
+      activateNoResultMatch(stored);
+      overlayDebug("render no-result pos=" + String(state.currentPos) + " lookupStart=" + String(result.lookupStart) + " lookupEnd=" + String(result.lookupEnd) + " reason=" + String(result.noResultReason || "empty"));
       setPopupBody('<div class="empty">No dictionary entry found from this ' + label + '.</div>');
       return;
     }
@@ -1129,7 +1138,7 @@
       delete state.pendingLookupTimers[pos];
     }
     cancelPendingLookupRequest(pos);
-    overlayDebug("lookup result received pos=" + pos + " ok=" + String(!!payload.ok) + " currentPos=" + String(state.currentPos));
+    overlayDebug("lookup result received pos=" + pos + " ok=" + String(!!payload.ok) + " currentPos=" + String(state.currentPos) + " noResult=" + String(!!(payload.result && payload.result.noResult)));
     state.lookupByPos[pos] = payload;
     updateCharReady(pos);
     if (state.currentPos === pos && !popupEl.classList.contains('hidden')) renderStoredLookup(payload);

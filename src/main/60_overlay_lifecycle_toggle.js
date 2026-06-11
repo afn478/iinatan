@@ -49,11 +49,11 @@ function stopPolling() {
 }
 async function prepareLookupBackendForEnabledOverlay(language, dicts) {
   const lang = language || selectedLanguageModule();
-  const compatibleDicts = dicts || activeDictionaryPaths(lang);
-  debugLog("prepare lookup backend language=" + lang.id + " label=" + lang.label + " compatibleDicts=" + compatibleDicts.length + " dicts=" + JSON.stringify(compatibleDicts.map(p => String(p).split("/").pop())));
-  const setupMessage = dictionarySetupMessage(lang, compatibleDicts);
+  const activeDicts = dicts || activeDictionaryPaths(lang);
+  debugLog("prepare lookup backend language=" + lang.id + " label=" + lang.label + " activeDicts=" + activeDicts.length + " dicts=" + JSON.stringify(activeDicts.map(p => String(p).split("/").pop())));
+  const setupMessage = dictionarySetupMessage(lang, activeDicts);
   if (setupMessage) throw new Error(setupMessage);
-  const ready = await ensureBackendWorker(compatibleDicts, lang);
+  const ready = await ensureBackendWorker(activeDicts, lang);
   debugLog("prepare lookup backend ready language=" + lang.id + " fingerprint=" + JSON.stringify((ready && ready.fingerprint) || ""));
   return ready;
 }

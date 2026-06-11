@@ -99,38 +99,41 @@ context.selectedLanguage = 'ja';
 assert(context.activeDictionaryPaths(ja).length === 5, 'Japanese should preserve all enabled dictionaries');
 
 const enPaths = context.activeDictionaryPaths(en);
-assert(enPaths.length === 1, 'English should select only English-compatible dictionaries');
-assert(enPaths[0].endsWith('/wty-en-de'), 'English should select wty-en-de');
+assert(enPaths.length === 5, 'English should keep every enabled dictionary active');
+assert(enPaths.some(p => p.endsWith('/Jitendex.org [2026-06-06]')), 'English should not silently hide unknown/incompatible dictionaries');
+const enCompatible = context.languageCompatibleDictionaries(en);
+assert(enCompatible.length === 1, 'English compatibility diagnostics should still identify English-looking dictionaries');
+assert(enCompatible[0].name === 'wty-en-de', 'English compatibility diagnostics should identify wty-en-de');
 
 const koPaths = context.activeDictionaryPaths(ko);
-assert(koPaths.length === 1, 'Korean should select only Korean-compatible dictionaries');
-assert(koPaths[0].endsWith('/wty-ko-en'), 'Korean should select wty-ko-en');
+assert(koPaths.length === 5, 'Korean should keep every enabled dictionary active');
+assert(context.languageCompatibleDictionaries(ko)[0].name === 'wty-ko-en', 'Korean compatibility diagnostics should identify wty-ko-en');
 
 const frPaths = context.activeDictionaryPaths(fr);
-assert(frPaths.length === 1, 'French should select only French-compatible dictionaries');
-assert(frPaths[0].endsWith('/wty-fr-en'), 'French should select wty-fr-en');
+assert(frPaths.length === 5, 'French should keep every enabled dictionary active');
+assert(context.languageCompatibleDictionaries(fr)[0].name === 'wty-fr-en', 'French compatibility diagnostics should identify wty-fr-en');
 
 const dePaths = context.activeDictionaryPaths(de);
-assert(dePaths.length === 1, 'German should select only German-compatible dictionaries');
-assert(dePaths[0].endsWith('/wty-de-en'), 'German should select wty-de-en');
+assert(dePaths.length === 5, 'German should keep every enabled dictionary active');
+assert(context.languageCompatibleDictionaries(de)[0].name === 'wty-de-en', 'German compatibility diagnostics should identify wty-de-en');
 
 const fingerprint = context.workerFingerprint(enPaths.concat(koPaths), en);
 assert(!fingerprint.includes('\n'), 'Worker fingerprint must stay on one config line');
 const parsed = JSON.parse(fingerprint);
 assert(parsed.language === 'en', 'Worker fingerprint should include selected language');
-assert(parsed.dictionaries.length === 2, 'Worker fingerprint should include every dictionary path');
-assert(parsed.dictionaries[0].endsWith('/wty-en-de'), 'Worker fingerprint should sort dictionary paths');
+assert(parsed.dictionaries.length === 10, 'Worker fingerprint should include every supplied dictionary path');
+assert(parsed.dictionaries[0].includes('/Jitendex.org'), 'Worker fingerprint should sort dictionary paths');
 
 assert(
-  /No English dictionaries/.test(context.dictionarySetupMessage(en, [])),
+  /No dictionaries installed\/enabled for English/.test(context.dictionarySetupMessage(en, [])),
   'English setup message should be language-specific'
 );
 assert(
-  /No French dictionaries/.test(context.dictionarySetupMessage(fr, [])),
+  /No dictionaries installed\/enabled for French/.test(context.dictionarySetupMessage(fr, [])),
   'French setup message should be language-specific'
 );
 assert(
-  /No German dictionaries/.test(context.dictionarySetupMessage(de, [])),
+  /No dictionaries installed\/enabled for German/.test(context.dictionarySetupMessage(de, [])),
   'German setup message should be language-specific'
 );
 assert(

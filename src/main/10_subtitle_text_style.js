@@ -154,7 +154,7 @@ function publishSubtitle(text) {
   currentSubtitleLineId = ++subtitleLineSerial;
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
-  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " compatibleDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
+  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " activeDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up

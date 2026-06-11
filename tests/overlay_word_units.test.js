@@ -102,6 +102,7 @@ function makeContext() {
   };
   elements.popup.classList.add('hidden');
   const sent = [];
+  const handlers = Object.create(null);
   function FakeWebSocket() { this.readyState = FakeWebSocket.OPEN; }
   FakeWebSocket.OPEN = 1;
   FakeWebSocket.CONNECTING = 0;
@@ -125,10 +126,11 @@ function makeContext() {
       createDocumentFragment() { return new FakeElement('#fragment'); }
     },
     iina: {
-      onMessage() {},
+      onMessage(name, handler) { handlers[name] = handler; },
       postMessage() {}
     },
-    __sent: sent
+    __sent: sent,
+    __handlers: handlers
   };
   vm.createContext(context);
   return context;
@@ -160,6 +162,9 @@ function enter(pos) {
 function lookupMessages() {
   return context.__sent.filter(message => message.type === 'lookup');
 }
+function activeMatchPositions() {
+  return overlay.subtitleEl.querySelectorAll('.char.active-match').map(el => Number(el.dataset.pos));
+}
 
 overlay.applyConfig({
   language: { id: 'en', label: 'English', lookupUnit: 'word', wordMode: 'latin-word' },
@@ -183,11 +188,18 @@ const firstAnchor = enter(runningStart);
 assert(lookupMessages().length === 1, 'First hover inside running should dispatch one lookup');
 assert(lookupMessages()[0].position === runningStart, 'Running lookup should be anchored at the word start');
 assert(overlay.state.currentAnchor === firstAnchor, 'Popup anchor should be the first character of running');
+context.__handlers['line-lookup-result']({
+  lineId: 1,
+  position: runningStart,
+  ok: true,
+  result: { ok: true, results: [], lookupStart: runningStart, lookupEnd: runningEnd, noResult: true, noResultReason: 'all-candidates-empty' }
+});
+assert(activeMatchPositions().length === 'running'.length, 'Latin no-result should highlight the whole word span');
 
 enter(runningStart + 1);
 enter(runningStart + 4);
 enter(runningEnd - 1);
-assert(lookupMessages().length === 1, 'Moving within running should not dispatch another lookup');
+assert(lookupMessages().length === 1, 'Moving within running after no-result should not dispatch another lookup');
 assert(overlay.state.currentAnchor === firstAnchor, 'Moving within running should keep the same popup anchor');
 
 const quicklyAnchor = enter(quicklyStart);
@@ -225,6 +237,16 @@ overlay.applyConfig({
 overlay.renderSubtitle('魔法使い', 2);
 const beforeJapanese = lookupMessages().length;
 enter(0);
+assert(activeMatchPositions().join(',') === '0', 'Japanese loading highlight should stay on the exact character');
+context.__handlers['line-lookup-result']({
+  lineId: 2,
+  position: 0,
+  ok: true,
+  result: { ok: true, results: [], lookupStart: 0, lookupEnd: 1, noResult: true, noResultReason: 'all-candidates-empty' }
+});
+assert(activeMatchPositions().join(',') === '0', 'Japanese no-result should stay on the exact character');
+enter(0);
+assert(lookupMessages().length === beforeJapanese + 1, 'Japanese no-result should be cached for the exact position');
 enter(1);
 const japaneseMessages = lookupMessages().slice(beforeJapanese);
 assert(japaneseMessages.length === 2, 'Japanese adjacent characters should remain separate lookup targets');

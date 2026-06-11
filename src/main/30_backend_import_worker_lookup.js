@@ -1,13 +1,30 @@
 function backendInstalled() { try { return file.exists(binPath()); } catch (_) { return false; } }
+async function backendBinaryMatchesBundled() {
+  if (!backendInstalled()) return false;
+  try {
+    const result = await utils.exec("/usr/bin/cmp", ["-s", bundledBinPath(), binPath()], dataRoot());
+    return !!result && result.status === 0;
+  } catch (_) {
+    return false;
+  }
+}
 async function ensureBundledBackendInstalled() {
   await ensureDataDirs();
   if (!file.exists(bundledBinPath())) {
     if (backendInstalled()) return;
     throw new Error("iinatan's lookup engine is missing. Install a packaged Apple Silicon build or run scripts/build_native_backend.sh while developing.");
   }
-  const result = await utils.exec("/bin/cp", ["-f", bundledBinPath(), binPath()], dataRoot());
+  if (await backendBinaryMatchesBundled()) return;
+  const tmpPath = binPath() + ".tmp-" + String(Date.now());
+  safeDelete(tmpPath);
+  const result = await utils.exec("/bin/cp", [bundledBinPath(), tmpPath], dataRoot());
   if (!result || result.status !== 0) throw new Error("Could not install iinatan lookup engine: " + ((result && (result.stderr || result.stdout)) || "copy failed"));
-  await execChecked("/bin/chmod", ["755", binPath()]);
+  await execChecked("/bin/chmod", ["755", tmpPath]);
+  const moved = await utils.exec("/bin/mv", ["-f", tmpPath, binPath()], dataRoot());
+  if (!moved || moved.status !== 0) {
+    safeDelete(tmpPath);
+    throw new Error("Could not activate iinatan lookup engine: " + ((moved && (moved.stderr || moved.stdout)) || "move failed"));
+  }
 }
 async function extractFirstJsonObject(raw) {
   const s = String(raw || "").trim();
@@ -40,41 +57,103 @@ function parseBackendJsonOutput(raw, stderr) {
   if (candidate && candidate !== text) {
     try { return JSON.parse(candidate); } catch (_) {}
   }
-  throw new Error("Dictionary lookup returned incomplete output. stdoutBytes=" + text.length + " stdoutPrefix=" + text.slice(0, 260) + " stderr=" + String(stderr || "").slice(0, 260));
+  throw new Error("Dictionary backend returned incomplete output. stdoutBytes=" + text.length + " stdoutPrefix=" + text.slice(0, 260) + " stderr=" + String(stderr || "").slice(0, 260));
+}
+function outputPrefixSuffix(text, limit) {
+  const s = String(text || "");
+  const n = Math.max(80, limit || 600);
+  return {
+    bytes: s.length,
+    prefix: s.slice(0, n),
+    suffix: s.length > n ? s.slice(-n) : s
+  };
+}
+function backendCommandError(stage, args, result, parsed, parseError) {
+  const label = stage || "Dictionary backend command";
+  const status = result && result.status !== undefined ? Number(result.status) : null;
+  const stdout = outputPrefixSuffix(result && result.stdout, 700);
+  const stderr = outputPrefixSuffix(result && result.stderr, 700);
+  const backendMessage = (parsed && parsed.error) || String((result && result.stderr) || "").trim() || (parseError && parseError.message) || "";
+  const message = label + " failed" + (status !== null ? " (exit " + status + ")" : "") + (backendMessage ? ": " + backendMessage : "");
+  const error = new Error(message);
+  error.backendStage = label;
+  error.backendArgs = args || [];
+  error.backendStatus = status;
+  error.backendStdoutPrefix = stdout.prefix;
+  error.backendStdoutSuffix = stdout.suffix;
+  error.backendStdoutBytes = stdout.bytes;
+  error.backendStderrPrefix = stderr.prefix;
+  error.backendStderrSuffix = stderr.suffix;
+  error.backendStderrBytes = stderr.bytes;
+  error.backendParsedJson = parsed || null;
+  if (parseError) error.backendParseError = compactError(parseError);
+  return error;
 }
 
-async function runBackendJson(args, timeoutMs) {
+async function runBackendJson(args, timeoutMs, stage) {
   await ensureBundledBackendInstalled();
   let timer = null;
   const timeout = Math.max(1000, timeoutMs || prefNumber("backendTimeoutMs", 30000));
+  const label = stage || "Dictionary backend command";
   try {
-    debugVerbose("backend exec start cwd=" + dataRoot() + " bin=" + binPath() + " args=" + JSON.stringify(args || []));
+    debugVerbose("backend exec start stage=" + label + " cwd=" + dataRoot() + " bin=" + binPath() + " args=" + JSON.stringify(args || []));
     const execStartedAt = Date.now();
     const result = await Promise.race([
       utils.exec(binPath(), args || [], dataRoot()),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Dictionary lookup timed out after " + timeout + " ms")), timeout); })
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + " timed out after " + timeout + " ms")), timeout); })
     ]);
-    if (!result) throw new Error("Dictionary lookup returned no result");
-    debugVerbose("backend exec done status=" + result.status + " elapsedMs=" + (Date.now() - execStartedAt) + " stdoutBytes=" + String(result.stdout || "").length + " stderr=" + String(result.stderr || "").slice(0, 600));
+    if (!result) throw new Error(label + " returned no process result");
+    debugVerbose("backend exec done stage=" + label + " status=" + result.status + " elapsedMs=" + (Date.now() - execStartedAt) + " stdoutBytes=" + String(result.stdout || "").length + " stderr=" + String(result.stderr || "").slice(0, 600));
     const raw = String(result.stdout || "").trim();
-    let parsed = parseBackendJsonOutput(raw, result.stderr);
-    if (result.status !== 0 || (parsed && parsed.ok === false)) throw new Error((parsed && parsed.error) || result.stderr || ("Dictionary lookup exit " + result.status));
+    let parsed = null;
+    try {
+      parsed = parseBackendJsonOutput(raw, result.stderr);
+    } catch (parseError) {
+      if (result.status !== 0) throw backendCommandError(label, args, result, null, parseError);
+      throw parseError;
+    }
+    if (result.status !== 0 || (parsed && parsed.ok === false)) throw backendCommandError(label, args, result, parsed, null);
     return parsed;
   } finally {
     if (timer !== null) clearTimeout(timer);
   }
 }
+function filenameFromPath(path) {
+  return String(path || "").split(/[\\/]/).filter(Boolean).pop() || "";
+}
+function titleFromImportResult(importResult, zipPath) {
+  const raw = String((importResult && (importResult.title || importResult.name)) || "").trim();
+  if (raw) return raw;
+  const fromZip = filenameFromPath(zipPath).replace(/\.zip$/i, "").trim();
+  return fromZip || "Imported Dictionary";
+}
+function numericImportField(importResult, snakeName, camelName) {
+  const value = importResult && (importResult[snakeName] !== undefined ? importResult[snakeName] : importResult[camelName]);
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 function updateManifestAfterImport(importResult, zipPath) {
-  if (!importResult || !importResult.title) return;
+  if (!importResult) return;
+  const title = titleFromImportResult(importResult, zipPath);
+  const dictPath = pathJoin(dictRoot(), title);
+  const meta = readDictionaryIndexMetadata(dictPath);
+  const language = dictionaryLanguageFromMetadata(meta, {
+    language: importResult.language || importResult.lang || importResult.sourceLanguage || importResult.targetLanguage
+  });
   const manifest = readManifest();
-  manifest.dictionaries[importResult.title] = {
-    title: importResult.title,
+  const existing = (manifest.dictionaries && manifest.dictionaries[title]) || {};
+  manifest.dictionaries[title] = {
+    title,
     zipPath: zipPath || "",
-    importedAt: new Date().toISOString(),
-    termCount: importResult.term_count || importResult.termCount || 0,
-    metaCount: importResult.meta_count || importResult.metaCount || 0,
-    tagCount: importResult.tag_count || importResult.tagCount || 0,
-    mediaCount: importResult.media_count || importResult.mediaCount || 0
+    importedAt: existing.importedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    language: language || "unknown",
+    termCount: numericImportField(importResult, "term_count", "termCount"),
+    metaCount: numericImportField(importResult, "meta_count", "metaCount"),
+    tagCount: numericImportField(importResult, "tag_count", "tagCount"),
+    mediaCount: numericImportField(importResult, "media_count", "mediaCount"),
+    pitchCount: numericImportField(importResult, "pitch_count", "pitchCount"),
+    freqCount: numericImportField(importResult, "freq_count", "freqCount")
   };
   writeManifest(manifest);
 }
@@ -82,26 +161,62 @@ async function importDictionaryZip(zipPath, existingTaskId) {
   if (!zipPath) return;
   let taskId = existingTaskId || null;
   const ownsTask = !taskId;
+  const importArgs = ["import", zipPath, dictRoot(), prefBool("lowRamImport", true) ? "--low-ram" : "--normal-ram"];
   try {
     await ensureBundledBackendInstalled();
     if (!taskId) taskId = startOverlayTask("dictionary-import", "Adding dictionary", "Preparing import...");
     updateOverlayTask(taskId, { title: "Adding dictionary", message: "Importing dictionary...", detail: "Large dictionaries can take several minutes." });
     const started = Date.now();
-    const result = await runBackendJson(["import", zipPath, dictRoot(), prefBool("lowRamImport", true) ? "--low-ram" : "--normal-ram"], Math.max(30000, prefNumber("importTimeoutMs", 1800000)));
-    if (!result || !result.ok) throw new Error((result && result.error) || "Import failed");
+    const selected = selectedLanguageModule();
+    debugLog("dictionary import start language=" + String(selected && selected.id || "") + " zipPath=" + JSON.stringify(String(zipPath || "")) + " zipExists=" + String(file.exists(zipPath)) + " zipFilename=" + JSON.stringify(filenameFromPath(zipPath)) + " args=" + JSON.stringify(importArgs));
+    const result = await runBackendJson(importArgs, Math.max(30000, prefNumber("importTimeoutMs", 1800000)), "Dictionary import command");
+    if (!result || !result.ok) {
+      const error = new Error((result && result.error) || "Import failed");
+      error.importStage = "backend-import";
+      throw error;
+    }
     updateOverlayTask(taskId, { title: "Adding dictionary", message: "Saving dictionary list...", detail: "Refreshing installed dictionaries." });
-    updateManifestAfterImport(result, zipPath);
+    try {
+      updateManifestAfterImport(result, zipPath);
+    } catch (error) {
+      error.importStage = "manifest-update";
+      throw error;
+    }
     activeWorkerFingerprint = null;
-    updateOverlayTask(taskId, { title: "Adding dictionary", message: "Refreshing lookup...", detail: "The new dictionary will be available for hover popups." });
-    await stopBackendWorker().catch(() => {});
+    updateOverlayTask(taskId, { title: "Adding dictionary", message: "Refreshing lookup worker...", detail: "The new dictionary will be available for hover popups." });
+    try {
+      await stopBackendWorker();
+    } catch (error) {
+      debugWarn("dictionary imported but worker refresh failed: " + compactError(error));
+      setOverlayStatus("Dictionary imported, but worker restart failed. Restart iinatan or use Debug -> Restart Dictionary Lookup.", "error", 12000);
+    }
     rebuildMenu();
     const elapsed = Math.round((Date.now() - started) / 1000);
-    const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
+    const msg = "Added " + titleFromImportResult(result, zipPath) + " (" + numericImportField(result, "term_count", "termCount") + " terms).";
     if (ownsTask) finishOverlayTask(taskId, true, msg, "Import took about " + elapsed + " seconds.");
     else updateOverlayTask(taskId, { title: "Adding dictionary", message: msg, detail: "Import took about " + elapsed + " seconds." });
+    debugLog("dictionary import complete title=" + JSON.stringify(titleFromImportResult(result, zipPath)) + " language=" + String((readManifest().dictionaries[titleFromImportResult(result, zipPath)] || {}).language || "unknown") + " elapsedSec=" + elapsed);
     return result;
   } catch (error) {
-    if (ownsTask) finishOverlayTask(taskId, false, "Could not add dictionary.", compactError(error));
+    const stage = error && (error.importStage || error.backendStage) ? String(error.importStage || error.backendStage) : "unknown";
+    debugError("dictionary import failed stage=" + stage +
+      " selectedLanguage=" + String((selectedLanguageModule() || {}).id || "") +
+      " zipPath=" + JSON.stringify(String(zipPath || "")) +
+      " zipExists=" + String(zipPath ? file.exists(zipPath) : false) +
+      " zipFilename=" + JSON.stringify(filenameFromPath(zipPath)) +
+      " args=" + JSON.stringify(importArgs) +
+      " backendExit=" + String(error && error.backendStatus !== undefined ? error.backendStatus : "") +
+      " stdoutPrefix=" + JSON.stringify(String((error && error.backendStdoutPrefix) || "").slice(0, 500)) +
+      " stdoutSuffix=" + JSON.stringify(String((error && error.backendStdoutSuffix) || "").slice(0, 500)) +
+      " stderrPrefix=" + JSON.stringify(String((error && error.backendStderrPrefix) || "").slice(0, 500)) +
+      " stderrSuffix=" + JSON.stringify(String((error && error.backendStderrSuffix) || "").slice(0, 500)) +
+      " parsedJson=" + JSON.stringify((error && error.backendParsedJson) || null) +
+      " postImportLookupAttempted=false" +
+      " error=" + compactError(error));
+    const userStage = stage === "manifest-update" ? "Manifest update failed." :
+      String(stage).indexOf("Dictionary import command") >= 0 || stage === "backend-import" ? "Backend import command failed." :
+      "Dictionary import failed.";
+    if (ownsTask) finishOverlayTask(taskId, false, "Could not add dictionary.", userStage + " " + compactError(error));
     throw error;
   }
 }
@@ -377,6 +492,11 @@ async function ensureBackendWorker(dicts, language) {
   dicts = dicts || activeDictionaryPaths(lang);
   const setupMessage = dictionarySetupMessage(lang, dicts);
   if (setupMessage) throw new Error(setupMessage);
+  const advisory = dictionaryCompatibilityWarning(lang, activeDictionaryEntries(lang));
+  if (advisory) {
+    debugWarn(advisory);
+    setOverlayStatus(advisory, "info", 7000);
+  }
   const fingerprint = workerFingerprint(dicts, lang);
   debugLog("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
   if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
@@ -446,7 +566,7 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
     "--", suffix
   ];
   const lookupStartedAt = Date.now();
-  const result = await runBackendJson(clientArgs, timeout + 2500);
+  const result = await runBackendJson(clientArgs, timeout + 2500, "Dictionary lookup command");
   debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
@@ -513,10 +633,10 @@ async function lookupAtPosition(text, position, requestId) {
     maxGlossaries
   ].join("\n");
   if (lookupCache[key]) {
-    debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
+    debugVerbose("lookupAtPosition cache hit lang=" + language.id + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText) + " noResult=" + String(!!lookupCache[key].noResult) + " cacheKey=" + JSON.stringify(languageCacheKey));
     return lookupCache[key];
   }
-  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " candidates=" + JSON.stringify(candidates.map(c => ({ text: c.text, source: c.source, reason: c.reason })).slice(0, 24)));
+  debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " candidateCount=" + candidates.length + " cacheKey=" + JSON.stringify(languageCacheKey) + " candidates=" + JSON.stringify(candidates.map(c => ({ text: c.text, source: c.source, reason: c.reason })).slice(0, 24)));
   let result = null;
   let candidateUsed = null;
   for (let i = 0; i < candidates.length; i++) {
@@ -524,6 +644,7 @@ async function lookupAtPosition(text, position, requestId) {
     const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
     debugVerbose("lookupAtPosition candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text) + " source=" + String(candidate.source || "") + " reason=" + String(candidate.reason || ""));
     const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+    debugVerbose("lookupAtPosition candidate result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
     if (!result) result = candidateResult;
     if (candidateResult && candidateResult.results && candidateResult.results.length) {
       result = candidateResult;
@@ -533,7 +654,7 @@ async function lookupAtPosition(text, position, requestId) {
     }
   }
   if (!result) result = { ok: true, results: [] };
-  if (!candidateUsed) debugVerbose("lookupAtPosition no candidate matched language=" + language.id + " candidates=" + candidates.map(c => c.text).join(", "));
+  if (!candidateUsed) debugVerbose("lookupAtPosition no-result terminal language=" + language.id + " candidateCount=" + candidates.length + " reason=all-candidates-empty cacheKey=" + JSON.stringify(languageCacheKey) + " stopScanning=true candidates=" + candidates.map(c => c.text).join(", "));
   result.text = clean;
   result.position = pos;
   result.suffix = request.suffix;
@@ -545,7 +666,11 @@ async function lookupAtPosition(text, position, requestId) {
   result.matchStart = request.matchStart;
   result.language = language.id;
   result.backendMode = backendMode;
+  result.noResult = !candidateUsed && !(result.results && result.results.length);
+  result.noResultReason = result.noResult ? "all-candidates-empty" : "";
+  result.lookupCacheKey = languageCacheKey;
   lookupCache[key] = result;
+  if (result.noResult) debugVerbose("lookupAtPosition cached no-result language=" + language.id + " cacheKey=" + JSON.stringify(languageCacheKey));
   return result;
 }
 function parseLookupPayload(payload) {
