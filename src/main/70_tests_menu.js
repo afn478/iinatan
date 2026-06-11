@@ -30,8 +30,8 @@ function testBackendLookup() {
     try {
       const result = await lookupAtPosition("魔法をかけられるのは魔法使いだけだ", 0);
       const count = result && result.results ? result.results.length : 0;
-      alert("Backend lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
-    } catch (error) { alert("Backend lookup test failed: " + compactError(error)); }
+      alert("Lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
+    } catch (error) { alert("Lookup test failed: " + compactError(error)); }
   })();
 }
 function restartBackendWorkerFromMenu() {
@@ -39,18 +39,18 @@ function restartBackendWorkerFromMenu() {
     try {
       await stopBackendWorker();
       await ensureBackendWorker(activeDictionaryPaths());
-      alert("HoshiDicts backend worker restarted. No HTTP server is running.");
-    } catch (error) { alert("Could not restart HoshiDicts backend worker: " + compactError(error)); }
+      alert("Dictionary lookup restarted.");
+    } catch (error) { alert("Could not restart dictionary lookup: " + compactError(error)); }
   })();
 }
 function stopBackendWorkerFromMenu() {
-  (async () => { await stopBackendWorker(); alert("HoshiDicts backend worker stopped."); })();
+  (async () => { await stopBackendWorker(); alert("Dictionary lookup stopped."); })();
 }
 function showInstalledDictionaries() {
   const dicts = dictionaryDirs();
   const disabled = disabledDictionaryMap();
-  if (!dicts.length) { alert("No dictionaries installed yet. Use Get Recommended Dictionaries or Import Yomitan Dictionary ZIP."); return; }
-  alert("Installed HoshiDicts dictionaries:\n\n" + dicts.map(d => (disabled[d.name] ? "[disabled] " : "[enabled] ") + d.name).join("\n"));
+  if (!dicts.length) { alert("No dictionaries installed yet. Add Jitendex or import a Yomitan dictionary ZIP."); return; }
+  alert("Installed dictionaries:\n\n" + dicts.map(d => (disabled[d.name] ? "[off] " : "[on] ") + d.name).join("\n"));
 }
 function emitDebugLogTestMessage() {
   debugLog("DEBUG TEST: plugin main log path works; enabled=" + String(enabled) + " lineId=" + currentSubtitleLineId + " bridgePort=" + overlayBridgePort);
@@ -122,7 +122,6 @@ async function runLookupPerformanceBenchmark() {
     debugLog("BENCH starting lookup performance benchmark directIpc=" + String(prefBool("directWorkerIpc", true)) + " fallback=" + String(prefBool("fallbackToClientExec", true)));
     showOSD("iinatan lookup benchmark started");
     const dicts = activeDictionaryPaths();
-    if (!backendInstalled()) throw new Error("Backend is not installed.");
     if (!dicts.length) throw new Error("No enabled dictionaries installed.");
     await ensureBackendWorker(dicts);
     lookupCache = Object.create(null);
@@ -174,8 +173,8 @@ async function runLookupPerformanceBenchmark() {
 }
 
 function showTaskPanelTest() {
-  const id = startOverlayTask("debug-task", "Task panel test", "This is where build/import progress appears.");
-  updateOverlayTask(id, { title: "Task panel test", message: "Visible at top-center of the video overlay.", detail: "If you can see this panel, backend build and dictionary import progress should also be visible here." });
+  const id = startOverlayTask("debug-task", "Task panel test", "This is where dictionary progress appears.");
+  updateOverlayTask(id, { title: "Task panel test", message: "Visible at top-center of the video overlay.", detail: "If you can see this panel, dictionary downloads and imports can show progress here." });
   setTimeout(() => finishOverlayTask(id, true, "Task panel test complete.", "The task panel will auto-hide shortly."), 4500);
 }
 
@@ -185,8 +184,8 @@ function rebuildMenu() {
     addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
 
     const dictMenu = menu.item("Dictionaries");
-    addSubMenuItemCompat(dictMenu, menu.item("Get Recommended Dictionaries", () => { getRecommendedDictionaries(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Import Yomitan Dictionary ZIP…", () => { chooseAndImportDictionary(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Add Jitendex Dictionary", () => { getRecommendedDictionaries(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Import Dictionary ZIP...", () => { chooseAndImportDictionary(); }));
     addSubMenuItemCompat(dictMenu, menu.separator());
     const disabled = disabledDictionaryMap();
     const dicts = dictionaryDirs();
@@ -201,16 +200,12 @@ function rebuildMenu() {
     }
     addMenuItemSafe(dictMenu);
 
-    const backendMenu = menu.item("Backend");
-    addSubMenuItemCompat(backendMenu, menu.item("Build/Update HoshiDicts Backend", () => { buildOrUpdateBackend(); }));
-    addSubMenuItemCompat(backendMenu, menu.item("Test Backend Lookup", () => testBackendLookup()));
-    addSubMenuItemCompat(backendMenu, menu.item("Restart Backend Worker", () => restartBackendWorkerFromMenu()));
-    addSubMenuItemCompat(backendMenu, menu.item("Stop Backend Worker", () => stopBackendWorkerFromMenu()));
-    addMenuItemSafe(backendMenu);
-
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
+    addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
+    addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
+    addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));
     addSubMenuItemCompat(debugMenu, menu.item("Show Task Panel Test", () => showTaskPanelTest()));
     addSubMenuItemCompat(debugMenu, menu.item("Emit Debug Log Test Message", () => emitDebugLogTestMessage()));
     addSubMenuItemCompat(debugMenu, menu.item("Reveal Debug Log File", () => revealDebugLogFile()));

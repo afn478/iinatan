@@ -2,7 +2,7 @@
   "name": "iinatan",
   "version": "1.6.0",
   "private": true,
-  "description": "Popup Japanese dictionary lookups for IINA subtitles using hoshidicts and Yomitan-format dictionaries",
+  "description": "Hover Japanese subtitles to see dictionary popups in IINA",
   "scripts": {
     "pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
     "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link ."

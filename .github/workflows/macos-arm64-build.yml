@@ -11,12 +11,14 @@ env:
 
 jobs:
   build:
-    name: Package and compile native backend
+    name: Package Apple Silicon plugin
     runs-on: macos-26
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Confirm Apple Silicon runner
         run: |
@@ -34,16 +36,13 @@ jobs:
       - name: Verify generated files are committed
         run: git diff --exit-code -- main.js overlay.html
 
+      - name: Compile bundled lookup engine
+        run: |
+          bash scripts/build_native_backend.sh
+          file bin/iina-hoshi-dicts
+
       - name: Package plugin
         run: python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz
-
-      - name: Compile native HoshiDicts backend
-        run: |
-          DATA_ROOT="$RUNNER_TEMP/iinatan-data"
-          mkdir -p "$DATA_ROOT/build"
-          cp src/native/iina_hoshi.cpp "$DATA_ROOT/build/iina_hoshi.cpp"
-          bash src/native/build_hoshi_backend.sh "$DATA_ROOT"
-          "$DATA_ROOT/bin/iina-hoshi-dicts" version
 
       - name: Upload plugin package
         uses: actions/upload-artifact@v4

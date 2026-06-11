@@ -1,6 +1,9 @@
 
 registerShortcut();
 rebuildMenu();
+ensureBundledBackendInstalled().catch(error => {
+  debugWarn("lookup engine install check failed: " + compactError(error));
+});
 
 event.on("iina.window-loaded", () => {
   initializeOverlay();

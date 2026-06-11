@@ -1,45 +1,13 @@
 function backendInstalled() { try { return file.exists(binPath()); } catch (_) { return false; } }
-async function writeBackendSources() {
+async function ensureBundledBackendInstalled() {
   await ensureDataDirs();
-  file.write(dataPath("build", "iina_hoshi.cpp"), HOSHI_WRAPPER_CPP);
-  file.write(dataPath("build", "build_hoshi_backend.sh"), BUILD_SCRIPT);
-  await execChecked("/bin/chmod", ["755", pathJoin(buildRoot(), "build_hoshi_backend.sh")]);
-}
-async function buildOrUpdateBackend() {
-  let log = "";
-  let taskId = null;
-  try {
-    taskId = startOverlayTask("backend-build", "Building HoshiDicts backend", "Preparing build files…");
-    await writeBackendSources();
-    updateOverlayTask(taskId, { title: "Building HoshiDicts backend", message: "Running CMake/build script…", detail: "This can take a few minutes the first time." });
-    const script = pathJoin(buildRoot(), "build_hoshi_backend.sh");
-    let lastTaskUpdate = 0;
-    const hook = data => {
-      const chunk = String(data || "");
-      log += chunk;
-      const now = Date.now();
-      if (now - lastTaskUpdate > 750) {
-        lastTaskUpdate = now;
-        const line = recentNonEmptyLine(log);
-        if (line) updateOverlayTask(taskId, { title: "Building HoshiDicts backend", message: "Compiling native backend…", detail: line.slice(-260) });
-      }
-    };
-    const result = await execChecked("/bin/bash", [script, dataRoot()], dataRoot(), hook, hook);
-    log += "\n--- stdout ---\n" + String((result && result.stdout) || "");
-    log += "\n--- stderr ---\n" + String((result && result.stderr) || "");
-    try { file.write(dataPath("build", "last_build.log"), log); } catch (_) {}
-    updateOverlayTask(taskId, { title: "Building HoshiDicts backend", message: "Finalizing…", detail: "Stopping old worker and refreshing menu." });
-    activeWorkerFingerprint = null;
-    await stopBackendWorker().catch(() => {});
-    finishOverlayTask(taskId, true, "HoshiDicts backend ready.", "Build log saved to build/last_build.log.");
-    console.log(result.stdout || log);
-    rebuildMenu();
-  } catch (error) {
-    try { file.write(dataPath("build", "last_build.log"), log + "\n--- error ---\n" + compactError(error)); } catch (_) {}
-    const message = "Could not build HoshiDicts backend.";
-    finishOverlayTask(taskId, false, message, compactError(error) + "\nA full log was saved as build/last_build.log.");
-    alert(message + " Details: " + compactError(error) + "\n\nA full log was saved to the plugin data folder as build/last_build.log.");
+  if (!file.exists(bundledBinPath())) {
+    if (backendInstalled()) return;
+    throw new Error("iinatan's lookup engine is missing. Install a packaged Apple Silicon build or run scripts/build_native_backend.sh while developing.");
   }
+  const result = await utils.exec("/bin/cp", ["-f", bundledBinPath(), binPath()], dataRoot());
+  if (!result || result.status !== 0) throw new Error("Could not install iinatan lookup engine: " + ((result && (result.stderr || result.stdout)) || "copy failed"));
+  await execChecked("/bin/chmod", ["755", binPath()]);
 }
 async function extractFirstJsonObject(raw) {
   const s = String(raw || "").trim();
@@ -72,11 +40,11 @@ function parseBackendJsonOutput(raw, stderr) {
   if (candidate && candidate !== text) {
     try { return JSON.parse(candidate); } catch (_) {}
   }
-  throw new Error("HoshiDicts backend returned incomplete or non-JSON output. stdoutBytes=" + text.length + " stdoutPrefix=" + text.slice(0, 260) + " stderr=" + String(stderr || "").slice(0, 260));
+  throw new Error("Dictionary lookup returned incomplete output. stdoutBytes=" + text.length + " stdoutPrefix=" + text.slice(0, 260) + " stderr=" + String(stderr || "").slice(0, 260));
 }
 
 async function runBackendJson(args, timeoutMs) {
-  if (!backendInstalled()) throw new Error("HoshiDicts backend is not installed. Use Plugin menu → Build/Update HoshiDicts Backend first.");
+  await ensureBundledBackendInstalled();
   let timer = null;
   const timeout = Math.max(1000, timeoutMs || prefNumber("backendTimeoutMs", 30000));
   try {
@@ -84,13 +52,13 @@ async function runBackendJson(args, timeoutMs) {
     const execStartedAt = Date.now();
     const result = await Promise.race([
       utils.exec(binPath(), args || [], dataRoot()),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("HoshiDicts backend timed out after " + timeout + " ms")), timeout); })
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Dictionary lookup timed out after " + timeout + " ms")), timeout); })
     ]);
-    if (!result) throw new Error("HoshiDicts backend returned no result");
+    if (!result) throw new Error("Dictionary lookup returned no result");
     debugVerbose("backend exec done status=" + result.status + " elapsedMs=" + (Date.now() - execStartedAt) + " stdoutBytes=" + String(result.stdout || "").length + " stderr=" + String(result.stderr || "").slice(0, 600));
     const raw = String(result.stdout || "").trim();
     let parsed = parseBackendJsonOutput(raw, result.stderr);
-    if (result.status !== 0 || (parsed && parsed.ok === false)) throw new Error((parsed && parsed.error) || result.stderr || ("HoshiDicts backend exit " + result.status));
+    if (result.status !== 0 || (parsed && parsed.ok === false)) throw new Error((parsed && parsed.error) || result.stderr || ("Dictionary lookup exit " + result.status));
     return parsed;
   } finally {
     if (timer !== null) clearTimeout(timer);
@@ -115,36 +83,35 @@ async function importDictionaryZip(zipPath, existingTaskId) {
   let taskId = existingTaskId || null;
   const ownsTask = !taskId;
   try {
-    await ensureDataDirs();
-    if (!backendInstalled()) throw new Error("HoshiDicts backend is not installed. Use Plugin menu → Build/Update HoshiDicts Backend first.");
-    if (!taskId) taskId = startOverlayTask("dictionary-import", "Installing dictionary", "Preparing import…");
-    updateOverlayTask(taskId, { title: "Installing dictionary", message: "Importing Yomitan dictionary…", detail: "This can take several minutes for large dictionaries. IINA may not expose exact percentage progress." });
+    await ensureBundledBackendInstalled();
+    if (!taskId) taskId = startOverlayTask("dictionary-import", "Adding dictionary", "Preparing import...");
+    updateOverlayTask(taskId, { title: "Adding dictionary", message: "Importing dictionary...", detail: "Large dictionaries can take several minutes." });
     const started = Date.now();
     const result = await runBackendJson(["import", zipPath, dictRoot(), prefBool("lowRamImport", true) ? "--low-ram" : "--normal-ram"], Math.max(30000, prefNumber("importTimeoutMs", 1800000)));
     if (!result || !result.ok) throw new Error((result && result.error) || "Import failed");
-    updateOverlayTask(taskId, { title: "Installing dictionary", message: "Writing manifest…", detail: "Imported data; refreshing installed dictionaries." });
+    updateOverlayTask(taskId, { title: "Adding dictionary", message: "Saving dictionary list...", detail: "Refreshing installed dictionaries." });
     updateManifestAfterImport(result, zipPath);
     activeWorkerFingerprint = null;
-    updateOverlayTask(taskId, { title: "Installing dictionary", message: "Restarting lookup worker…", detail: "Stopping old worker so the new dictionary is used." });
+    updateOverlayTask(taskId, { title: "Adding dictionary", message: "Refreshing lookup...", detail: "The new dictionary will be available for hover popups." });
     await stopBackendWorker().catch(() => {});
     rebuildMenu();
     const elapsed = Math.round((Date.now() - started) / 1000);
-    const msg = "Imported " + result.title + " (" + (result.term_count || 0) + " terms).";
+    const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
     if (ownsTask) finishOverlayTask(taskId, true, msg, "Import took about " + elapsed + " seconds.");
-    else updateOverlayTask(taskId, { title: "Installing dictionary", message: msg, detail: "Import took about " + elapsed + " seconds." });
+    else updateOverlayTask(taskId, { title: "Adding dictionary", message: msg, detail: "Import took about " + elapsed + " seconds." });
     return result;
   } catch (error) {
-    if (ownsTask) finishOverlayTask(taskId, false, "Dictionary import failed.", compactError(error));
+    if (ownsTask) finishOverlayTask(taskId, false, "Could not add dictionary.", compactError(error));
     throw error;
   }
 }
 async function chooseAndImportDictionary() {
   try {
-    const zipPath = utils.chooseFile("Choose a Yomitan dictionary .zip", { allowedFileTypes: ["zip"] });
+    const zipPath = utils.chooseFile("Choose a dictionary .zip", { allowedFileTypes: ["zip"] });
     if (!zipPath) return;
     await importDictionaryZip(zipPath);
   } catch (error) {
-    const msg = "Dictionary import failed: " + compactError(error);
+    const msg = "Could not add dictionary: " + compactError(error);
     setOverlayStatus(msg, "error", 12000);
     alert(msg);
   }
@@ -153,16 +120,16 @@ async function getRecommendedDictionaries() {
   let taskId = null;
   try {
     await ensureDataDirs();
-    taskId = startOverlayTask("recommended-dictionary", "Installing recommended dictionary", "Downloading Jitendex…");
+    taskId = startOverlayTask("recommended-dictionary", "Adding Jitendex", "Downloading dictionary...");
     const dest = pathJoin(downloadRoot(), "jitendex-yomitan.zip");
-    updateOverlayTask(taskId, { title: "Installing recommended dictionary", message: "Downloading Jitendex…", detail: RECOMMENDED_JITENDEX_URL });
+    updateOverlayTask(taskId, { title: "Adding Jitendex", message: "Downloading dictionary...", detail: RECOMMENDED_JITENDEX_URL });
     await http.download(RECOMMENDED_JITENDEX_URL, dest);
-    updateOverlayTask(taskId, { title: "Installing recommended dictionary", message: "Download complete. Importing…", detail: dest });
+    updateOverlayTask(taskId, { title: "Adding Jitendex", message: "Download complete. Importing...", detail: dest });
     const result = await importDictionaryZip(dest, taskId);
-    const msg = "Installed " + result.title + " (" + (result.term_count || 0) + " terms).";
-    finishOverlayTask(taskId, true, msg, "Recommended dictionary is ready for hover lookup.");
+    const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
+    finishOverlayTask(taskId, true, msg, "You can now hover Japanese subtitles for dictionary popups.");
   } catch (error) {
-    const msg = "Recommended dictionary install failed.";
+    const msg = "Could not add Jitendex.";
     finishOverlayTask(taskId, false, msg, compactError(error));
     alert(msg + " Details: " + compactError(error));
   }
@@ -229,7 +196,7 @@ async function stopBackendWorker() {
   await sleep(120);
 }
 async function startBackendWorkerProcess(dicts) {
-  if (!backendInstalled()) throw new Error("HoshiDicts backend is not installed. Use Plugin menu → Build/Update HoshiDicts Backend first. Rebuild once after installing v1.2.4 because the native wrapper changed.");
+  await ensureBundledBackendInstalled();
   await ensureDataDirs();
   await clearDirFiles(workerQueueDir());
   await clearDirFiles(workerResponseDir());
@@ -239,7 +206,7 @@ async function startBackendWorkerProcess(dicts) {
   writeWorkerConfig(dicts, fingerprint);
   await writeWorkerStartScript();
   const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot()], dataRoot());
-  if (!res || res.status !== 0) throw new Error("Could not start HoshiDicts worker: " + ((res && (res.stderr || res.stdout)) || "unknown error"));
+  if (!res || res.status !== 0) throw new Error("Could not start dictionary lookup: " + ((res && (res.stderr || res.stdout)) || "unknown error"));
 }
 function readWorkerReady() {
   try {
@@ -256,7 +223,7 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
     const ready = readWorkerReady();
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
-      setOverlayStatus("HoshiDicts worker ready.", "info", 2500);
+      setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
     last = ready;
@@ -264,17 +231,17 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
   }
   let logHint = "";
   try { if (file.exists(workerLogPath())) logHint = " Worker log: " + String(file.read(workerLogPath()) || "").slice(-900); } catch (_) {}
-  throw new Error("HoshiDicts worker did not become ready." + (last ? " Last state: " + JSON.stringify(last).slice(0, 500) : "") + logHint);
+  throw new Error("Dictionary lookup did not become ready." + (last ? " Last state: " + JSON.stringify(last).slice(0, 500) : "") + logHint);
 }
 async function ensureBackendWorker(dicts) {
   dicts = dicts || activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No enabled HoshiDicts dictionaries installed. Use Import Yomitan Dictionary ZIP or Get Recommended Dictionaries.");
+  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
   const fingerprint = workerFingerprint(dicts);
   if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
   if (workerStartInFlight) return workerStartInFlight;
   workerStartInFlight = (async () => {
     await stopBackendWorker().catch(() => {});
-    setOverlayStatus("Loading HoshiDicts worker…", "info", 4000);
+    setOverlayStatus("Preparing dictionary lookup...", "info", 4000);
     await startBackendWorkerProcess(dicts);
     return await waitForWorkerReady(fingerprint, Math.max(8000, prefNumber("backendTimeoutMs", 30000)));
   })();
@@ -339,13 +306,13 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
 }
 async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId) {
   debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " directIpc=" + String(prefBool("directWorkerIpc", true)));
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Starting HoshiDicts worker…" });
+  if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
       const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout);
-      if (requestId) postToOverlay("lookup-status", { requestId, message: "Native lookup returned; rendering…" });
+      if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
       debugWarn("direct worker lookup failed requestId=" + String(requestId || "") + ": " + compactError(error));
@@ -353,9 +320,9 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId)
     }
   }
 
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Direct lookup unavailable; falling back to native client…" });
+  if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
   const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout);
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Native lookup returned; rendering…" });
+  if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }
@@ -366,7 +333,7 @@ async function lookupAtPosition(text, position, requestId) {
   const suffix = chars.slice(pos).join("");
   if (!suffix || !isJapaneseish(suffix[0])) return { ok: true, text: clean, position: pos, suffix, results: [] };
   const dicts = activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No enabled HoshiDicts dictionaries installed. Use Import Yomitan Dictionary ZIP or Get Recommended Dictionaries.");
+  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
   const scanLength = Math.max(1, prefNumber("scanLength", 24));
   // Keep native stdout small enough for IINA's utils.exec bridge. The popup
   // is driven by the top parsed expression anyway; additional native results
@@ -412,4 +379,3 @@ function parseLookupPayload(payload) {
   }
   return { requestId: String(++requestSerial), position: 0, text: lastSubtitle || "" };
 }
-

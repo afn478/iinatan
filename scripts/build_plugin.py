@@ -11,16 +11,10 @@ def js_raw_template_literal(value: str) -> str:
 
 def build_files() -> None:
     main_dir = ROOT / "src" / "main"
-    native_dir = ROOT / "src" / "native"
-
     parts = []
     for path in sorted(main_dir.glob("[0-7][0-9]_*.js")):
         parts.append(path.read_text())
 
-    build_script = (native_dir / "build_hoshi_backend.sh").read_text()
-    cpp_source = (native_dir / "iina_hoshi.cpp").read_text()
-    parts.append("const BUILD_SCRIPT = String.raw`" + js_raw_template_literal(build_script) + "`;\n\n")
-    parts.append("const HOSHI_WRAPPER_CPP = String.raw`" + js_raw_template_literal(cpp_source) + "`;\n")
     parts.append((main_dir / "99_bootstrap.js").read_text())
     (ROOT / "main.js").write_text("\n".join(parts))
 
@@ -30,8 +24,8 @@ def build_files() -> None:
     html = html.replace("{{OVERLAY_JS}}", (overlay_dir / "overlay.js").read_text())
     (ROOT / "overlay.html").write_text(html)
 
-EXCLUDED_DIRS = {".git", ".github", "__pycache__", ".pytest_cache", "dist"}
-EXCLUDED_FILES = {".DS_Store", ".gitignore"}
+EXCLUDED_DIRS = {".git", ".github", "__pycache__", ".pytest_cache", "dist", "vendor", "build"}
+EXCLUDED_FILES = {".DS_Store", ".gitignore", ".gitmodules"}
 EXCLUDED_SUFFIXES = {".pyc", ".iinaplgz"}
 
 def should_package(path: Path, output: Path) -> bool:

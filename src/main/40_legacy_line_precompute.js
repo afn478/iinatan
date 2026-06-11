@@ -29,11 +29,6 @@ async function precomputeLineLookups(text, lineId) {
   if (!enabled || lineId !== currentSubtitleLineId || !clean || !isJapaneseish(clean)) return;
   if (linePrecomputeActiveLineId && linePrecomputeActiveLineId === lineId) return;
   const dicts = activeDictionaryPaths();
-  if (!backendInstalled()) {
-    debugLog("line precompute skipped: backend not installed");
-    postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: 0, message: "HoshiDicts backend is not installed. Build it from the plugin menu." });
-    return;
-  }
   if (!dicts.length) {
     debugLog("line precompute skipped: no enabled dictionaries");
     postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: 0, message: "No enabled dictionaries are installed." });
@@ -68,7 +63,7 @@ async function precomputeLineLookups(text, lineId) {
     await ensureBackendWorker(dicts);
   } catch (error) {
     debugLog("line precompute worker failed lineId=" + lineId + ": " + compactError(error));
-    postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: positions.length, message: "Worker startup failed: " + compactError(error) });
+    postToOverlay("line-lookup-progress", { lineId, ok: false, done: 0, total: positions.length, message: "Dictionary lookup is not ready: " + compactError(error) });
     return;
   }
 
@@ -132,4 +127,3 @@ async function handleLookupAt(payload) {
     postToOverlay("lookup-result", { requestId, ok: false, error: compactError(error) });
   }
 }
-

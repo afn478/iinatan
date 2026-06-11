@@ -48,9 +48,8 @@ function setEnabled(next) {
     overlay.show();
     startPolling();
     showOSD("iinatan: On");
-    if (!backendInstalled()) setOverlayStatus("HoshiDicts backend not installed. Use Plugin menu → Build/Update HoshiDicts Backend.", "error", 9000);
-    else if (!activeDictionaryPaths().length) setOverlayStatus("No dictionaries installed. Use Plugin menu → Get Recommended Dictionaries.", "error", 9000);
-    else ensureBackendWorker(activeDictionaryPaths()).catch(error => setOverlayStatus("HoshiDicts worker could not start: " + compactError(error), "error", 12000));
+    if (!activeDictionaryPaths().length) setOverlayStatus("No dictionaries installed. Use Plugins → iinatan → Dictionaries → Add Jitendex.", "error", 9000);
+    else ensureBackendWorker(activeDictionaryPaths()).catch(error => setOverlayStatus("Dictionary lookup could not start: " + compactError(error), "error", 12000));
   } else {
     resetLookupPopupPause();
     stopPolling();

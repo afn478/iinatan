@@ -218,6 +218,7 @@ function pathJoin() {
     .join("/");
 }
 let cachedDataRoot = null;
+let cachedPluginRoot = null;
 function dataRoot() {
   if (cachedDataRoot) return cachedDataRoot;
   const resolved = utils.resolvePath("@data/");
@@ -227,7 +228,45 @@ function dataRoot() {
   cachedDataRoot = String(resolved).replace(/\/+$/, "");
   return cachedDataRoot;
 }
+function parentDir(path) {
+  const s = String(path || "").replace(/\/+$/, "");
+  const idx = s.lastIndexOf("/");
+  return idx > 0 ? s.slice(0, idx) : "";
+}
+function isPluginRoot(path) {
+  try { return !!path && file.exists(pathJoin(path, "Info.json")) && file.exists(pathJoin(path, "main.js")); } catch (_) { return false; }
+}
+function normalizeFileUrlPath(path) {
+  let s = String(path || "");
+  if (s.indexOf("file://") === 0) s = s.replace(/^file:\/\//, "");
+  try { s = decodeURIComponent(s); } catch (_) {}
+  return s;
+}
+function pluginRootFromStack() {
+  try {
+    const stack = String((new Error()).stack || "");
+    const match = stack.match(/(?:file:\/\/)?(\/[^)\n]+\/main\.js)(?::\d+)?/);
+    if (match && match[1]) return parentDir(normalizeFileUrlPath(match[1]));
+  } catch (_) {}
+  return "";
+}
+function pluginRoot() {
+  if (cachedPluginRoot) return cachedPluginRoot;
+  const candidates = [];
+  try { candidates.push(utils.resolvePath(".")); } catch (_) {}
+  try { candidates.push(utils.resolvePath("./")); } catch (_) {}
+  candidates.push(pluginRootFromStack());
+  for (const candidate of candidates) {
+    const root = String(candidate || "").replace(/\/+$/, "");
+    if (root && root.charAt(0) === "/" && isPluginRoot(root)) {
+      cachedPluginRoot = root;
+      return cachedPluginRoot;
+    }
+  }
+  throw new Error("Could not locate the iinatan plugin folder.");
+}
 function dataPath() { return pathJoin.apply(null, [dataRoot()].concat(Array.prototype.slice.call(arguments))); }
+function bundledBinPath() { return pathJoin(pluginRoot(), "bin", "iina-hoshi-dicts"); }
 function binPath() { return pathJoin(dataRoot(), "bin", "iina-hoshi-dicts"); }
 function dictRoot() { return pathJoin(dataRoot(), "dictionaries"); }
 function downloadRoot() { return pathJoin(dataRoot(), "downloads"); }
