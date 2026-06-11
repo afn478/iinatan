@@ -1,0 +1,6 @@
+.DS_Store
+*.iinaplgz
+dist/
+__pycache__/
+*.pyc
+

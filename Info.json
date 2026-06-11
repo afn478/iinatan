@@ -1,0 +1,51 @@
+{
+  "name": "iinatan",
+  "identifier": "com.afn478.iinatan",
+  "version": "1.6.0",
+  "author": {
+    "name": "afn478"
+  },
+  "description": "Popup Japanese dictionary lookups for IINA subtitles, powered by Manhhao/hoshidicts and Yomitan-format dictionaries.",
+  "entry": "main.js",
+  "preferencesPage": "preferences.html",
+  "helpPage": "README.md",
+  "preferenceDefaults": {
+    "enabledByDefault": false,
+    "hideNativeSubtitles": true,
+    "fontScale": 1.0,
+    "popupScale": 0.92,
+    "popupMaxWidth": 440,
+    "maxEntries": 3,
+    "maxGlossesPerEntry": 4,
+    "scanLength": 24,
+    "hoverRequestTimeoutMs": 15000,
+    "backendTimeoutMs": 30000,
+    "importTimeoutMs": 1800000,
+    "lowRamImport": true,
+    "subtitlePollMs": 120,
+    "workerPollMs": 80,
+    "lineLookupDelayMs": 120,
+    "lineLookupYieldMs": 10,
+    "maxLineLookupPositions": 64,
+    "popupMaxHeightVh": 34,
+    "popupSubtitleGapPx": 34,
+    "pauseWhilePopupVisible": true,
+    "lookupTimeoutMs": 9000,
+    "debugLogEnabled": true,
+    "debugLogVerbose": false,
+    "directWorkerIpc": true,
+    "fallbackToClientExec": true,
+    "directIpcPollMs": 2,
+    "workerIdleSleepMs": 2
+  },
+  "permissions": [
+    "video-overlay",
+    "network-request",
+    "file-system",
+    "show-osd"
+  ],
+  "allowedDomains": [
+    "*"
+  ],
+  "globalEntry": "global.js"
+}

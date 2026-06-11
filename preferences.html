@@ -1,0 +1,177 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px -apple-system, BlinkMacSystemFont, sans-serif; margin: 18px; color: -apple-system-label; }
+    h2 { margin-top: 0; }
+    label { display: block; margin: 12px 0 4px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 6px; }
+    input[type="checkbox"] { width: auto; margin-right: 6px; }
+    .row { margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .hint { color: -apple-system-secondary-label; font-size: 12px; line-height: 1.35; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h2>iinatan</h2>
+  <p class="hint">Popup Japanese dictionary lookups for IINA subtitles. Use the plugin menu to build the Manhhao/hoshidicts backend and import Yomitan-format dictionaries.</p>
+
+  <div class="row">
+    <label><input id="enabledByDefault" type="checkbox"> Enable automatically for new player windows</label>
+  </div>
+  <div class="row">
+    <label><input id="hideNativeSubtitles" type="checkbox"> Hide native IINA subtitles while overlay is active</label>
+    <label>
+      <input type="checkbox" data-pref="pauseWhilePopupVisible">
+      Pause video while lookup popup is visible
+      <small>If the video was playing before the popup appears, pause during the popup and resume when it closes.</small>
+    </label>
+
+  </div>
+
+  <h3>Lookup behavior</h3>
+  <div class="grid">
+    <div class="row">
+      <label for="scanLength">Scan length</label>
+      <input id="scanLength" type="number" min="1" max="80" step="1">
+      <div class="hint">Maximum number of characters HoshiDicts scans rightward from the hovered character.</div>
+    </div>
+    <div class="row">
+      <label for="maxEntries">Max entries</label>
+      <input id="maxEntries" type="number" min="1" max="12" step="1">
+    </div>
+  </div>
+  <div class="grid">
+    <div class="row">
+      <label for="maxGlossesPerEntry">Max glosses per entry</label>
+      <input id="maxGlossesPerEntry" type="number" min="1" max="20" step="1">
+    </div>
+    <div class="row">
+      <label for="backendTimeoutMs">Worker startup / lookup timeout, ms</label>
+    <label>
+      Hover lookup timeout (ms)
+      <input type="number" data-pref="lookupTimeoutMs" min="1500" max="30000" step="500">
+      <small>Dedicated timeout for hovered-word dictionary lookup. Default: 9000.</small>
+    </label>
+    <label>
+      <input type="checkbox" data-pref="directWorkerIpc">
+      Use direct worker IPC for hover lookups
+      <small>Faster path: writes lookup requests directly to the persistent HoshiDicts worker queue instead of spawning a client process per hover. Default: on.</small>
+    </label>
+    <label>
+      Direct IPC poll interval (ms)
+      <input type="number" data-pref="directIpcPollMs" min="1" max="50" step="1">
+      <small>How often the plugin checks for direct worker lookup responses. Default: 2.</small>
+    </label>
+    <label>
+      Native worker idle sleep (ms)
+      <input type="number" data-pref="workerIdleSleepMs" min="1" max="50" step="1">
+      <small>How often the native worker checks its request queue while idle. Requires rebuilding the backend. Default: 2.</small>
+    </label>
+
+    <label>
+      <input type="checkbox" data-pref="fallbackToClientExec">
+      Fall back to native client process if direct IPC fails
+      <small>Safer fallback for unusual file-system bridge failures. Default: on.</small>
+    </label>
+
+
+      <input id="backendTimeoutMs" type="number" min="1000" max="120000" step="500">
+    </div>
+  </div>
+
+  <h3>Import behavior</h3>
+  <div class="row">
+    <label><input id="lowRamImport" type="checkbox"> Use low-RAM HoshiDicts import mode</label>
+    <div class="hint">Slower, but safer for large Yomitan dictionaries.</div>
+  </div>
+  <div class="row">
+    <label for="importTimeoutMs">Import timeout, ms</label>
+    <input id="importTimeoutMs" type="number" min="30000" max="7200000" step="30000">
+  </div>
+  <div class="row">
+    <label for="workerPollMs">Legacy worker poll interval, ms</label>
+    <input id="workerPollMs" type="number" min="40" max="500" step="10">
+    <div class="hint">Legacy setting. v1.2.1 lookup uses a tiny native client command to talk to the persistent HoshiDicts worker; this value is retained only for compatibility.</div>
+  </div>
+
+  <h3>Overlay</h3>
+  <div class="grid">
+    <div class="row">
+      <label for="fontScale">Subtitle font scale</label>
+      <input id="fontScale" type="number" min="0.5" max="2.0" step="0.05">
+    </div>
+    <div class="row">
+      <label for="popupScale">Popup scale</label>
+      <input id="popupScale" type="number" min="0.6" max="1.4" step="0.05">
+    </div>
+  </div>
+  <div class="grid">
+    <div class="row">
+      <label for="popupMaxWidth">Popup max width</label>
+    <label>
+      Popup max height (% of window)
+      <input type="number" data-pref="popupMaxHeightVh" min="20" max="60" step="1">
+      <small>Lower values keep the popup shorter and make scrolling more likely. Default: 34.</small>
+    </label>
+    <label>
+      Gap between popup and subtitle (px)
+      <input type="number" data-pref="popupSubtitleGapPx" min="12" max="96" step="1">
+      <small>Larger values keep the popup farther away from subtitles. Default: 34.</small>
+    </label>
+
+      <input id="popupMaxWidth" type="number" min="260" max="900" step="10">
+    </div>
+    <div class="row">
+      <label for="hoverRequestTimeoutMs">UI hover timeout, ms</label>
+      <input id="hoverRequestTimeoutMs" type="number" min="1500" max="60000" step="500">
+    </div>
+  </div>
+  <div class="row">
+    <label for="subtitlePollMs">Subtitle poll interval, ms</label>
+    <input id="subtitlePollMs" type="number" min="80" max="1000" step="20">
+  </div>
+
+  <script>
+    const ids = [
+      'enabledByDefault','hideNativeSubtitles','fontScale','popupScale','popupMaxWidth',
+      'maxEntries','maxGlossesPerEntry','scanLength','hoverRequestTimeoutMs',
+      'backendTimeoutMs','workerPollMs','importTimeoutMs','lowRamImport','subtitlePollMs'
+    ];
+    function load() {
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        const value = iina.preferences.get(id);
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = !!value;
+        else el.value = value;
+      });
+    }
+    function save(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      let value = el.type === 'checkbox' ? el.checked : Number(el.value);
+      iina.preferences.set(id, value);
+      if (iina.preferences.sync) iina.preferences.sync();
+    }
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => save(id));
+    });
+    load();
+  </script>
+
+    <label>
+      <input type="checkbox" data-pref="debugLogEnabled">
+      Enable debug logging
+      <small>Writes to IINA Log Viewer and the plugin data debug.log file.</small>
+    </label>
+    <label>
+      <input type="checkbox" data-pref="debugLogVerbose">
+      Verbose debug logging
+      <small>Includes overlay hover, popup, bridge, and lookup lifecycle details. Turn this on only while diagnosing issues.</small>
+    </label>
+</body>
+</html>

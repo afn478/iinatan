@@ -1,0 +1,49 @@
+name: macOS Apple Silicon build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Package and compile native backend
+    runs-on: macos-15-xlarge
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Confirm Apple Silicon runner
+        run: |
+          test "$(uname -m)" = "arm64"
+          sw_vers
+          xcodebuild -version
+
+      - name: Ensure build tools
+        run: |
+          brew list cmake >/dev/null 2>&1 || brew install cmake
+
+      - name: Generate plugin runtime files
+        run: python3 scripts/build_plugin.py
+
+      - name: Verify generated files are committed
+        run: git diff --exit-code -- main.js overlay.html
+
+      - name: Package plugin
+        run: python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz
+
+      - name: Compile native HoshiDicts backend
+        run: |
+          DATA_ROOT="$RUNNER_TEMP/iinatan-data"
+          mkdir -p "$DATA_ROOT/build"
+          cp src/native/iina_hoshi.cpp "$DATA_ROOT/build/iina_hoshi.cpp"
+          bash src/native/build_hoshi_backend.sh "$DATA_ROOT"
+          "$DATA_ROOT/bin/iina-hoshi-dicts" version
+
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: iinatan-plugin
+          path: dist/iinatan.iinaplgz
