@@ -9,6 +9,19 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
   }
 
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\benglish\b/.test(primary) ||
+      /(^|[^a-z])en[-_/]/.test(primary) ||
+      /(^|[^a-z])eng[-_/]/.test(primary);
+  }
+
   function lookupRequest(text, position) {
     const normalized = common.normalizeBasic(text);
     const chars = common.chars(normalized);
@@ -34,10 +47,13 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     label: "English (experimental)",
     experimental: true,
     wordMode: "latin-word",
+    lookupMode: "exact",
     deinflection: "none",
+    deinflectionMode: "none",
     dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact whole-word lookup only.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches,
     normalizeText: common.normalizeBasic,
     lookupRequest
   };

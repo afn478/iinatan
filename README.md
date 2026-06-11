@@ -28,7 +28,7 @@ You can also use **Import Yomitan Dictionary ZIP...** for local Yomitan-compatib
 
 If the file picker is unavailable in your IINA build, use **Reveal Manual Import Folder**, place one Yomitan `.zip` in that folder, then choose **Import ZIP from Manual Import Folder**. That fallback imports the local ZIP directly and does not require the recommended dictionary flow.
 
-Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection.
+Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection. Experimental English/Korean modes only enable dictionaries that look compatible with the selected language; if none are installed or enabled, iinatan keeps native subtitles visible and shows a language-specific setup message instead of starting a broken lookup worker.
 
 ## Settings
 
@@ -103,6 +103,8 @@ Useful debug actions:
 If lookups fail, first confirm that at least one dictionary is installed and enabled, then reveal `worker.log`. For development builds, run `scripts/build_native_backend.sh` if `bin/iina-hoshi-dicts` is missing.
 
 If manual dictionary import does nothing or cannot open the picker, run **Debug -> Test File Picker API** and check `debug.log`. You can always use **Dictionaries -> Reveal Manual Import Folder** followed by **Import ZIP from Manual Import Folder** to import a local Yomitan `.zip`.
+
+If English or Korean mode says no compatible dictionaries are installed, import or enable a Yomitan dictionary whose metadata/path identifies that language, such as an English-headword `en-*` dictionary for English. Japanese mode continues to use the existing Jitendex/HoshiDicts path.
 
 ## Changelog
 

@@ -271,10 +271,11 @@ function homePathFromDataRoot() {
   return root;
 }
 function backendLaunchPath() { return "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin"; }
-function writeWorkerConfig(dicts, fingerprint) {
+function writeWorkerConfig(dicts, fingerprint, language) {
   const lines = [
     "version\t" + VERSION,
     "fingerprint\t" + String(fingerprint || ""),
+    "language\t" + String((language && language.id) || ""),
     "home\t" + homePathFromDataRoot(),
     "path\t" + backendLaunchPath()
   ];
@@ -325,15 +326,17 @@ async function stopBackendWorker() {
   activeWorkerFingerprint = null;
   await sleep(120);
 }
-async function startBackendWorkerProcess(dicts) {
+async function startBackendWorkerProcess(dicts, language) {
   await ensureBundledBackendInstalled();
   await ensureDataDirs();
   await clearDirFiles(workerQueueDir());
   await clearDirFiles(workerResponseDir());
   safeDelete(workerStopPath());
   safeDelete(workerReadyPath());
-  const fingerprint = workerFingerprint(dicts);
-  writeWorkerConfig(dicts, fingerprint);
+  const lang = language || selectedLanguageModule();
+  const fingerprint = workerFingerprint(dicts, lang);
+  debugLog("start backend worker language=" + lang.id + " dictCount=" + (dicts || []).length + " fingerprint=" + fingerprint);
+  writeWorkerConfig(dicts, fingerprint, lang);
   await writeWorkerStartScript();
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
   const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot(), String(sleepMs)], dataRoot());
@@ -357,23 +360,31 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
+    if (ready && (!last || ready.fingerprint !== last.fingerprint)) {
+      debugWarn("worker ready fingerprint mismatch expected=" + JSON.stringify(String(fingerprint || "")) + " actual=" + JSON.stringify(String(ready.fingerprint || "")) + " ready=" + JSON.stringify(ready));
+    }
     last = ready;
     await sleep(180);
   }
   let logHint = "";
-  try { if (file.exists(workerLogPath())) logHint = " Worker log: " + String(file.read(workerLogPath()) || "").slice(-900); } catch (_) {}
-  throw new Error("Dictionary lookup did not become ready." + (last ? " Last state: " + JSON.stringify(last).slice(0, 500) : "") + logHint);
+  try { if (file.exists(workerLogPath())) logHint = " Worker log: " + String(file.read(workerLogPath()) || "").slice(-1400); } catch (_) {}
+  const lastState = last ? " Last ready state: " + JSON.stringify(last) : "";
+  const mismatch = last && last.fingerprint !== fingerprint ? " Expected fingerprint: " + fingerprint : "";
+  throw new Error("Dictionary lookup did not become ready." + lastState + mismatch + logHint);
 }
-async function ensureBackendWorker(dicts) {
-  dicts = dicts || activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
-  const fingerprint = workerFingerprint(dicts);
+async function ensureBackendWorker(dicts, language) {
+  const lang = language || selectedLanguageModule();
+  dicts = dicts || activeDictionaryPaths(lang);
+  const setupMessage = dictionarySetupMessage(lang, dicts);
+  if (setupMessage) throw new Error(setupMessage);
+  const fingerprint = workerFingerprint(dicts, lang);
+  debugLog("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
   if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
   if (workerStartInFlight) return workerStartInFlight;
   workerStartInFlight = (async () => {
     await stopBackendWorker().catch(() => {});
     setOverlayStatus("Preparing dictionary lookup...", "info", 4000);
-    await startBackendWorkerProcess(dicts);
+    await startBackendWorkerProcess(dicts, lang);
     return await waitForWorkerReady(fingerprint, Math.max(8000, prefNumber("backendTimeoutMs", 30000)));
   })();
   try { return await workerStartInFlight; }
@@ -384,9 +395,9 @@ async function clearPendingWorkerRequests() { await clearDirFiles(workerQueueDir
 function makeJsWorkerRequestId() {
   return "j" + String(Date.now()) + "-" + String(++requestSerial) + "-" + String(Math.floor(Math.random() * 1000000));
 }
-async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries) {
+async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries, language) {
   const ensureStartedAt = Date.now();
-  await ensureBackendWorker(dicts);
+  await ensureBackendWorker(dicts, language);
   const ensureElapsedMs = Date.now() - ensureStartedAt;
   const timeout = Math.max(1000, timeoutMs || prefNumber("lookupTimeoutMs", 9000));
   const id = makeJsWorkerRequestId();
@@ -423,8 +434,8 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
   safeDelete(req);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
 }
-async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries) {
-  await ensureBackendWorker(dicts);
+async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, language) {
+  await ensureBackendWorker(dicts, language);
   const clientArgs = [
     "client", workerRoot(),
     "--max-results", String(maxResults),
@@ -439,14 +450,15 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
-async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries) {
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
+async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries, language) {
+  const lang = language || selectedLanguageModule();
+  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
-      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
+      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
       if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
@@ -456,7 +468,7 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId,
   }
 
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
-  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
+  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
@@ -468,12 +480,14 @@ async function lookupAtPosition(text, position, requestId) {
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
   const scanLength = Math.max(1, prefNumber("scanLength", 24));
   const request = language.lookupRequest(clean, pos, scanLength);
+  debugVerbose("lookupAtPosition request language=" + language.id + " pos=" + pos + " request=" + JSON.stringify(request || {}));
   if (!request || !request.lookupText) {
     const suffix = chars.slice(pos).join("");
     return { ok: true, text: clean, position: pos, suffix, language: language.id, results: [] };
   }
-  const dicts = activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
+  const dicts = activeDictionaryPaths(language);
+  const setupMessage = dictionarySetupMessage(language, dicts);
+  if (setupMessage) throw new Error(setupMessage);
   const maxResults = Math.max(1, prefNumber("maxEntries", 3));
   const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
   const lookupText = request.lookupText;
@@ -495,7 +509,7 @@ async function lookupAtPosition(text, position, requestId) {
     return lookupCache[key];
   }
   debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries);
+  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
   result.text = clean;
   result.position = pos;
   result.suffix = request.suffix;

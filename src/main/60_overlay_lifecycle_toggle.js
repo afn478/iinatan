@@ -47,15 +47,28 @@ function stopPolling() {
   lastSubtitle = null;
   lookupInFlight = Object.create(null);
 }
+async function prepareLookupBackendForEnabledOverlay(language, dicts) {
+  const lang = language || selectedLanguageModule();
+  const compatibleDicts = dicts || activeDictionaryPaths(lang);
+  debugLog("prepare lookup backend language=" + lang.id + " label=" + lang.label + " compatibleDicts=" + compatibleDicts.length + " dicts=" + JSON.stringify(compatibleDicts.map(p => String(p).split("/").pop())));
+  const setupMessage = dictionarySetupMessage(lang, compatibleDicts);
+  if (setupMessage) throw new Error(setupMessage);
+  const ready = await ensureBackendWorker(compatibleDicts, lang);
+  debugLog("prepare lookup backend ready language=" + lang.id + " fingerprint=" + JSON.stringify((ready && ready.fingerprint) || ""));
+  return ready;
+}
 function setEnabled(next) {
   debugLog("setEnabled requested next=" + String(!!next) + " previous=" + String(enabled));
   enabled = !!next;
+  lookupBackendReadyForNativeHide = false;
   initializeOverlay();
   overlay.setClickable(enabled);
   postToOverlay("enabled", { enabled });
   postToOverlay("config", overlayConfig());
   rebuildMenu();
   if (enabled) {
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
     try {
       nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
       syncNativeSubtitleVisibility();
@@ -63,9 +76,19 @@ function setEnabled(next) {
     overlay.show();
     startPolling();
     showOSD("iinatan: On");
-    if (!activeDictionaryPaths().length) setOverlayStatus("No dictionaries installed. Use Plugins → iinatan → Dictionaries → Add Jitendex.", "error", 9000);
-    else ensureBackendWorker(activeDictionaryPaths()).catch(error => setOverlayStatus("Dictionary lookup could not start: " + compactError(error), "error", 12000));
+    prepareLookupBackendForEnabledOverlay(language, dicts).then(() => {
+      if (!enabled) return;
+      lookupBackendReadyForNativeHide = true;
+      syncNativeSubtitleVisibility();
+      setOverlayStatus("Dictionary lookup ready for " + language.label + ".", "info", 3500);
+    }).catch(error => {
+      lookupBackendReadyForNativeHide = false;
+      debugError("Dictionary lookup startup failed language=" + language.id + ": " + compactError(error));
+      try { if (nativeSubVisibilityBeforeEnable !== null) mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable); } catch (_) {}
+      setOverlayStatus(compactError(error), "error", 14000);
+    });
   } else {
+    lookupBackendReadyForNativeHide = false;
     resetLookupPopupPause();
     stopPolling();
     publishSubtitle("");

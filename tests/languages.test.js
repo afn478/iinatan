@@ -30,6 +30,12 @@ const ko = context.registry.get('ko');
 assert(ja.id === 'ja', 'Japanese language should be registered');
 assert(en.id === 'en', 'English language should be registered');
 assert(ko.id === 'ko', 'Korean language should be registered');
+assert(ja.lookupMode === 'yomitan-japanese', 'Japanese should declare HoshiDicts/Yomitan lookup mode');
+assert(en.lookupMode === 'exact', 'English should declare exact lookup mode');
+assert(ko.lookupMode === 'exact', 'Korean should declare exact lookup mode');
+assert(typeof ja.dictionaryMatches === 'function', 'Japanese should expose dictionary compatibility check');
+assert(typeof en.dictionaryMatches === 'function', 'English should expose dictionary compatibility check');
+assert(typeof ko.dictionaryMatches === 'function', 'Korean should expose dictionary compatibility check');
 
 assert(ja.isHoverableChar('魔'), 'Japanese kanji should be hoverable');
 assert(!ja.isHoverableChar('r'), 'Latin character should not be Japanese-hoverable');

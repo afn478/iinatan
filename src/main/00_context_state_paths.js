@@ -25,6 +25,7 @@ let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
+let lookupBackendReadyForNativeHide = false;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
 let hoverLookupInFlight = false;

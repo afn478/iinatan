@@ -152,22 +152,33 @@ function readCurrentSubtitle() {
 function publishSubtitle(text) {
   const normalized = text || "";
   currentSubtitleLineId = ++subtitleLineSerial;
-  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
+  const language = selectedLanguageModule();
+  const dicts = activeDictionaryPaths(language);
+  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " compatibleDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  const language = selectedLanguageModule();
-  if (normalized && language.hasLookupText(normalized) && activeDictionaryPaths().length) {
-    ensureBackendWorker(activeDictionaryPaths()).catch(error => {
+  if (normalized && language.hasLookupText(normalized) && dicts.length) {
+    ensureBackendWorker(dicts, language).catch(error => {
       debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
     });
   }
 }
+function canHideNativeSubtitlesForCurrentLanguage() {
+  if (!lookupBackendReadyForNativeHide) return false;
+  try {
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
+    if (dictionarySetupMessage(language, dicts)) return false;
+    const ready = readWorkerReady();
+    return !!ready && activeWorkerFingerprint === workerFingerprint(dicts, language) && ready.fingerprint === activeWorkerFingerprint;
+  } catch (_) { return false; }
+}
 function syncNativeSubtitleVisibility() {
   if (!enabled) return;
   try {
-    if (prefBool("hideNativeSubtitles", true)) {
+    if (prefBool("hideNativeSubtitles", true) && canHideNativeSubtitlesForCurrentLanguage()) {
       mpv.set("sub-visibility", false);
     } else if (nativeSubVisibilityBeforeEnable !== null) {
       mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);

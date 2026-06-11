@@ -34,10 +34,13 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     label: "Japanese",
     experimental: false,
     wordMode: "rightward-prefix",
+    lookupMode: "yomitan-japanese",
     deinflection: "hoshidicts-japanese",
+    deinflectionMode: "hoshidicts-japanese",
     dictionaryCompatibility: "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches: () => true,
     normalizeText: text => String(text || ""),
     lookupRequest
   };

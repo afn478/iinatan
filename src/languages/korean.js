@@ -9,6 +9,19 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     return common.KOREAN_CHAR_RE.test(String(text || ""));
   }
 
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\bkorean\b/.test(primary) ||
+      /(^|[^a-z])ko[-_/]/.test(primary) ||
+      /(^|[^a-z])kor[-_/]/.test(primary);
+  }
+
   function lookupRequest(text, position) {
     const normalized = common.normalizeBasic(text);
     const chars = common.chars(normalized);
@@ -34,10 +47,13 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     label: "Korean (experimental)",
     experimental: true,
     wordMode: "korean-run",
+    lookupMode: "exact",
     deinflection: "none",
+    deinflectionMode: "none",
     dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact contiguous-Hangul lookup only.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches,
     normalizeText: common.normalizeBasic,
     lookupRequest
   };

@@ -22,7 +22,9 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       label: selectedLanguage.label,
       experimental: !!selectedLanguage.experimental,
       wordMode: selectedLanguage.wordMode,
+      lookupMode: selectedLanguage.lookupMode || selectedLanguage.backendMode || "yomitan-japanese",
       deinflection: selectedLanguage.deinflection,
+      deinflectionMode: selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
       dictionaryCompatibility: selectedLanguage.dictionaryCompatibility
     };
   }

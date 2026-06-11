@@ -34,6 +34,10 @@ function runLanguageUnitTests() {
   check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
   check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
   check(en.isHoverableChar("r"), "Latin should be English-hoverable");
+  check(ja.lookupMode === "yomitan-japanese", "Japanese should declare Yomitan/HoshiDicts mode");
+  check(en.lookupMode === "exact", "English should declare exact lookup mode");
+  check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
+  check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
@@ -75,9 +79,10 @@ function testBackendLookup() {
 function restartBackendWorkerFromMenu() {
   (async () => {
     try {
+      const language = selectedLanguageModule();
       await stopBackendWorker();
-      await ensureBackendWorker(activeDictionaryPaths());
-      alert("Dictionary lookup restarted.");
+      await ensureBackendWorker(activeDictionaryPaths(language), language);
+      alert("Dictionary lookup restarted for " + language.label + ".");
     } catch (error) { alert("Could not restart dictionary lookup: " + compactError(error)); }
   })();
 }
@@ -159,9 +164,10 @@ async function runLookupPerformanceBenchmark() {
   try {
     debugLog("BENCH starting lookup performance benchmark directIpc=" + String(prefBool("directWorkerIpc", true)) + " fallback=" + String(prefBool("fallbackToClientExec", true)));
     showOSD("iinatan lookup benchmark started");
-    const dicts = activeDictionaryPaths();
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
     if (!dicts.length) throw new Error("No enabled dictionaries installed.");
-    await ensureBackendWorker(dicts);
+    await ensureBackendWorker(dicts, language);
     lookupCache = Object.create(null);
 
     const cases = lookupBenchmarkCases();

@@ -25,6 +25,7 @@ let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
+let lookupBackendReadyForNativeHide = false;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
 let hoverLookupInFlight = false;
@@ -381,10 +382,13 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     label: "Japanese",
     experimental: false,
     wordMode: "rightward-prefix",
+    lookupMode: "yomitan-japanese",
     deinflection: "hoshidicts-japanese",
+    deinflectionMode: "hoshidicts-japanese",
     dictionaryCompatibility: "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches: () => true,
     normalizeText: text => String(text || ""),
     lookupRequest
   };
@@ -399,6 +403,19 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
 
   function hasLookupText(text) {
     return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+  }
+
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\benglish\b/.test(primary) ||
+      /(^|[^a-z])en[-_/]/.test(primary) ||
+      /(^|[^a-z])eng[-_/]/.test(primary);
   }
 
   function lookupRequest(text, position) {
@@ -426,10 +443,13 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     label: "English (experimental)",
     experimental: true,
     wordMode: "latin-word",
+    lookupMode: "exact",
     deinflection: "none",
+    deinflectionMode: "none",
     dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact whole-word lookup only.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches,
     normalizeText: common.normalizeBasic,
     lookupRequest
   };
@@ -444,6 +464,19 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
 
   function hasLookupText(text) {
     return common.KOREAN_CHAR_RE.test(String(text || ""));
+  }
+
+  function dictionaryMatches(dict) {
+    const primary = [
+      dict && dict.name,
+      dict && dict.title,
+      dict && dict.path
+    ].join(" ").toLowerCase();
+    if (!primary) return false;
+    if (primary.indexOf("jitendex") >= 0) return false;
+    return /\bkorean\b/.test(primary) ||
+      /(^|[^a-z])ko[-_/]/.test(primary) ||
+      /(^|[^a-z])kor[-_/]/.test(primary);
   }
 
   function lookupRequest(text, position) {
@@ -471,10 +504,13 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     label: "Korean (experimental)",
     experimental: true,
     wordMode: "korean-run",
+    lookupMode: "exact",
     deinflection: "none",
+    deinflectionMode: "none",
     dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact contiguous-Hangul lookup only.",
     isHoverableChar,
     hasLookupText,
+    dictionaryMatches,
     normalizeText: common.normalizeBasic,
     lookupRequest
   };
@@ -504,7 +540,9 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       label: selectedLanguage.label,
       experimental: !!selectedLanguage.experimental,
       wordMode: selectedLanguage.wordMode,
+      lookupMode: selectedLanguage.lookupMode || selectedLanguage.backendMode || "yomitan-japanese",
       deinflection: selectedLanguage.deinflection,
+      deinflectionMode: selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
       dictionaryCompatibility: selectedLanguage.dictionaryCompatibility
     };
   }
@@ -683,22 +721,33 @@ function readCurrentSubtitle() {
 function publishSubtitle(text) {
   const normalized = text || "";
   currentSubtitleLineId = ++subtitleLineSerial;
-  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
+  const language = selectedLanguageModule();
+  const dicts = activeDictionaryPaths(language);
+  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " compatibleDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  const language = selectedLanguageModule();
-  if (normalized && language.hasLookupText(normalized) && activeDictionaryPaths().length) {
-    ensureBackendWorker(activeDictionaryPaths()).catch(error => {
+  if (normalized && language.hasLookupText(normalized) && dicts.length) {
+    ensureBackendWorker(dicts, language).catch(error => {
       debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
     });
   }
 }
+function canHideNativeSubtitlesForCurrentLanguage() {
+  if (!lookupBackendReadyForNativeHide) return false;
+  try {
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
+    if (dictionarySetupMessage(language, dicts)) return false;
+    const ready = readWorkerReady();
+    return !!ready && activeWorkerFingerprint === workerFingerprint(dicts, language) && ready.fingerprint === activeWorkerFingerprint;
+  } catch (_) { return false; }
+}
 function syncNativeSubtitleVisibility() {
   if (!enabled) return;
   try {
-    if (prefBool("hideNativeSubtitles", true)) {
+    if (prefBool("hideNativeSubtitles", true) && canHideNativeSubtitlesForCurrentLanguage()) {
       mpv.set("sub-visibility", false);
     } else if (nativeSubVisibilityBeforeEnable !== null) {
       mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
@@ -729,12 +778,34 @@ function readManifest() {
 function writeManifest(manifest) {
   try { file.write(manifestPath(), JSON.stringify(manifest || { dictionaries: {}, disabled: {} }, null, 2)); } catch (error) { console.warn("Could not write manifest: " + compactError(error)); }
 }
+function readDictionaryIndexMetadata(dictPath) {
+  try {
+    const indexPath = pathJoin(dictPath, "index.json");
+    if (!file.exists(indexPath)) return {};
+    const parsed = JSON.parse(file.read(indexPath));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    debugWarn("Could not read dictionary index metadata for " + String(dictPath || "") + ": " + compactError(error));
+    return {};
+  }
+}
 function dictionaryDirs() {
   try {
     if (!file.exists(dictRoot())) return [];
     return file.list(dictRoot(), { includeSubDir: false })
       .filter(item => item && item.isDir)
-      .map(item => ({ name: item.filename, path: item.path }))
+      .map(item => {
+        const meta = readDictionaryIndexMetadata(item.path);
+        return {
+          name: item.filename,
+          path: item.path,
+          title: meta.title || item.filename,
+          revision: meta.revision || "",
+          format: meta.format || null,
+          indexUrl: meta.indexUrl || "",
+          downloadUrl: meta.downloadUrl || ""
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.warn("Could not list dictionaries: " + compactError(error));
@@ -742,18 +813,44 @@ function dictionaryDirs() {
   }
 }
 function disabledDictionaryMap() { return readManifest().disabled || {}; }
-function activeDictionaryPaths() {
+function languageCompatibleDictionaries(language, installed) {
+  const lang = language || selectedLanguageModule();
+  const dicts = installed || dictionaryDirs();
+  if (!lang || lang.id === "ja" || typeof lang.dictionaryMatches !== "function") return dicts;
+  return dicts.filter(d => {
+    try { return !!lang.dictionaryMatches(d); }
+    catch (error) {
+      debugWarn("Dictionary compatibility check failed language=" + String(lang.id || "") + " dict=" + String(d && d.name || "") + ": " + compactError(error));
+      return false;
+    }
+  });
+}
+function activeDictionaryEntries(language) {
   const installed = dictionaryDirs();
   const disabled = disabledDictionaryMap();
   const seen = Object.create(null);
   const out = [];
-  installed.filter(d => !disabled[d.name]).forEach(d => {
+  languageCompatibleDictionaries(language || selectedLanguageModule(), installed).filter(d => !disabled[d.name]).forEach(d => {
     const p = pathJoin(dictRoot(), d.name);
-    if (!seen[p]) { seen[p] = true; out.push(p); }
+    if (!seen[p]) { seen[p] = true; out.push(d); }
   });
   return out;
 }
-function workerFingerprint(dicts) { return (dicts || activeDictionaryPaths()).slice().sort().join("\n"); }
+function activeDictionaryPaths(language) {
+  return activeDictionaryEntries(language).map(d => pathJoin(dictRoot(), d.name));
+}
+function dictionarySetupMessage(language, dicts) {
+  const lang = language || selectedLanguageModule();
+  const label = lang.label || lang.id || "selected language";
+  if (dicts && dicts.length) return "";
+  if (lang.id === "ja") return "No dictionaries installed/enabled. Use Plugins -> iinatan -> Dictionaries -> Add Jitendex.";
+  return "No " + label.replace(/\s*\(experimental\)\s*/i, "") + " dictionaries installed/enabled. Install or enable a compatible Yomitan dictionary ZIP.";
+}
+function workerFingerprint(dicts, language) {
+  const lang = language || selectedLanguageModule();
+  const paths = (dicts || activeDictionaryPaths(lang)).slice().sort();
+  return JSON.stringify({ version: VERSION, language: lang.id || "ja", dictionaries: paths });
+}
 function setDictionaryEnabled(name, enabledNow) {
   const manifest = readManifest();
   if (!manifest.disabled) manifest.disabled = {};
@@ -1075,10 +1172,11 @@ function homePathFromDataRoot() {
   return root;
 }
 function backendLaunchPath() { return "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin"; }
-function writeWorkerConfig(dicts, fingerprint) {
+function writeWorkerConfig(dicts, fingerprint, language) {
   const lines = [
     "version\t" + VERSION,
     "fingerprint\t" + String(fingerprint || ""),
+    "language\t" + String((language && language.id) || ""),
     "home\t" + homePathFromDataRoot(),
     "path\t" + backendLaunchPath()
   ];
@@ -1129,15 +1227,17 @@ async function stopBackendWorker() {
   activeWorkerFingerprint = null;
   await sleep(120);
 }
-async function startBackendWorkerProcess(dicts) {
+async function startBackendWorkerProcess(dicts, language) {
   await ensureBundledBackendInstalled();
   await ensureDataDirs();
   await clearDirFiles(workerQueueDir());
   await clearDirFiles(workerResponseDir());
   safeDelete(workerStopPath());
   safeDelete(workerReadyPath());
-  const fingerprint = workerFingerprint(dicts);
-  writeWorkerConfig(dicts, fingerprint);
+  const lang = language || selectedLanguageModule();
+  const fingerprint = workerFingerprint(dicts, lang);
+  debugLog("start backend worker language=" + lang.id + " dictCount=" + (dicts || []).length + " fingerprint=" + fingerprint);
+  writeWorkerConfig(dicts, fingerprint, lang);
   await writeWorkerStartScript();
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
   const res = await utils.exec("/bin/bash", [workerStartScriptPath(), dataRoot(), String(sleepMs)], dataRoot());
@@ -1161,23 +1261,31 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
+    if (ready && (!last || ready.fingerprint !== last.fingerprint)) {
+      debugWarn("worker ready fingerprint mismatch expected=" + JSON.stringify(String(fingerprint || "")) + " actual=" + JSON.stringify(String(ready.fingerprint || "")) + " ready=" + JSON.stringify(ready));
+    }
     last = ready;
     await sleep(180);
   }
   let logHint = "";
-  try { if (file.exists(workerLogPath())) logHint = " Worker log: " + String(file.read(workerLogPath()) || "").slice(-900); } catch (_) {}
-  throw new Error("Dictionary lookup did not become ready." + (last ? " Last state: " + JSON.stringify(last).slice(0, 500) : "") + logHint);
+  try { if (file.exists(workerLogPath())) logHint = " Worker log: " + String(file.read(workerLogPath()) || "").slice(-1400); } catch (_) {}
+  const lastState = last ? " Last ready state: " + JSON.stringify(last) : "";
+  const mismatch = last && last.fingerprint !== fingerprint ? " Expected fingerprint: " + fingerprint : "";
+  throw new Error("Dictionary lookup did not become ready." + lastState + mismatch + logHint);
 }
-async function ensureBackendWorker(dicts) {
-  dicts = dicts || activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
-  const fingerprint = workerFingerprint(dicts);
+async function ensureBackendWorker(dicts, language) {
+  const lang = language || selectedLanguageModule();
+  dicts = dicts || activeDictionaryPaths(lang);
+  const setupMessage = dictionarySetupMessage(lang, dicts);
+  if (setupMessage) throw new Error(setupMessage);
+  const fingerprint = workerFingerprint(dicts, lang);
+  debugLog("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
   if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
   if (workerStartInFlight) return workerStartInFlight;
   workerStartInFlight = (async () => {
     await stopBackendWorker().catch(() => {});
     setOverlayStatus("Preparing dictionary lookup...", "info", 4000);
-    await startBackendWorkerProcess(dicts);
+    await startBackendWorkerProcess(dicts, lang);
     return await waitForWorkerReady(fingerprint, Math.max(8000, prefNumber("backendTimeoutMs", 30000)));
   })();
   try { return await workerStartInFlight; }
@@ -1188,9 +1296,9 @@ async function clearPendingWorkerRequests() { await clearDirFiles(workerQueueDir
 function makeJsWorkerRequestId() {
   return "j" + String(Date.now()) + "-" + String(++requestSerial) + "-" + String(Math.floor(Math.random() * 1000000));
 }
-async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries) {
+async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeoutMs, backendMode, maxGlossaries, language) {
   const ensureStartedAt = Date.now();
-  await ensureBackendWorker(dicts);
+  await ensureBackendWorker(dicts, language);
   const ensureElapsedMs = Date.now() - ensureStartedAt;
   const timeout = Math.max(1000, timeoutMs || prefNumber("lookupTimeoutMs", 9000));
   const id = makeJsWorkerRequestId();
@@ -1227,8 +1335,8 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
   safeDelete(req);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
 }
-async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries) {
-  await ensureBackendWorker(dicts);
+async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, language) {
+  await ensureBackendWorker(dicts, language);
   const clientArgs = [
     "client", workerRoot(),
     "--max-results", String(maxResults),
@@ -1243,14 +1351,15 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
-async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries) {
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
+async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries, language) {
+  const lang = language || selectedLanguageModule();
+  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
-      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
+      const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
       if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
@@ -1260,7 +1369,7 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId,
   }
 
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
-  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries);
+  const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
   if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
@@ -1272,12 +1381,14 @@ async function lookupAtPosition(text, position, requestId) {
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
   const scanLength = Math.max(1, prefNumber("scanLength", 24));
   const request = language.lookupRequest(clean, pos, scanLength);
+  debugVerbose("lookupAtPosition request language=" + language.id + " pos=" + pos + " request=" + JSON.stringify(request || {}));
   if (!request || !request.lookupText) {
     const suffix = chars.slice(pos).join("");
     return { ok: true, text: clean, position: pos, suffix, language: language.id, results: [] };
   }
-  const dicts = activeDictionaryPaths();
-  if (!dicts.length) throw new Error("No dictionaries are enabled. Add Jitendex or import a Yomitan dictionary ZIP.");
+  const dicts = activeDictionaryPaths(language);
+  const setupMessage = dictionarySetupMessage(language, dicts);
+  if (setupMessage) throw new Error(setupMessage);
   const maxResults = Math.max(1, prefNumber("maxEntries", 3));
   const maxGlossaries = Math.max(1, prefNumber("maxGlossesPerEntry", 4));
   const lookupText = request.lookupText;
@@ -1299,7 +1410,7 @@ async function lookupAtPosition(text, position, requestId) {
     return lookupCache[key];
   }
   debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " lookupText=" + JSON.stringify(lookupText));
-  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries);
+  const result = await lookupViaWorker(lookupText, dicts, effectiveScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
   result.text = clean;
   result.position = pos;
   result.suffix = request.suffix;
@@ -1601,15 +1712,28 @@ function stopPolling() {
   lastSubtitle = null;
   lookupInFlight = Object.create(null);
 }
+async function prepareLookupBackendForEnabledOverlay(language, dicts) {
+  const lang = language || selectedLanguageModule();
+  const compatibleDicts = dicts || activeDictionaryPaths(lang);
+  debugLog("prepare lookup backend language=" + lang.id + " label=" + lang.label + " compatibleDicts=" + compatibleDicts.length + " dicts=" + JSON.stringify(compatibleDicts.map(p => String(p).split("/").pop())));
+  const setupMessage = dictionarySetupMessage(lang, compatibleDicts);
+  if (setupMessage) throw new Error(setupMessage);
+  const ready = await ensureBackendWorker(compatibleDicts, lang);
+  debugLog("prepare lookup backend ready language=" + lang.id + " fingerprint=" + JSON.stringify((ready && ready.fingerprint) || ""));
+  return ready;
+}
 function setEnabled(next) {
   debugLog("setEnabled requested next=" + String(!!next) + " previous=" + String(enabled));
   enabled = !!next;
+  lookupBackendReadyForNativeHide = false;
   initializeOverlay();
   overlay.setClickable(enabled);
   postToOverlay("enabled", { enabled });
   postToOverlay("config", overlayConfig());
   rebuildMenu();
   if (enabled) {
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
     try {
       nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
       syncNativeSubtitleVisibility();
@@ -1617,9 +1741,19 @@ function setEnabled(next) {
     overlay.show();
     startPolling();
     showOSD("iinatan: On");
-    if (!activeDictionaryPaths().length) setOverlayStatus("No dictionaries installed. Use Plugins → iinatan → Dictionaries → Add Jitendex.", "error", 9000);
-    else ensureBackendWorker(activeDictionaryPaths()).catch(error => setOverlayStatus("Dictionary lookup could not start: " + compactError(error), "error", 12000));
+    prepareLookupBackendForEnabledOverlay(language, dicts).then(() => {
+      if (!enabled) return;
+      lookupBackendReadyForNativeHide = true;
+      syncNativeSubtitleVisibility();
+      setOverlayStatus("Dictionary lookup ready for " + language.label + ".", "info", 3500);
+    }).catch(error => {
+      lookupBackendReadyForNativeHide = false;
+      debugError("Dictionary lookup startup failed language=" + language.id + ": " + compactError(error));
+      try { if (nativeSubVisibilityBeforeEnable !== null) mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable); } catch (_) {}
+      setOverlayStatus(compactError(error), "error", 14000);
+    });
   } else {
+    lookupBackendReadyForNativeHide = false;
     resetLookupPopupPause();
     stopPolling();
     publishSubtitle("");
@@ -1698,6 +1832,10 @@ function runLanguageUnitTests() {
   check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
   check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
   check(en.isHoverableChar("r"), "Latin should be English-hoverable");
+  check(ja.lookupMode === "yomitan-japanese", "Japanese should declare Yomitan/HoshiDicts mode");
+  check(en.lookupMode === "exact", "English should declare exact lookup mode");
+  check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
+  check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
@@ -1739,9 +1877,10 @@ function testBackendLookup() {
 function restartBackendWorkerFromMenu() {
   (async () => {
     try {
+      const language = selectedLanguageModule();
       await stopBackendWorker();
-      await ensureBackendWorker(activeDictionaryPaths());
-      alert("Dictionary lookup restarted.");
+      await ensureBackendWorker(activeDictionaryPaths(language), language);
+      alert("Dictionary lookup restarted for " + language.label + ".");
     } catch (error) { alert("Could not restart dictionary lookup: " + compactError(error)); }
   })();
 }
@@ -1823,9 +1962,10 @@ async function runLookupPerformanceBenchmark() {
   try {
     debugLog("BENCH starting lookup performance benchmark directIpc=" + String(prefBool("directWorkerIpc", true)) + " fallback=" + String(prefBool("fallbackToClientExec", true)));
     showOSD("iinatan lookup benchmark started");
-    const dicts = activeDictionaryPaths();
+    const language = selectedLanguageModule();
+    const dicts = activeDictionaryPaths(language);
     if (!dicts.length) throw new Error("No enabled dictionaries installed.");
-    await ensureBackendWorker(dicts);
+    await ensureBackendWorker(dicts, language);
     lookupCache = Object.create(null);
 
     const cases = lookupBenchmarkCases();
