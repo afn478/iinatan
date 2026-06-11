@@ -8,7 +8,7 @@
     "package": "python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz",
     "validate": "python3 scripts/build_plugin.py --validate",
     "validate:release": "python3 scripts/build_plugin.py --validate --require-backend",
-    "test": "node tests/languages.test.js && node tests/import_validation.test.js && node tests/dictionary_pipeline.test.js && node tests/check_generated_syntax.js && python3 scripts/build_plugin.py --validate",
+    "test": "node tests/languages.test.js && node tests/import_validation.test.js && node tests/dictionary_pipeline.test.js && node tests/overlay_word_units.test.js && node tests/check_generated_syntax.js && python3 scripts/build_plugin.py --validate",
     "pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
     "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link .",
     "iina:pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",

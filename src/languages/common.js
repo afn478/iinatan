@@ -12,6 +12,10 @@ const IINATAN_LANGUAGE_COMMON = (() => {
     try { return raw.normalize("NFKC"); } catch (_) { return raw; }
   }
 
+  function normalizeLatinLookup(text) {
+    return normalizeBasic(text).trim().toLowerCase();
+  }
+
   function clampPosition(position, length) {
     return Math.max(0, Math.min(Number(position) || 0, Math.max(0, Number(length) || 0)));
   }
@@ -36,6 +40,7 @@ const IINATAN_LANGUAGE_COMMON = (() => {
     KOREAN_CHAR_RE,
     chars,
     normalizeBasic,
+    normalizeLatinLookup,
     clampPosition,
     findRun,
     slice

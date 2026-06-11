@@ -493,13 +493,18 @@ async function lookupAtPosition(text, position, requestId) {
   const lookupText = request.lookupText;
   const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
   const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
+  const languageCacheKey = request.cacheKey || [
+    request.cacheStrategy || "",
+    request.lookupStart,
+    request.lookupEnd,
+    lookupText
+  ].join(":");
   const key = [
     dicts.join("|"),
     language.id,
     backendMode,
     clean,
-    pos,
-    lookupText,
+    languageCacheKey,
     effectiveScanLength,
     maxResults,
     maxGlossaries

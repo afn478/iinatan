@@ -28,7 +28,7 @@ You can also use **Import Yomitan Dictionary ZIP...** for local Yomitan-compatib
 
 If the file picker is unavailable in your IINA build, use **Reveal Manual Import Folder**, place one Yomitan `.zip` in that folder, then choose **Import ZIP from Manual Import Folder**. That fallback imports the local ZIP directly and does not require the recommended dictionary flow.
 
-Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection. Experimental English/Korean modes only enable dictionaries that look compatible with the selected language; if none are installed or enabled, iinatan keeps native subtitles visible and shows a language-specific setup message instead of starting a broken lookup worker.
+Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection. English lookup lowercases the queried word before exact lookup, so hovering `Running` queries `running`. Experimental English/Korean modes treat whole words/runs as one hover unit and only enable dictionaries that look compatible with the selected language; if none are installed or enabled, iinatan keeps native subtitles visible and shows a language-specific setup message instead of starting a broken lookup worker.
 
 ## Settings
 

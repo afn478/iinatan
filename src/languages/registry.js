@@ -21,6 +21,7 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       id: selectedLanguage.id,
       label: selectedLanguage.label,
       experimental: !!selectedLanguage.experimental,
+      lookupUnit: selectedLanguage.lookupUnit || "character",
       wordMode: selectedLanguage.wordMode,
       lookupMode: selectedLanguage.lookupMode || selectedLanguage.backendMode || "yomitan-japanese",
       deinflection: selectedLanguage.deinflection,

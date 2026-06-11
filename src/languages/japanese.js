@@ -25,7 +25,8 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
       matchStart: pos,
       backendMode: "yomitan-japanese",
       scanLength: length,
-      cacheStrategy: "exact-position"
+      cacheStrategy: "exact-position",
+      cacheKey: "char:" + pos + ":" + lookupText
     };
   }
 
@@ -33,6 +34,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     id: "ja",
     label: "Japanese",
     experimental: false,
+    lookupUnit: "character",
     wordMode: "rightward-prefix",
     lookupMode: "yomitan-japanese",
     deinflection: "hoshidicts-japanese",

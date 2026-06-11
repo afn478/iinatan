@@ -24,6 +24,7 @@
       language: {
         id: 'ja',
         label: 'Japanese',
+        lookupUnit: 'character',
         wordMode: 'rightward-prefix'
       },
       hoverRequestTimeoutMs: 15000,
@@ -83,7 +84,7 @@
 
   function findLookupRun(pos) {
     const lang = activeLanguage();
-    const isWholeWordMode = lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run';
+    const isWholeWordMode = lang.lookupUnit === 'word' || lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run';
     if (!isWholeWordMode) return null;
     if (!state.chars.length || pos < 0 || pos >= state.chars.length || !isLookupableChar(state.chars[pos])) return null;
     let start = pos;
@@ -98,6 +99,26 @@
     if (run) return run;
     const len = Math.max(1, state.config.scanLength || 24);
     return { start: pos, end: Math.min(state.chars.length, pos + len), text: state.chars.slice(pos, pos + len).join('') };
+  }
+
+  function lookupUnitForPosition(pos) {
+    const preview = lookupPreviewForPosition(pos);
+    const run = findLookupRun(pos);
+    const canonicalPos = run ? run.start : pos;
+    return {
+      pos: canonicalPos,
+      key: String(canonicalPos),
+      preview,
+      isWord: !!run
+    };
+  }
+
+  function lookupAnchorForUnit(unit, fallback) {
+    if (unit && unit.isWord) {
+      const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(unit.pos) + '"]');
+      if (el) return el;
+    }
+    return fallback || null;
   }
 
   function applyConfig(config) {
@@ -254,19 +275,28 @@
   function onCharEnter(ev) {
     if (state.hideTimer) clearTimeout(state.hideTimer);
     const target = ev.currentTarget;
-    const pos = Number(target.dataset.pos || 0);
-    overlayDebug("char enter pos=" + pos + " char=" + JSON.stringify(target.textContent || "") + " cached=" + String(!!state.lookupByPos[pos]));
+    const rawPos = Number(target.dataset.pos || 0);
+    const unit = lookupUnitForPosition(rawPos);
+    const pos = unit.pos;
+    const preview = unit.preview;
+    const anchor = lookupAnchorForUnit(unit, target);
+    const sameUnitVisible = state.currentPos === pos && !popupEl.classList.contains('hidden');
+    overlayDebug("char enter rawPos=" + rawPos + " unitPos=" + pos + " word=" + String(unit.isWord) + " char=" + JSON.stringify(target.textContent || "") + " cached=" + String(!!state.lookupByPos[pos]));
     state.currentPos = pos;
-    const preview = lookupPreviewForPosition(pos);
     const stored = state.lookupByPos[pos];
+    if (sameUnitVisible) {
+      if (stored) renderStoredLookup(stored);
+      else activateMatchRange(preview.start, preview.text || anchor.textContent || '');
+      return;
+    }
     if (stored) {
       activateStoredMatch(stored, preview);
-      showPopup(target, preview.text, '<div class="loading">Rendering…</div>');
+      showPopup(anchor, preview.text, '<div class="loading">Rendering…</div>');
       renderStoredLookup(stored);
       return;
     }
-    activateMatchRange(preview.start, preview.text || target.textContent || '');
-    showPopup(target, preview.text, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
+    activateMatchRange(preview.start, preview.text || anchor.textContent || '');
+    showPopup(anchor, preview.text, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
     requestLookupFromPlugin(pos);
   }
 
@@ -693,7 +723,9 @@
     const result = stored.result || {};
     const entries = Array.isArray(result.results) ? result.results : [];
     if (!entries.length) {
-      setPopupBody('<div class="empty">No dictionary entry found from this character.</div>');
+      const lang = activeLanguage();
+      const label = lang.lookupUnit === 'word' || lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run' ? 'word' : 'character';
+      setPopupBody('<div class="empty">No dictionary entry found from this ' + label + '.</div>');
       return;
     }
     const first = entries[0];
@@ -727,8 +759,13 @@
   }
 
   function updateCharReady(pos) {
-    const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(pos) + '"]');
-    if (el) el.classList.add('ready');
+    const run = findLookupRun(pos);
+    const start = run && Number.isFinite(Number(run.start)) ? Number(run.start) : pos;
+    const end = run && Number.isFinite(Number(run.end)) ? Number(run.end) : pos + 1;
+    for (let i = start; i < end; i++) {
+      const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(i) + '"]');
+      if (el) el.classList.add('ready');
+    }
   }
   function formatElapsed(ms) {
     ms = Math.max(0, Number(ms) || 0);

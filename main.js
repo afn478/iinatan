@@ -316,6 +316,10 @@ const IINATAN_LANGUAGE_COMMON = (() => {
     try { return raw.normalize("NFKC"); } catch (_) { return raw; }
   }
 
+  function normalizeLatinLookup(text) {
+    return normalizeBasic(text).trim().toLowerCase();
+  }
+
   function clampPosition(position, length) {
     return Math.max(0, Math.min(Number(position) || 0, Math.max(0, Number(length) || 0)));
   }
@@ -340,6 +344,7 @@ const IINATAN_LANGUAGE_COMMON = (() => {
     KOREAN_CHAR_RE,
     chars,
     normalizeBasic,
+    normalizeLatinLookup,
     clampPosition,
     findRun,
     slice
@@ -373,7 +378,8 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
       matchStart: pos,
       backendMode: "yomitan-japanese",
       scanLength: length,
-      cacheStrategy: "exact-position"
+      cacheStrategy: "exact-position",
+      cacheKey: "char:" + pos + ":" + lookupText
     };
   }
 
@@ -381,6 +387,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     id: "ja",
     label: "Japanese",
     experimental: false,
+    lookupUnit: "character",
     wordMode: "rightward-prefix",
     lookupMode: "yomitan-japanese",
     deinflection: "hoshidicts-japanese",
@@ -424,17 +431,20 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     const pos = common.clampPosition(position, chars.length);
     const run = common.findRun(chars, pos, isHoverableChar);
     if (!run) return null;
-    const lookupText = common.slice(chars, run.start, run.end);
+    const displayText = common.slice(chars, run.start, run.end);
+    const lookupText = common.normalizeLatinLookup(displayText);
+    if (!lookupText) return null;
     return {
       lookupText,
-      displayText: lookupText,
+      displayText,
       suffix: chars.slice(pos).join(""),
       lookupStart: run.start,
       lookupEnd: run.end,
       matchStart: run.start,
       backendMode: "exact",
       scanLength: common.chars(lookupText).length,
-      cacheStrategy: "exact-position"
+      cacheStrategy: "word-span",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + lookupText
     };
   }
 
@@ -442,6 +452,7 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     id: "en",
     label: "English (experimental)",
     experimental: true,
+    lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
     deinflection: "none",
@@ -495,7 +506,8 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
       matchStart: run.start,
       backendMode: "exact",
       scanLength: common.chars(lookupText).length,
-      cacheStrategy: "exact-position"
+      cacheStrategy: "word-span",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + lookupText
     };
   }
 
@@ -503,6 +515,7 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     id: "ko",
     label: "Korean (experimental)",
     experimental: true,
+    lookupUnit: "word",
     wordMode: "korean-run",
     lookupMode: "exact",
     deinflection: "none",
@@ -539,6 +552,7 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       id: selectedLanguage.id,
       label: selectedLanguage.label,
       experimental: !!selectedLanguage.experimental,
+      lookupUnit: selectedLanguage.lookupUnit || "character",
       wordMode: selectedLanguage.wordMode,
       lookupMode: selectedLanguage.lookupMode || selectedLanguage.backendMode || "yomitan-japanese",
       deinflection: selectedLanguage.deinflection,
@@ -1394,13 +1408,18 @@ async function lookupAtPosition(text, position, requestId) {
   const lookupText = request.lookupText;
   const effectiveScanLength = Math.max(1, Number(request.scanLength) || scanLength);
   const backendMode = request.backendMode || language.backendMode || "yomitan-japanese";
+  const languageCacheKey = request.cacheKey || [
+    request.cacheStrategy || "",
+    request.lookupStart,
+    request.lookupEnd,
+    lookupText
+  ].join(":");
   const key = [
     dicts.join("|"),
     language.id,
     backendMode,
     clean,
-    pos,
-    lookupText,
+    languageCacheKey,
     effectiveScanLength,
     maxResults,
     maxGlossaries
@@ -1836,13 +1855,19 @@ function runLanguageUnitTests() {
   check(en.lookupMode === "exact", "English should declare exact lookup mode");
   check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
   check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
+  check(ja.lookupUnit === "character", "Japanese should use character lookup units");
+  check(en.lookupUnit === "word", "English should use word lookup units");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
   check(enReq && enReq.suffix !== "nning", "English should not query partial rightward suffixes");
   check(enReq && enReq.backendMode === "exact", "English should use exact lookup");
+  check(enReq && enReq.cacheStrategy === "word-span", "English should use word-span cache semantics");
+  check(en.lookupRequest("RUNNING", 1, 24).lookupText === "running", "English should lowercase lookup text");
+  check(en.lookupRequest("Don't", 1, 24).lookupText === "don't", "English should preserve apostrophes while lowercasing");
   const jaReq = ja.lookupRequest("魔法使い", 1, 24);
   check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
+  check(jaReq && jaReq.cacheStrategy === "exact-position", "Japanese should keep exact-position cache semantics");
   const koReq = ko.lookupRequest("한국어 공부", 1, 24);
   check(koReq && koReq.lookupText === "한국어", "Korean should query the contiguous Hangul run");
   if (failures.length) alert("Language unit tests failed:\n" + failures.join("\n"));

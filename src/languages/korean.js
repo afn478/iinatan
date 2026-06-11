@@ -38,7 +38,8 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
       matchStart: run.start,
       backendMode: "exact",
       scanLength: common.chars(lookupText).length,
-      cacheStrategy: "exact-position"
+      cacheStrategy: "word-span",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + lookupText
     };
   }
 
@@ -46,6 +47,7 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     id: "ko",
     label: "Korean (experimental)",
     experimental: true,
+    lookupUnit: "word",
     wordMode: "korean-run",
     lookupMode: "exact",
     deinflection: "none",
