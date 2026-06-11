@@ -268,6 +268,7 @@ function bundledBinPath() { return pathJoin(pluginRoot(), "bin", "iina-hoshi-dic
 function binPath() { return pathJoin(dataRoot(), "bin", "iina-hoshi-dicts"); }
 function dictRoot() { return pathJoin(dataRoot(), "dictionaries"); }
 function downloadRoot() { return pathJoin(dataRoot(), "downloads"); }
+function importDropRoot() { return pathJoin(dataRoot(), "imports"); }
 function buildRoot() { return pathJoin(dataRoot(), "build"); }
 function manifestPath() { return pathJoin(dataRoot(), "manifest.json"); }
 function workerRoot() { return pathJoin(dataRoot(), "worker"); }
@@ -289,7 +290,7 @@ async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
   return result;
 }
 async function ensureDataDirs() {
-  await execChecked("/bin/mkdir", ["-p", dataRoot(), pathJoin(dataRoot(), "bin"), dictRoot(), downloadRoot(), buildRoot(), workerRoot(), workerQueueDir(), workerResponseDir(), workerStateDir()]);
+  await execChecked("/bin/mkdir", ["-p", dataRoot(), pathJoin(dataRoot(), "bin"), dictRoot(), downloadRoot(), importDropRoot(), buildRoot(), workerRoot(), workerQueueDir(), workerResponseDir(), workerStateDir()]);
 }
 function safeDelete(path) { try { if (file.exists(path)) file.delete(path); } catch (_) {} }
 async function clearDirFiles(dir) {

@@ -24,7 +24,11 @@ When cutting a release, update `Info.json` `version` and increment the integer `
 
 Jitendex is the recommended Japanese dictionary. Add it from **Plugins -> iinatan -> Dictionaries -> Add Jitendex Dictionary**.
 
-You can also use **Import Dictionary ZIP...** for Yomitan-compatible dictionary ZIP files. Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection.
+You can also use **Import Yomitan Dictionary ZIP...** for local Yomitan-compatible dictionary ZIP files. The import action opens IINA's file picker, validates that the selected path exists and ends in `.zip`, then imports it with the same task panel used by the recommended dictionary installer.
+
+If the file picker is unavailable in your IINA build, use **Reveal Manual Import Folder**, place one Yomitan `.zip` in that folder, then choose **Import ZIP from Manual Import Folder**. That fallback imports the local ZIP directly and does not require the recommended dictionary flow.
+
+Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English and Korean are placeholders for compatible Yomitan term dictionaries and perform exact whole-word/run lookup without deinflection.
 
 ## Settings
 
@@ -93,9 +97,12 @@ Useful debug actions:
 - **Run Language Unit Tests** checks the selected language registry assumptions, including Japanese rightward-prefix lookup and Latin whole-word lookup.
 - **Run Settings Audit Checks** verifies that key settings are readable and propagated into overlay config.
 - **Run Lookup Performance Benchmark** measures worker lookup latency with installed dictionaries.
+- **Test File Picker API** opens the same picker used by manual dictionary import and reports success, cancellation, or API failure.
 - **Reveal Debug Log File** and **Reveal Plugin Data Folder** open troubleshooting files in Finder.
 
 If lookups fail, first confirm that at least one dictionary is installed and enabled, then reveal `worker.log`. For development builds, run `scripts/build_native_backend.sh` if `bin/iina-hoshi-dicts` is missing.
+
+If manual dictionary import does nothing or cannot open the picker, run **Debug -> Test File Picker API** and check `debug.log`. You can always use **Dictionaries -> Reveal Manual Import Folder** followed by **Import ZIP from Manual Import Folder** to import a local Yomitan `.zip`.
 
 ## Changelog
 

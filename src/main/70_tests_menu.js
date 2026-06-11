@@ -223,7 +223,9 @@ function rebuildMenu() {
 
     const dictMenu = menu.item("Dictionaries");
     addSubMenuItemCompat(dictMenu, menu.item("Add Jitendex Dictionary", () => { getRecommendedDictionaries(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Import Dictionary ZIP...", () => { chooseAndImportDictionary(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Import Yomitan Dictionary ZIP...", () => { chooseAndImportDictionary(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Import ZIP from Manual Import Folder", () => { importDictionaryFromManualFolder(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Reveal Manual Import Folder", () => { revealManualImportFolder(); }));
     addSubMenuItemCompat(dictMenu, menu.separator());
     const disabled = disabledDictionaryMap();
     const dicts = dictionaryDirs();
@@ -243,6 +245,7 @@ function rebuildMenu() {
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Language Unit Tests", () => runLanguageUnitTests()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Settings Audit Checks", () => runSettingsAuditChecks()));
+    addSubMenuItemCompat(debugMenu, menu.item("Test File Picker API", () => testFilePickerApiFromMenu()));
     addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
     addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
     addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));
