@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     name: Package and compile native backend
-    runs-on: macos-15-xlarge
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
