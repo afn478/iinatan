@@ -86,9 +86,13 @@ static std::string utf8_prefix(const std::string& s, size_t max_bytes) {
   return out;
 }
 static std::string compact_glossary(const std::string& s) {
-  // Jitendex structured-content can be very large. Returning it in full via
-  // IINA utils.exec stdout can stall the plugin bridge, so cap each glossary.
-  return utf8_prefix(s, 1200);
+  // Jitendex structured-content is JSON encoded as a string. Truncating it
+  // makes the overlay fall back to showing raw JSON, so keep structured
+  // payloads intact. Plain text glossaries are safe to shorten.
+  std::string trimmed = s;
+  size_t start = trimmed.find_first_not_of(" \t\r\n");
+  if (start != std::string::npos && (trimmed[start] == '[' || trimmed[start] == '{')) return s;
+  return utf8_prefix(s, 2000);
 }
 static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_string, int max_results, int scan_length) {
   auto results = lookup.lookup(lookup_string, max_results, static_cast<size_t>(std::max(1, scan_length)));

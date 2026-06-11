@@ -824,6 +824,21 @@
     if (!s || (s[0] !== '[' && s[0] !== '{')) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
   }
+  function fallbackGlossaryText(raw) {
+    const s = String(raw || '');
+    if (!s) return '';
+    if (s.trim()[0] !== '[' && s.trim()[0] !== '{') return s;
+    const bits = [];
+    const re = /"content"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+    let match;
+    while ((match = re.exec(s)) && bits.length < 12) {
+      try {
+        const text = JSON.parse('"' + match[1] + '"');
+        if (text && !/^(sense|sense-group|sense-groups|glossary|extra-info|part-of-speech-info|example-sentence|tag)$/i.test(text)) bits.push(text);
+      } catch (_) {}
+    }
+    return bits.length ? bits.join('\n') : s;
+  }
   function renderExampleBox(node) {
     const jaNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-a')[0];
     const enNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-b')[0];
@@ -878,7 +893,7 @@
     if (glossaryItem && glossaryItem.termTags) metaBits.push('<span class="pos-pill">' + escapeHtml(glossaryItem.termTags) + '</span>');
     const metaRow = metaBits.length ? '<div class="note-row">' + metaBits.join(' ') + '</div>' : '';
     if (!parsed) {
-      return metaRow + '<div class="gloss">' + escapeHtml((glossaryItem && glossaryItem.glossary) || '').replace(/\n/g, '<br>') + '</div>';
+      return metaRow + '<div class="gloss">' + escapeHtml(fallbackGlossaryText((glossaryItem && glossaryItem.glossary) || '')).replace(/\n/g, '<br>') + '</div>';
     }
     return metaRow + renderStructuredNode(parsed);
   }
