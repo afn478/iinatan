@@ -8,8 +8,10 @@ const files = [
   'src/languages/deinflection.js',
   'src/languages/japanese.js',
   'src/languages/english.js',
+  'src/languages/french_yomitan_rules.js',
   'src/languages/french.js',
   'src/languages/german.js',
+  'src/languages/chinese.js',
   'src/languages/korean.js',
   'src/languages/registry.js',
   'src/main/20_dictionary_manifest.js'
@@ -41,6 +43,13 @@ const dictMeta = {
     title: 'wty-ko-en',
     indexUrl: 'https://example.test/dict/ko/en/index.json',
     downloadUrl: 'https://example.test/dict/ko/en/wty-ko-en.zip'
+  },
+  [dictRootPath + '/cc-cedict-zh-en/index.json']: {
+    title: 'cc-cedict-zh-en',
+    indexUrl: 'https://example.test/dict/zh/en/index.json',
+    downloadUrl: 'https://example.test/dict/zh/en/cc-cedict-zh-en.zip',
+    sourceLanguage: 'zh',
+    targetLanguage: 'en'
   }
 };
 
@@ -72,7 +81,7 @@ const context = {
     },
     list(p) {
       if (p !== dictRootPath) return [];
-      return ['Jitendex.org [2026-06-06]', 'wty-en-de', 'wty-fr-en', 'wty-de-en', 'wty-ko-en'].map(name => ({
+      return ['Jitendex.org [2026-06-06]', 'wty-en-de', 'wty-fr-en', 'wty-de-en', 'wty-ko-en', 'cc-cedict-zh-en'].map(name => ({
         filename: name,
         path: dictRootPath + '/' + name,
         isDir: true
@@ -93,35 +102,40 @@ const ja = context.languageModuleById('ja');
 const en = context.languageModuleById('en');
 const fr = context.languageModuleById('fr');
 const de = context.languageModuleById('de');
+const zh = context.languageModuleById('zh');
 const ko = context.languageModuleById('ko');
 
 context.selectedLanguage = 'ja';
-assert(context.activeDictionaryPaths(ja).length === 5, 'Japanese should preserve all enabled dictionaries');
+assert(context.activeDictionaryPaths(ja).length === 6, 'Japanese should preserve all enabled dictionaries');
 
 const enPaths = context.activeDictionaryPaths(en);
-assert(enPaths.length === 5, 'English should keep every enabled dictionary active');
+assert(enPaths.length === 6, 'English should keep every enabled dictionary active');
 assert(enPaths.some(p => p.endsWith('/Jitendex.org [2026-06-06]')), 'English should not silently hide unknown/incompatible dictionaries');
 const enCompatible = context.languageCompatibleDictionaries(en);
 assert(enCompatible.length === 1, 'English compatibility diagnostics should still identify English-looking dictionaries');
 assert(enCompatible[0].name === 'wty-en-de', 'English compatibility diagnostics should identify wty-en-de');
 
 const koPaths = context.activeDictionaryPaths(ko);
-assert(koPaths.length === 5, 'Korean should keep every enabled dictionary active');
+assert(koPaths.length === 6, 'Korean should keep every enabled dictionary active');
 assert(context.languageCompatibleDictionaries(ko)[0].name === 'wty-ko-en', 'Korean compatibility diagnostics should identify wty-ko-en');
 
 const frPaths = context.activeDictionaryPaths(fr);
-assert(frPaths.length === 5, 'French should keep every enabled dictionary active');
+assert(frPaths.length === 6, 'French should keep every enabled dictionary active');
 assert(context.languageCompatibleDictionaries(fr)[0].name === 'wty-fr-en', 'French compatibility diagnostics should identify wty-fr-en');
 
 const dePaths = context.activeDictionaryPaths(de);
-assert(dePaths.length === 5, 'German should keep every enabled dictionary active');
+assert(dePaths.length === 6, 'German should keep every enabled dictionary active');
 assert(context.languageCompatibleDictionaries(de)[0].name === 'wty-de-en', 'German compatibility diagnostics should identify wty-de-en');
+
+const zhPaths = context.activeDictionaryPaths(zh);
+assert(zhPaths.length === 6, 'Chinese should keep every enabled dictionary active');
+assert(context.languageCompatibleDictionaries(zh)[0].name === 'cc-cedict-zh-en', 'Chinese compatibility diagnostics should identify zh dictionaries');
 
 const fingerprint = context.workerFingerprint(enPaths.concat(koPaths), en);
 assert(!fingerprint.includes('\n'), 'Worker fingerprint must stay on one config line');
 const parsed = JSON.parse(fingerprint);
 assert(parsed.language === 'en', 'Worker fingerprint should include selected language');
-assert(parsed.dictionaries.length === 10, 'Worker fingerprint should include every supplied dictionary path');
+assert(parsed.dictionaries.length === 12, 'Worker fingerprint should include every supplied dictionary path');
 assert(parsed.dictionaries[0].includes('/Jitendex.org'), 'Worker fingerprint should sort dictionary paths');
 
 assert(
@@ -135,6 +149,10 @@ assert(
 assert(
   /No dictionaries installed\/enabled for German/.test(context.dictionarySetupMessage(de, [])),
   'German setup message should be language-specific'
+);
+assert(
+  /No dictionaries installed\/enabled for Chinese/.test(context.dictionarySetupMessage(zh, [])),
+  'Chinese setup message should be language-specific'
 );
 assert(
   /Add Jitendex/.test(context.dictionarySetupMessage(ja, [])),

@@ -4,7 +4,9 @@
 
 Inspected Yomitan `ext/js/language/language-transformer.js`, `language-transforms.js`, and the French/German language descriptors before touching Rougo. The plugin now follows the same core shape in `src/languages/deinflection.js`: language modules define ordered transform rules, generate multiple candidates, preserve deinflection trace/reason metadata, and pass all plausible candidates to the lookup layer instead of committing to one sanitized form too early.
 
-The implementation intentionally ports the architecture, not Yomitan's full rule tables. French and German use compact starter descriptors that cover the subtitle cases this plugin can safely handle today, while leaving room for larger rule tables later.
+French now imports the upstream Yomitan French suffix transform table from `ext/js/language/fr/french-transforms.js` at commit `462253fd3fd2f2a733ef327bc5bceedf7b797d24` into `src/languages/french_yomitan_rules.js`. That generated file is derived from GPL-3.0-or-later Yomitan source and carries an attribution header. The local French module still owns iinatan-specific candidate ordering, apostrophe handling, candidate caps, and a few practical patches that upstream marks as TODO territory, such as feminine/plural past participles.
+
+German now mirrors the upstream Yomitan German transform families from `ext/js/language/de/german-transforms.js` at the same commit: nominalization (`-ung`, `-lung`, `-rung`), `-bar`, negative `un-`, regular/separable participles, `zu` infinitives, and `-heit/-keit`. iinatan keeps its app-specific bounded right-context scan for separated verbs instead of copying Yomitan's full string-with-spaces transform model.
 
 ## Rougo Patch Layer
 

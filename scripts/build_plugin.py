@@ -27,8 +27,10 @@ LANGUAGE_PARTS = [
     "deinflection.js",
     "japanese.js",
     "english.js",
+    "french_yomitan_rules.js",
     "french.js",
     "german.js",
+    "chinese.js",
     "korean.js",
     "registry.js",
 ]
@@ -92,6 +94,7 @@ def validate_root_layout(require_backend: bool = False) -> None:
         missing.append("bin/iina-hoshi-dicts")
     if missing:
         raise SystemExit("Missing required plugin files: " + ", ".join(missing))
+    validate_hoshidicts_submodule()
 
     info = json.loads((ROOT / "Info.json").read_text())
     required_info = {
@@ -118,6 +121,29 @@ def validate_root_layout(require_backend: bool = False) -> None:
         raise SystemExit("Info.json preferencesPage must be preferences.html")
     if "/" not in info["ghRepo"]:
         raise SystemExit("Info.json ghRepo must be in owner/repo form")
+
+def validate_hoshidicts_submodule() -> None:
+    gitmodules = ROOT / ".gitmodules"
+    if not gitmodules.is_file():
+        raise SystemExit("Missing .gitmodules; vendor/hoshidicts must be tracked as a submodule")
+    text = gitmodules.read_text()
+    if "path = vendor/hoshidicts" not in text or "github.com/Manhhao/hoshidicts" not in text:
+        raise SystemExit(".gitmodules must configure vendor/hoshidicts from Manhhao/hoshidicts")
+    required = [
+        "vendor/hoshidicts/CMakeLists.txt",
+        "vendor/hoshidicts/LICENSE",
+        "vendor/hoshidicts/include/hoshidicts/query.hpp",
+        "vendor/hoshidicts/include/hoshidicts/lookup.hpp",
+        "vendor/hoshidicts/src/query.cpp",
+        "vendor/hoshidicts/src/importer.cpp",
+    ]
+    missing = [name for name in required if not (ROOT / name).is_file()]
+    if missing:
+        raise SystemExit(
+            "HoshiDicts submodule is missing or uninitialized: "
+            + ", ".join(missing)
+            + ". Run: git submodule update --init --recursive"
+        )
 
 def validate_package(path: Path) -> None:
     if not path.is_file():

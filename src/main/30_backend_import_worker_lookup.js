@@ -601,6 +601,9 @@ async function lookupAtPosition(text, position, requestId) {
   const scanLength = Math.max(1, prefNumber("scanLength", 24));
   const request = language.lookupRequest(clean, pos, scanLength);
   debugVerbose("lookupAtPosition request language=" + language.id + " pos=" + pos + " request=" + JSON.stringify(request || {}));
+  if (language.id === "fr") debugVerbose("French deinflection rule loading upstreamRules=" + String(language.upstreamRuleCount || "unknown") + " mode=" + String(language.deinflectionMode || language.deinflection || ""));
+  if (language.id === "de") debugVerbose("German deinflection rule loading mode=" + String(language.deinflectionMode || language.deinflection || ""));
+  if (language.id === "zh") debugVerbose("Chinese parser/preprocessor selection mode=" + String((request && request.backendMode) || language.lookupMode || "") + " scanLength=" + String((request && request.scanLength) || scanLength));
   if (!request || !request.lookupText) {
     const suffix = chars.slice(pos).join("");
     return { ok: true, text: clean, position: pos, suffix, language: language.id, results: [] };

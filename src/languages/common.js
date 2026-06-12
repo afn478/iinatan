@@ -1,5 +1,6 @@
 const IINATAN_LANGUAGE_COMMON = (() => {
   const JAPANESE_CHAR_RE = /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/;
+  const CHINESE_CHAR_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
   const LATIN_WORD_CHAR_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/;
   const APOSTROPHE_RE = /['’ʼ＇‘‛]/g;
   const EDGE_PUNCTUATION_RE = /^[\s.,!?;:()[\]{}"“”«»‹›…]+|[\s.,!?;:()[\]{}"“”«»‹›…]+$/g;
@@ -73,6 +74,7 @@ const IINATAN_LANGUAGE_COMMON = (() => {
 
   return {
     JAPANESE_CHAR_RE,
+    CHINESE_CHAR_RE,
     LATIN_WORD_CHAR_RE,
     KOREAN_CHAR_RE,
     APOSTROPHE_RE,

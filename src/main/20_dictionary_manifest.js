@@ -30,6 +30,7 @@ function normalizeDictionaryLanguage(value) {
   if (/^(fr|fra|fre|french|francais|français)$/.test(lang)) return "fr";
   if (/^(de|deu|ger|german|deutsch)$/.test(lang)) return "de";
   if (/^(ko|kor|korean)$/.test(lang)) return "ko";
+  if (/^(zh|zho|chi|cmn|yue|wuu|hak|nan|chinese|mandarin|cantonese|hanzi|hanyu|zhongwen)$/.test(lang)) return "zh";
   return lang;
 }
 function dictionaryLanguageFromMetadata(meta, manifestEntry) {

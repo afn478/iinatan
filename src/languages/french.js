@@ -1,6 +1,7 @@
 const IINATAN_FRENCH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const YOMITAN_RULES = typeof IINATAN_FRENCH_YOMITAN_SUFFIX_RULES !== "undefined" ? IINATAN_FRENCH_YOMITAN_SUFFIX_RULES : [];
   const ELIDED_PREFIXES = {
     c: true,
     d: true,
@@ -13,9 +14,19 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
     t: true
   };
 
+  function yomitanFrenchRules() {
+    const rules = [];
+    for (let i = 0; i < YOMITAN_RULES.length; i++) {
+      const rule = YOMITAN_RULES[i];
+      if (!rule || rule.length < 4) continue;
+      rules.push(deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], "Yomitan " + (rule[4] || "French transform")));
+    }
+    return rules;
+  }
+
   const transformer = deinflect.createTransformer({
     maxDepth: 3,
-    maxResults: 72,
+    maxResults: 128,
     conditions: [
       { name: "v", isDefault: true },
       { name: "n", isDefault: true },
@@ -23,40 +34,20 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
       { name: "adv", isDefault: true },
       { name: "aux", isDefault: true }
     ],
-    rules: [
-      deinflect.wholeWordInflection("suis", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("es", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("est", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("sommes", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("êtes", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("sont", "être", "aux", "v", "être"),
-      deinflect.wholeWordInflection("ai", "avoir", "aux", "v", "avoir"),
-      deinflect.wholeWordInflection("as", "avoir", "aux", "v", "avoir"),
-      deinflect.wholeWordInflection("a", "avoir", "aux", "v", "avoir"),
-      deinflect.wholeWordInflection("avons", "avoir", "aux", "v", "avoir"),
-      deinflect.wholeWordInflection("avez", "avoir", "aux", "v", "avoir"),
-      deinflect.wholeWordInflection("ont", "avoir", "aux", "v", "avoir"),
+    rules: yomitanFrenchRules().concat([
       deinflect.wholeWordInflection("compris", "comprendre", "v", "v", "irregular past participle"),
       deinflect.suffixInflection("ées", "er", "v", "v", "past participle -ées"),
       deinflect.suffixInflection("ée", "er", "v", "v", "past participle -ée"),
       deinflect.suffixInflection("és", "er", "v", "v", "past participle -és"),
       deinflect.suffixInflection("é", "er", "v", "v", "past participle -é"),
+      deinflect.suffixInflection("ies", "ir", "v", "v", "past participle -ies"),
+      deinflect.suffixInflection("ie", "ir", "v", "v", "past participle -ie"),
       deinflect.suffixInflection("çons", "cer", "v", "v", "present -çons"),
       deinflect.suffixInflection("geons", "ger", "v", "v", "present -geons"),
-      deinflect.suffixInflection("e", "er", "v", "v", "present -e"),
-      deinflect.suffixInflection("es", "er", "v", "v", "present -es"),
-      deinflect.suffixInflection("ons", "er", "v", "v", "present -ons"),
-      deinflect.suffixInflection("ez", "er", "v", "v", "present -ez"),
-      deinflect.suffixInflection("ent", "er", "v", "v", "present -ent"),
-      deinflect.suffixInflection("is", "ir", "v", "v", "present -is"),
-      deinflect.suffixInflection("it", "ir", "v", "v", "present -it"),
-      deinflect.suffixInflection("issons", "ir", "v", "v", "present -issons"),
-      deinflect.suffixInflection("issez", "ir", "v", "v", "present -issez"),
-      deinflect.suffixInflection("issent", "ir", "v", "v", "present -issent"),
       deinflect.suffixInflection("amment", "ant", "adv", "adj", "adverb -amment"),
       deinflect.suffixInflection("emment", "ent", "adv", "adj", "adverb -emment"),
       deinflect.suffixInflection("ment", "", "adv", "adj", "adverb -ment")
-    ]
+    ])
   });
 
   function isHoverableChar(ch) {
@@ -122,7 +113,7 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
 
     const baseCount = list.length;
     for (let i = 0; i < baseCount; i++) {
-      deinflect.appendTransforms(list, seen, list[i], transformer, "fr", 18);
+      deinflect.appendTransforms(list, seen, list[i], transformer, "fr", 36);
     }
     return list;
   }
@@ -161,6 +152,7 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
     deinflection: "yomitan-style-french",
     deinflectionMode: "yomitan-style-french",
     dictionaryCompatibility: "Yomitan-compatible French-headword term dictionaries; apostrophe/elision-aware exact lookup.",
+    upstreamRuleCount: YOMITAN_RULES.length,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,

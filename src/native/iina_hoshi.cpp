@@ -96,6 +96,66 @@ static std::string compact_glossary(const std::string& s) {
   if (start != std::string::npos && (trimmed[start] == '[' || trimmed[start] == '{')) return s;
   return utf8_prefix(s, 2000);
 }
+static void append_int_array(std::ostringstream& out, const std::vector<int>& values) {
+  out << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i) out << ",";
+    out << values[i];
+  }
+  out << "]";
+}
+static void append_term_metadata_json(std::ostringstream& out, const TermResult& term) {
+  out << ",\"frequencies\":[";
+  for (size_t i = 0; i < term.frequencies.size(); ++i) {
+    const auto& entry = term.frequencies[i];
+    if (i) out << ",";
+    out << "{\"dict\":" << json_quote(entry.dict_name) << ",\"frequencies\":[";
+    for (size_t j = 0; j < entry.frequencies.size(); ++j) {
+      const auto& freq = entry.frequencies[j];
+      if (j) out << ",";
+      out << "{\"value\":" << freq.value
+          << ",\"displayValue\":" << json_quote(freq.display_value) << "}";
+    }
+    out << "]}";
+  }
+  out << "],\"pitches\":[";
+  for (size_t i = 0; i < term.pitches.size(); ++i) {
+    const auto& entry = term.pitches[i];
+    if (i) out << ",";
+    out << "{\"dict\":" << json_quote(entry.dict_name)
+        << ",\"positions\":";
+    append_int_array(out, entry.pitch_positions);
+    out << ",\"transcriptions\":[";
+    for (size_t j = 0; j < entry.transcriptions.size(); ++j) {
+      if (j) out << ",";
+      out << json_quote(entry.transcriptions[j]);
+    }
+    out << "]}";
+  }
+  out << "]";
+}
+static void add_all_dictionary_types(DictionaryQuery& query, const std::vector<std::string>& dict_paths) {
+  for (const auto& p : dict_paths) {
+    query.add_term_dict(p);
+    query.add_freq_dict(p);
+    query.add_pitch_dict(p);
+  }
+}
+static std::vector<size_t> utf8_prefix_end_offsets(const std::string& s, size_t max_chars) {
+  std::vector<size_t> ends;
+  for (size_t i = 0; i < s.size() && ends.size() < max_chars;) {
+    unsigned char c = static_cast<unsigned char>(s[i]);
+    size_t n = 1;
+    if ((c & 0x80) == 0) n = 1;
+    else if ((c & 0xE0) == 0xC0) n = 2;
+    else if ((c & 0xF0) == 0xE0) n = 3;
+    else if ((c & 0xF8) == 0xF0) n = 4;
+    if (i + n > s.size()) break;
+    i += n;
+    ends.push_back(i);
+  }
+  return ends;
+}
 static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_string, int max_results, int scan_length, int max_glossaries) {
   auto results = lookup.lookup(lookup_string, max_results, static_cast<size_t>(std::max(1, scan_length)));
   std::ostringstream out;
@@ -128,7 +188,9 @@ static std::string lookup_to_json(Lookup& lookup, const std::string& lookup_stri
           << ",\"definitionTags\":" << json_quote(gl.definition_tags)
           << ",\"termTags\":" << json_quote(gl.term_tags) << "}";
     }
-    out << "]}}";
+    out << "]";
+    append_term_metadata_json(out, r.term);
+    out << "}}";
   }
   out << "]}\n";
   return out.str();
@@ -161,7 +223,55 @@ static std::string exact_lookup_to_json(DictionaryQuery& query, const std::strin
           << ",\"definitionTags\":" << json_quote(gl.definition_tags)
           << ",\"termTags\":" << json_quote(gl.term_tags) << "}";
     }
-    out << "]}}";
+    out << "]";
+    append_term_metadata_json(out, term);
+    out << "}}";
+  }
+  out << "]}\n";
+  return out.str();
+}
+static std::string prefix_lookup_to_json(DictionaryQuery& query, const std::string& lookup_string, int max_results, int scan_length, int max_glossaries) {
+  const auto ends = utf8_prefix_end_offsets(lookup_string, static_cast<size_t>(std::max(1, scan_length)));
+  std::string matched;
+  std::vector<TermResult> terms;
+  for (size_t i = ends.size(); i > 0; --i) {
+    std::string candidate = lookup_string.substr(0, ends[i - 1]);
+    auto found = query.query(candidate);
+    if (!found.empty()) {
+      matched = candidate;
+      terms = std::move(found);
+      break;
+    }
+  }
+  if (terms.size() > static_cast<size_t>(max_results)) terms.resize(static_cast<size_t>(std::max(1, max_results)));
+  std::ostringstream out;
+  out << "{\"ok\":true,\"lookupString\":" << json_quote(lookup_string)
+      << ",\"scanLength\":" << scan_length
+      << ",\"mode\":\"prefix\""
+      << ",\"resultCount\":" << terms.size()
+      << ",\"results\":[";
+  for (size_t i = 0; i < terms.size(); ++i) {
+    const auto& term = terms[i];
+    if (i) out << ",";
+    out << "{\"matched\":" << json_quote(matched)
+        << ",\"deinflected\":" << json_quote(matched)
+        << ",\"preprocessorSteps\":0"
+        << ",\"trace\":[],\"term\":{\"expression\":" << json_quote(term.expression)
+        << ",\"reading\":" << json_quote(term.reading)
+        << ",\"rules\":" << json_quote(term.rules)
+        << ",\"glossaries\":[";
+    size_t glossary_limit = std::min<size_t>(term.glossaries.size(), static_cast<size_t>(std::max(1, max_glossaries)));
+    for (size_t g = 0; g < glossary_limit; ++g) {
+      const auto& gl = term.glossaries[g];
+      if (g) out << ",";
+      out << "{\"dict\":" << json_quote(gl.dict_name)
+          << ",\"glossary\":" << json_quote(compact_glossary(gl.glossary))
+          << ",\"definitionTags\":" << json_quote(gl.definition_tags)
+          << ",\"termTags\":" << json_quote(gl.term_tags) << "}";
+    }
+    out << "]";
+    append_term_metadata_json(out, term);
+    out << "}}";
   }
   out << "]}\n";
   return out.str();
@@ -250,9 +360,13 @@ static void cmd_lookup(int argc, char** argv) {
   if (dict_paths.empty()) { print_error("no dictionary paths supplied"); std::exit(2); }
   if (lookup_string.empty()) { print_error("no lookup string supplied"); std::exit(2); }
   DictionaryQuery dict_query;
-  for (const auto& p : dict_paths) dict_query.add_term_dict(p);
+  add_all_dictionary_types(dict_query, dict_paths);
   if (mode == "exact") {
     std::cout << exact_lookup_to_json(dict_query, lookup_string, max_results, max_glossaries);
+    return;
+  }
+  if (mode == "prefix") {
+    std::cout << prefix_lookup_to_json(dict_query, lookup_string, max_results, scan_length, max_glossaries);
     return;
   }
   Deinflector deinflector;
@@ -291,7 +405,7 @@ static void cmd_worker(int argc, char** argv) {
   WorkerConfig cfg = read_worker_config(config_path);
   if (cfg.dicts.empty()) throw std::runtime_error("worker config has no dictionaries");
   DictionaryQuery dict_query;
-  for (const auto& p : cfg.dicts) dict_query.add_term_dict(p);
+  add_all_dictionary_types(dict_query, cfg.dicts);
   Deinflector deinflector;
   Lookup lookup(dict_query, deinflector);
   write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + "}\n");
@@ -322,7 +436,9 @@ static void cmd_worker(int argc, char** argv) {
         std::cerr << "lookup request " << request_id << " text_bytes=" << text.size() << " scan=" << scan_length << " max=" << max_results << " glossaries=" << max_glossaries << " mode=" << mode << "\n";
         std::string out = (mode == "exact")
             ? exact_lookup_to_json(dict_query, text, max_results, max_glossaries)
-            : lookup_to_json(lookup, text, max_results, scan_length, max_glossaries);
+            : (mode == "prefix")
+                ? prefix_lookup_to_json(dict_query, text, max_results, scan_length, max_glossaries)
+                : lookup_to_json(lookup, text, max_results, scan_length, max_glossaries);
         write_file_atomic(resp, out);
         std::cerr << "lookup response " << request_id << " bytes=" << out.size() << "\n";
       } catch (const std::exception& e) {
@@ -402,7 +518,7 @@ static void cmd_client(int argc, char** argv) {
 }
 
 static void cmd_version() {
-  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"modes\":[\"yomitan-japanese\",\"exact\"]}\n";
+  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }
 int main(int argc, char** argv) {
   try {

@@ -11,13 +11,15 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     "v.a.", "vgl.", "z.b.", "z.t.", "zzgl."
   ];
   const SEPARABLE_PREFIXES = [
-    "ab", "an", "auf", "aus", "bei", "dar", "ein", "empor", "entgegen", "entlang",
+    "ab", "an", "auf", "aus", "auseinander", "bei", "da", "dabei", "dar", "daran",
+    "dazwischen", "durch", "ein", "empor", "entgegen", "entlang", "entzwei",
     "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
     "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
-    "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein", "hinüber",
-    "hinunter", "hinweg", "hinzu", "hoch", "los", "mit", "nach", "nieder",
-    "statt", "teil", "um", "vor", "voran", "voraus", "vorbei", "vorüber", "weg",
-    "weiter", "wieder", "zu", "zurück", "zusammen"
+    "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein",
+    "hinterher", "hinüber", "hinunter", "hinweg", "hinzu", "hoch", "los",
+    "mit", "nach", "nebenher", "nieder", "statt", "teil", "um", "vor",
+    "voran", "voraus", "vorbei", "vorüber", "vorweg", "weg", "weiter",
+    "wieder", "zu", "zurecht", "zurück", "zusammen"
   ];
   const PREFIX_SET = SEPARABLE_PREFIXES.reduce((out, prefix) => {
     out[prefix] = true;
@@ -102,13 +104,16 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     rules: [
       deinflect.suffixInflection("ungen", "en", "n", "v", "nominalization -ungen"),
       deinflect.suffixInflection("ung", "en", "n", "v", "nominalization -ung"),
+      deinflect.suffixInflection("lung", "eln", "n", "v", "nominalization -lung"),
+      deinflect.suffixInflection("rung", "rn", "n", "v", "nominalization -rung"),
       deinflect.suffixInflection("bar", "en", "adj", "v", "adjective -bar"),
+      deinflect.suffixInflection("bar", "n", "adj", "v", "adjective -bar"),
       deinflect.prefixInflection("un", "", "adj", "adj", "negative un-"),
       deinflect.customInflection(getBasicPastParticiples, "v", "v", "past participle"),
       deinflect.customInflection(getSeparablePastParticiples, "v", "v", "separable past participle"),
       deinflect.customInflection(getZuInfinitives, "v", "v", "zu-infinitive"),
-      deinflect.suffixInflection("heit", "", "n", "adj", "nominalization -heit"),
-      deinflect.suffixInflection("keit", "", "n", "adj", "nominalization -keit")
+      deinflect.suffixInflection("heit", "", "n", ["adj", "n"], "nominalization -heit"),
+      deinflect.suffixInflection("keit", "", "n", ["adj", "n"], "nominalization -keit")
     ]
   });
 
