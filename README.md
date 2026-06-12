@@ -4,6 +4,8 @@ iinatan brings hover-to-lookup dictionary popups to subtitles in IINA on macOS. 
 
 The goal is a compact dictionary popup that feels native to a video player: quick enough for subtitles, structured enough for serious reading, and quiet enough to stay out of the movie's way.
 
+Anki export is not supported yet, but it is a natural fit for a future version.
+
 ## Screenshots
 
 ![Japanese popup over paused subtitles](docs/screenshots/japanese-popup.png)
@@ -81,3 +83,9 @@ iinatan is licensed under the GNU General Public License v3.0 only (`GPL-3.0-onl
 ## Common Troubleshooting
 
 - If the plugin stalls, try restarting IINA first.
+
+## Thanks
+
+- [Yomitan](https://github.com/yomidevs/yomitan) for the overall inspiration for popup dictionaries, as well as the deinflection logic base for non-Japanese languages.
+- [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the high-performance dictionary backend.
+- [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for inspiration on how to use HoshiDicts effectively, particularly for multilingual support.
