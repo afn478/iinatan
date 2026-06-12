@@ -8,7 +8,7 @@
  * - The worker keeps DictionaryQuery + Lookup in memory and accepts one lookup request file at a time.
  */
 
-const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, http, utils } = iina;
+const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, http, utils, standaloneWindow } = iina;
 
 const VERSION = "1.6.0";
 const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
@@ -42,6 +42,7 @@ let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
 let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
+let dictionaryManagerInitialized = false;
 
 function pref(key, fallback) {
   const value = preferences.get(key);
@@ -269,7 +270,6 @@ function bundledBinPath() { return pathJoin(pluginRoot(), "bin", "iina-hoshi-dic
 function binPath() { return pathJoin(dataRoot(), "bin", "iina-hoshi-dicts"); }
 function dictRoot() { return pathJoin(dataRoot(), "dictionaries"); }
 function downloadRoot() { return pathJoin(dataRoot(), "downloads"); }
-function importDropRoot() { return pathJoin(dataRoot(), "imports"); }
 function buildRoot() { return pathJoin(dataRoot(), "build"); }
 function manifestPath() { return pathJoin(dataRoot(), "manifest.json"); }
 function workerRoot() { return pathJoin(dataRoot(), "worker"); }
@@ -291,7 +291,7 @@ async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
   return result;
 }
 async function ensureDataDirs() {
-  await execChecked("/bin/mkdir", ["-p", dataRoot(), pathJoin(dataRoot(), "bin"), dictRoot(), downloadRoot(), importDropRoot(), buildRoot(), workerRoot(), workerQueueDir(), workerResponseDir(), workerStateDir()]);
+  await execChecked("/bin/mkdir", ["-p", dataRoot(), pathJoin(dataRoot(), "bin"), dictRoot(), downloadRoot(), buildRoot(), workerRoot(), workerQueueDir(), workerResponseDir(), workerStateDir()]);
 }
 function safeDelete(path) { try { if (file.exists(path)) file.delete(path); } catch (_) {} }
 async function clearDirFiles(dir) {

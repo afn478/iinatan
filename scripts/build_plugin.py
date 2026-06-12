@@ -10,6 +10,7 @@ REQUIRED_PLUGIN_FILES = [
     "main.js",
     "global.js",
     "overlay.html",
+    "dictionary-manager.html",
     "preferences.html",
     "README.md",
     "package.json",
@@ -60,6 +61,9 @@ def build_files() -> None:
     html = template.replace("{{OVERLAY_CSS}}", (overlay_dir / "overlay.css").read_text())
     html = html.replace("{{OVERLAY_JS}}", (overlay_dir / "overlay.js").read_text())
     (ROOT / "overlay.html").write_text(html)
+
+    manager_dir = ROOT / "src" / "dictionary-manager"
+    (ROOT / "dictionary-manager.html").write_text((manager_dir / "dictionary-manager.html").read_text())
 
 EXCLUDED_DIRS = {".git", ".github", "__pycache__", ".pytest_cache", "dist", "vendor", "build"}
 EXCLUDED_FILES = {".DS_Store", ".gitignore", ".gitmodules"}

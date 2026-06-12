@@ -7,10 +7,10 @@ iinatan is an IINA plugin that shows dictionary popups when you hover subtitle t
 1. Open IINA's plugin manager.
 2. Choose **Install from GitHub**.
 3. Enter `afn478/iinatan`.
-4. Enable the plugin, then run **Plugins -> iinatan -> Dictionaries -> Add Jitendex Dictionary**, or import another Yomitan dictionary ZIP.
+4. Enable the plugin, then run **Plugins -> iinatan -> Dictionaries -> Download Recommended Dictionaries...**, or open **Manage Dictionaries...** to import another Yomitan dictionary ZIP.
 5. Toggle iinatan with **Shift+H**.
 
-The repository root is installable because it exposes the runtime files IINA loads directly: `Info.json`, `main.js`, `global.js`, `overlay.html`, `preferences.html`, `README.md`, `package.json`, and the bundled Apple Silicon backend at `bin/iina-hoshi-dicts`.
+The repository root is installable because it exposes the runtime files IINA loads directly: `Info.json`, `main.js`, `global.js`, `overlay.html`, `dictionary-manager.html`, `preferences.html`, `README.md`, `package.json`, and the bundled Apple Silicon backend at `bin/iina-hoshi-dicts`.
 
 ## Release Package
 
@@ -22,13 +22,11 @@ When cutting a release, update `Info.json` `version` and increment the integer `
 
 ## Dictionaries
 
-Jitendex is the recommended Japanese dictionary. Add it from **Plugins -> iinatan -> Dictionaries -> Add Jitendex Dictionary**.
+Jitendex is the current recommended Japanese dictionary. Add it from **Plugins -> iinatan -> Dictionaries -> Download Recommended Dictionaries...**.
 
-You can also use **Import Yomitan Dictionary ZIP...** for local Yomitan-compatible dictionary ZIP files. The import action opens IINA's file picker, validates that the selected path exists and ends in `.zip`, then imports it with the same task panel used by the recommended dictionary installer.
+Open **Plugins -> iinatan -> Dictionaries -> Manage Dictionaries...** to enable, disable, and reorder installed dictionaries. The manager also imports one or more local Yomitan-compatible dictionary ZIP files through IINA's file picker and uses the same task panel as the recommended dictionary installer.
 
-If the file picker is unavailable in your IINA build, use **Reveal Manual Import Folder**, place one Yomitan `.zip` in that folder, then choose **Import ZIP from Manual Import Folder**. That fallback imports the local ZIP directly and does not require the recommended dictionary flow.
-
-Installed dictionaries are enabled or disabled from the plugin preferences under **Dictionaries**. The top plugin menu keeps import and folder actions only, so large dictionary collections do not clutter IINA's menu. The preferences page writes the same manifest used by the lookup worker; if an IINA build does not expose file APIs to preferences, the page shows a limitation note and the manifest remains unchanged.
+Installed dictionary state lives in the plugin data manifest. The Dictionary Manager writes the active profile's dictionary order and enable/disable choices, while the top plugin menu stays compact with manager, recommended-download, and profile-switch entries.
 
 Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English lowercases the queried word before exact lookup, so hovering `Running` queries `running`. French and German use a Yomitan-style candidate/deinflection layer before exact backend lookup: French imports Yomitan's French suffix transform table plus local apostrophe and participle patches, while German mirrors Yomitan's German transform families and keeps the local bounded separable-verb scan such as `stehe ... auf` plus `aufstehen`. Chinese uses longest rightward-prefix lookup without Japanese deinflection. Korean performs exact contiguous-Hangul lookup.
 
@@ -38,7 +36,7 @@ Experimental Latin/Korean modes treat whole words/runs as one hover unit; Japane
 
 ## Settings
 
-Open the plugin preferences to choose the lookup language, manage installed dictionaries, tune subtitle/popup appearance, set import and lookup timeouts, and adjust advanced worker IPC options. Popup settings include collapsed/expanded etymology behavior, a Wiktionary/Kaikki-specific etymology override, and an optional custom popup CSS textarea for advanced tweaks. See `SETTINGS_AUDIT.md` for every setting, its default, implementation path, live-update behavior, and caveats.
+Open the plugin preferences to choose the lookup language, tune subtitle/popup appearance, set import and lookup timeouts, and adjust advanced worker IPC options. Use the Dictionary Manager for installed dictionaries. Popup settings include collapsed/expanded etymology behavior, a Wiktionary/Kaikki-specific etymology override, and an optional custom popup CSS textarea for advanced tweaks. See `SETTINGS_AUDIT.md` for every setting, its default, implementation path, live-update behavior, and caveats.
 
 ## Development
 
@@ -91,6 +89,7 @@ Link the working tree into IINA for local testing:
 - `main.js`
 - `global.js`
 - `overlay.html`
+- `dictionary-manager.html`
 - `preferences.html`
 - `README.md`
 - `package.json`
@@ -112,7 +111,7 @@ Useful debug actions:
 
 If lookups fail, first confirm that at least one dictionary is installed and enabled, then reveal `worker.log`. For development builds, run `scripts/build_native_backend.sh` if `bin/iina-hoshi-dicts` is missing.
 
-If manual dictionary import does nothing or cannot open the picker, run **Debug -> Test File Picker API** and check `debug.log`. You can always use **Dictionaries -> Reveal Manual Import Folder** followed by **Import ZIP from Manual Import Folder** to import a local Yomitan `.zip`.
+If dictionary import does nothing or cannot open the picker, run **Debug -> Test File Picker API** and check `debug.log`.
 
 If an experimental language mode cannot confidently identify a compatible dictionary, it will warn but still try the dictionaries you explicitly enabled. Import or enable a Yomitan dictionary whose metadata/path identifies that language, such as an English-headword `en-*`, French-headword `fr-*`, German-headword `de-*`, Chinese-headword `zh-*`/CC-CEDICT, or Korean-headword `ko-*` dictionary. Japanese mode continues to use the existing Jitendex/HoshiDicts path.
 

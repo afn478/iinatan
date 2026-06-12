@@ -140,7 +140,7 @@ function updateManifestAfterImport(importResult, zipPath) {
   const language = dictionaryLanguageFromMetadata(meta, {
     language: importResult.language || importResult.lang || importResult.sourceLanguage || importResult.targetLanguage
   });
-  const manifest = readManifest();
+  let manifest = readManifest();
   const existing = (manifest.dictionaries && manifest.dictionaries[title]) || {};
   manifest.dictionaries[title] = {
     title,
@@ -155,6 +155,7 @@ function updateManifestAfterImport(importResult, zipPath) {
     pitchCount: numericImportField(importResult, "pitch_count", "pitchCount"),
     freqCount: numericImportField(importResult, "freq_count", "freqCount")
   };
+  manifest = ensureDictionaryInActiveProfileOrder(manifest, title);
   writeManifest(manifest);
 }
 async function importDictionaryZip(zipPath, existingTaskId) {
@@ -191,6 +192,7 @@ async function importDictionaryZip(zipPath, existingTaskId) {
       setOverlayStatus("Dictionary imported, but worker restart failed. Restart iinatan or use Debug -> Restart Dictionary Lookup.", "error", 12000);
     }
     rebuildMenu();
+    if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
     const elapsed = Math.round((Date.now() - started) / 1000);
     const msg = "Added " + titleFromImportResult(result, zipPath) + " (" + numericImportField(result, "term_count", "termCount") + " terms).";
     if (ownsTask) finishOverlayTask(taskId, true, msg, "Import took about " + elapsed + " seconds.");
@@ -223,12 +225,12 @@ async function importDictionaryZip(zipPath, existingTaskId) {
 async function chooseAndImportDictionary() {
   debugLog("manual dictionary import menu clicked");
   try {
-    const zipPath = await chooseDictionaryZipPath();
-    if (!zipPath) {
+    const zipPaths = await chooseDictionaryZipPaths();
+    if (!zipPaths.length) {
       notify("Dictionary import cancelled.", "info", 3500);
       return;
     }
-    await validateAndImportDictionaryZip(zipPath, "manual-picker");
+    await validateAndImportDictionaryZips(zipPaths, "manual-picker");
   } catch (error) {
     const msg = "Could not add dictionary: " + compactError(error);
     debugError("manual dictionary import failed: " + compactError(error));
@@ -237,26 +239,48 @@ async function chooseAndImportDictionary() {
   }
 }
 
-async function chooseDictionaryZipPath() {
-  if (!utils || typeof utils.chooseFile !== "function") {
-    throw new Error("This IINA build does not expose utils.chooseFile. Use Dictionaries -> Reveal Manual Import Folder, place one .zip there, then choose Import ZIP from Manual Import Folder.");
+function normalizeChosenFilePaths(value) {
+  if (Array.isArray(value)) return value.map(item => String(item || "").trim()).filter(Boolean);
+  const s = String(value || "").trim();
+  if (!s) return [];
+  if (s.charAt(0) === "[") {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed.map(item => String(item || "").trim()).filter(Boolean);
+    } catch (_) {}
   }
-  debugLog("manual dictionary import: opening file chooser with zip filter");
+  if (s.indexOf("\n") >= 0) return s.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  return [s];
+}
+
+async function chooseDictionaryZipPaths() {
+  if (!utils || typeof utils.chooseFile !== "function") {
+    throw new Error("This IINA build does not expose utils.chooseFile.");
+  }
+  const options = {
+    allowedFileTypes: ["zip"],
+    allowsMultipleSelection: true,
+    allowMultipleSelection: true,
+    multiple: true
+  };
+  debugLog("manual dictionary import: opening file chooser with zip filter and multi-select");
   try {
-    const selected = await resolveMaybePromise(utils.chooseFile("Choose a Yomitan dictionary .zip", { allowedFileTypes: ["zip"] }));
-    debugLog("manual dictionary import: filtered chooser returned " + JSON.stringify(String(selected || "").slice(0, 260)));
-    return selected ? String(selected) : "";
+    const selected = await resolveMaybePromise(utils.chooseFile("Choose Yomitan dictionary ZIPs", options));
+    const paths = normalizeChosenFilePaths(selected);
+    debugLog("manual dictionary import: filtered chooser returned count=" + paths.length + " sample=" + JSON.stringify(paths.slice(0, 5)));
+    return paths;
   } catch (error) {
     debugWarn("manual dictionary import chooser with zip filter failed: " + compactError(error));
   }
 
   debugLog("manual dictionary import: opening fallback unfiltered file chooser");
   try {
-    const selected = await resolveMaybePromise(utils.chooseFile("Choose a Yomitan dictionary .zip", {}));
-    debugLog("manual dictionary import: unfiltered chooser returned " + JSON.stringify(String(selected || "").slice(0, 260)));
-    return selected ? String(selected) : "";
+    const selected = await resolveMaybePromise(utils.chooseFile("Choose Yomitan dictionary ZIPs", { allowsMultipleSelection: true, allowMultipleSelection: true, multiple: true }));
+    const paths = normalizeChosenFilePaths(selected);
+    debugLog("manual dictionary import: unfiltered chooser returned count=" + paths.length + " sample=" + JSON.stringify(paths.slice(0, 5)));
+    return paths;
   } catch (error) {
-    throw new Error("IINA file picker failed: " + compactError(error) + ". Use Dictionaries -> Reveal Manual Import Folder, place one .zip there, then choose Import ZIP from Manual Import Folder.");
+    throw new Error("IINA file picker failed: " + compactError(error));
   }
 }
 
@@ -274,84 +298,36 @@ async function validateAndImportDictionaryZip(zipPath, source) {
   return await importDictionaryZip(validation.path);
 }
 
-function importFolderZipCandidates() {
-  try {
-    if (!file.exists(importDropRoot())) return [];
-    return (file.list(importDropRoot(), { includeSubDir: false }) || [])
-      .filter(item => item && !item.isDir && /\.zip$/i.test(String(item.filename || item.path || "")))
-      .map(item => ({ name: item.filename || String(item.path || "").split("/").pop(), path: item.path }))
-      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  } catch (error) {
-    debugWarn("could not list manual import folder: " + compactError(error));
+async function validateAndImportDictionaryZips(zipPaths, source) {
+  const paths = normalizeChosenFilePaths(zipPaths);
+  const label = String(source || "manual-picker");
+  if (!paths.length) {
+    notify("Dictionary import cancelled.", "info", 3500);
     return [];
   }
-}
-
-async function importDictionaryFromManualFolder() {
-  debugLog("manual import folder action clicked");
-  try {
-    await ensureDataDirs();
-    const candidates = importFolderZipCandidates();
-    debugLog("manual import folder candidates=" + JSON.stringify(candidates.map(c => c.name)));
-    if (!candidates.length) {
-      const msg = "No .zip files found in manual import folder. Place one Yomitan dictionary ZIP in: " + importDropRoot();
-      notify(msg, "error", 12000);
-      revealManualImportFolder();
-      return;
-    }
-    let selected = candidates[0];
-    if (candidates.length > 1) {
-      const names = candidates.map(c => c.name).join(", ");
-      let requested = "";
-      if (utils && typeof utils.prompt === "function") {
-        try { requested = String(await resolveMaybePromise(utils.prompt("Multiple ZIPs found. Enter the exact filename to import:\n" + names)) || "").trim(); }
-        catch (error) { debugWarn("manual import folder filename prompt failed: " + compactError(error)); }
-      }
-      if (!requested) {
-        notify("Multiple ZIPs found. Leave only one .zip in " + importDropRoot() + " or enter a filename when prompted.", "error", 14000);
-        revealManualImportFolder();
-        return;
-      }
-      selected = candidates.find(c => c.name === requested);
-      if (!selected) throw new Error("No ZIP named " + requested + " found in manual import folder. Available: " + names);
-    }
-    await validateAndImportDictionaryZip(selected.path, "manual-folder");
-  } catch (error) {
-    const msg = "Could not import from manual folder: " + compactError(error);
-    debugError(msg);
-    setOverlayStatus(msg, "error", 12000);
-    alert(msg);
+  const imported = [];
+  for (let i = 0; i < paths.length; i++) {
+    const result = await validateAndImportDictionaryZip(paths[i], label + "-" + String(i + 1));
+    if (result) imported.push(result);
   }
-}
-
-function revealManualImportFolder() {
-  (async () => {
-    try {
-      await ensureDataDirs();
-      debugLog("revealing manual import folder " + importDropRoot());
-      try { file.showInFinder(importDropRoot()); }
-      catch (_) { utils.open(importDropRoot()); }
-      notify("Manual import folder opened. Place one Yomitan .zip there, then choose Import ZIP from Manual Import Folder.", "info", 9000);
-    } catch (error) {
-      notify("Could not reveal manual import folder: " + compactError(error), "error", 9000);
-    }
-  })();
+  if (imported.length > 1) notify("Imported " + imported.length + " dictionaries.", "info", 6500);
+  return imported;
 }
 
 function testFilePickerApiFromMenu() {
   (async () => {
     debugLog("debug file picker test clicked");
     try {
-      const selected = await chooseDictionaryZipPath();
-      if (!selected) {
+      const selected = await chooseDictionaryZipPaths();
+      if (!selected.length) {
         notify("File picker test cancelled.", "info", 4500);
         debugLog("debug file picker test cancelled");
         return;
       }
-      const validation = dictionaryZipValidation(selected, p => file.exists(p));
-      debugLog("debug file picker test selected=" + JSON.stringify(String(selected).slice(0, 260)) + " validation=" + JSON.stringify(validation));
-      if (validation.ok) notify("File picker returned a valid ZIP: " + validation.path, "info", 9000);
-      else notify("File picker returned an invalid path: " + validation.message, "error", 12000);
+      const invalid = selected.map(p => dictionaryZipValidation(p, candidate => file.exists(candidate))).filter(result => !result.ok);
+      debugLog("debug file picker test selected=" + JSON.stringify(selected.slice(0, 12)) + " invalid=" + JSON.stringify(invalid));
+      if (!invalid.length) notify("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".", "info", 9000);
+      else notify("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "), "error", 12000);
     } catch (error) {
       const msg = "File picker test failed: " + compactError(error);
       debugError(msg);
@@ -364,16 +340,16 @@ async function getRecommendedDictionaries() {
   let taskId = null;
   try {
     await ensureDataDirs();
-    taskId = startOverlayTask("recommended-dictionary", "Adding Jitendex", "Downloading dictionary...");
+    taskId = startOverlayTask("recommended-dictionary", "Downloading recommended dictionaries", "Downloading dictionary...");
     const dest = pathJoin(downloadRoot(), "jitendex-yomitan.zip");
-    updateOverlayTask(taskId, { title: "Adding Jitendex", message: "Downloading dictionary...", detail: RECOMMENDED_JITENDEX_URL });
+    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Downloading Jitendex...", detail: RECOMMENDED_JITENDEX_URL });
     await http.download(RECOMMENDED_JITENDEX_URL, dest);
-    updateOverlayTask(taskId, { title: "Adding Jitendex", message: "Download complete. Importing...", detail: dest });
+    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Download complete. Importing...", detail: dest });
     const result = await importDictionaryZip(dest, taskId);
     const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
     finishOverlayTask(taskId, true, msg, "You can now hover Japanese subtitles for dictionary popups.");
   } catch (error) {
-    const msg = "Could not add Jitendex.";
+    const msg = "Could not download recommended dictionaries.";
     finishOverlayTask(taskId, false, msg, compactError(error));
     alert(msg + " Details: " + compactError(error));
   }

@@ -26,4 +26,9 @@ const preferenceScripts = Array.from(preferencesHtml.matchAll(/<script[^>]*>([\s
 if (!preferenceScripts.length) throw new Error('preferences.html: no script tag found');
 preferenceScripts.forEach((script, index) => checkScript('preferences.html script #' + (index + 1), script));
 
+const managerHtml = fs.readFileSync(path.join(root, 'dictionary-manager.html'), 'utf8');
+const managerScripts = Array.from(managerHtml.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)).map(match => match[1]);
+if (!managerScripts.length) throw new Error('dictionary-manager.html: no script tag found');
+managerScripts.forEach((script, index) => checkScript('dictionary-manager.html script #' + (index + 1), script));
+
 console.log('generated syntax checks passed');

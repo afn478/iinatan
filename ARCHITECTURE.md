@@ -1,7 +1,7 @@
 # iinatan source layout
 
-The package root still contains generated runtime files (`main.js`, `overlay.html`, `global.js`,
-`preferences.html`, and `Info.json`) because that is the most conservative IINA plugin loading path.
+The package root still contains generated runtime files (`main.js`, `overlay.html`, `dictionary-manager.html`,
+`global.js`, `preferences.html`, and `Info.json`) because that is the most conservative IINA plugin loading path.
 
 The maintainable source is split under `src/`:
 

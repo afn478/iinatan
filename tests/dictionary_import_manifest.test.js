@@ -65,12 +65,27 @@ assert(manifest.dictionaries['Latin Dict'].termCount === 0, 'missing term_count 
 assert(manifest.dictionaries['Latin Dict'].pitchCount === 0, 'missing pitch_count should default to zero');
 assert(manifest.dictionaries['Latin Dict'].freqCount === 0, 'missing freq_count should default to zero');
 assert(manifest.dictionaries['Latin Dict'].language === 'unknown', 'missing language metadata should remain importable as unknown');
+assert(manifest.profiles.default.dictionaryOrder.includes('Latin Dict'), 'imported dictionary should be appended to the active profile order');
+assert(manifest.dictionaryOrder.includes('Latin Dict'), 'legacy dictionaryOrder mirror should stay in sync');
 
 context.updateManifestAfterImport({ ok: true, term_count: 3, meta_count: 2 }, '/tmp/latin.zip');
 manifest = JSON.parse(storage['/data/manifest.json']);
 assert(manifest.dictionaries.latin.title === 'latin', 'missing title should fall back to safe ZIP filename');
 assert(manifest.dictionaries.latin.termCount === 3, 'snake_case term_count should be parsed');
 assert(manifest.dictionaries.latin.metaCount === 2, 'snake_case meta_count should be parsed');
+
+assert(
+  JSON.stringify(context.normalizeChosenFilePaths(['/tmp/a.zip', '/tmp/b.zip'])) === JSON.stringify(['/tmp/a.zip', '/tmp/b.zip']),
+  'multi-select arrays should be preserved'
+);
+assert(
+  JSON.stringify(context.normalizeChosenFilePaths('["/tmp/a.zip","/tmp/b.zip"]')) === JSON.stringify(['/tmp/a.zip', '/tmp/b.zip']),
+  'JSON array picker results should be parsed'
+);
+assert(
+  JSON.stringify(context.normalizeChosenFilePaths('/tmp/a.zip\n/tmp/b.zip')) === JSON.stringify(['/tmp/a.zip', '/tmp/b.zip']),
+  'newline-separated picker results should be split'
+);
 
 const backendArgs = [];
 context.runBackendJson = async function runBackendJson(args) {

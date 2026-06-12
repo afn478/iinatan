@@ -1,0 +1,375 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>iinatan Dictionary Manager</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: rgba(250, 250, 250, 0.92);
+      --panel: rgba(255, 255, 255, 0.82);
+      --text: rgba(20, 20, 24, 0.94);
+      --muted: rgba(70, 70, 76, 0.72);
+      --border: rgba(0, 0, 0, 0.14);
+      --accent: #0a84ff;
+      --danger: #d3382d;
+      --row-hover: rgba(10, 132, 255, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: rgba(30, 30, 34, 0.96);
+        --panel: rgba(44, 44, 50, 0.82);
+        --text: rgba(245, 245, 247, 0.94);
+        --muted: rgba(220, 220, 224, 0.66);
+        --border: rgba(255, 255, 255, 0.16);
+        --row-hover: rgba(10, 132, 255, 0.16);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 620px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    main { padding: 14px 18px 18px; }
+    button, select {
+      appearance: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      min-height: 30px;
+    }
+    button {
+      padding: 5px 10px;
+      cursor: default;
+      white-space: nowrap;
+    }
+    button:disabled, select:disabled {
+      opacity: 0.5;
+    }
+    select {
+      padding: 5px 26px 5px 10px;
+      min-width: 170px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .toolbar .spacer { flex: 1 1 auto; }
+    .primary {
+      border-color: rgba(10, 132, 255, 0.45);
+      background: rgba(10, 132, 255, 0.14);
+    }
+    .status {
+      min-height: 18px;
+      margin: 0 0 10px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+    .status.error { color: var(--danger); }
+    .dictionary-list {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .empty {
+      padding: 22px 16px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .dictionary-row {
+      display: grid;
+      grid-template-columns: 34px 26px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 58px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dictionary-row:last-child { border-bottom: 0; }
+    .dictionary-row.drag-over { background: var(--row-hover); }
+    .dictionary-row.dragging { opacity: 0.46; }
+    .drag-handle {
+      width: 28px;
+      min-height: 28px;
+      padding: 0;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+    }
+    .title {
+      min-width: 0;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .meta {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .row-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .row-actions button {
+      min-width: 32px;
+      padding: 4px 7px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dictionaries</h1>
+    <select id="profileSelect" aria-label="Profile"></select>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button id="downloadRecommended" class="primary" type="button">Download Recommended Dictionaries...</button>
+      <button id="importZip" type="button">Import ZIP...</button>
+      <span class="spacer"></span>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+    <div id="status" class="status"></div>
+    <section id="dictionaryList" class="dictionary-list"></section>
+  </main>
+  <script>
+    const state = {
+      dictionaries: [],
+      profiles: [],
+      activeProfileId: 'default',
+      busy: false,
+      draggingName: ''
+    };
+
+    const els = {
+      profileSelect: document.getElementById('profileSelect'),
+      downloadRecommended: document.getElementById('downloadRecommended'),
+      importZip: document.getElementById('importZip'),
+      refresh: document.getElementById('refresh'),
+      status: document.getElementById('status'),
+      dictionaryList: document.getElementById('dictionaryList')
+    };
+
+    function iinaBridge() {
+      try {
+        if (typeof iina !== 'undefined') return iina;
+      } catch (_) {}
+      return null;
+    }
+    function send(name, payload) {
+      try {
+        const bridge = iinaBridge();
+        if (bridge && typeof bridge.postMessage === 'function') bridge.postMessage(name, payload || {});
+      } catch (_) {}
+    }
+    function setStatus(message, kind, busy) {
+      state.busy = !!busy;
+      els.status.textContent = message || '';
+      els.status.className = 'status' + (kind === 'error' ? ' error' : '');
+      updateBusyState();
+    }
+    function updateBusyState() {
+      const disabled = !!state.busy;
+      [els.downloadRecommended, els.importZip, els.refresh].forEach(button => {
+        button.disabled = disabled;
+      });
+      els.profileSelect.disabled = (state.profiles && state.profiles.length ? state.profiles.length : 1) < 2 || disabled;
+    }
+    function dictionaryMeta(dict) {
+      const parts = [];
+      if (dict.language && dict.language !== 'unknown') parts.push('language: ' + dict.language);
+      if (dict.termCount) parts.push(dict.termCount + ' terms');
+      if (dict.freqCount) parts.push(dict.freqCount + ' frequency');
+      if (dict.pitchCount) parts.push(dict.pitchCount + ' pitch');
+      return parts.length ? parts.join(' | ') : dict.name;
+    }
+    function currentOrder() {
+      return state.dictionaries.map(dict => dict.name);
+    }
+    function postOrder() {
+      send('dictionary-manager-set-order', { order: currentOrder() });
+    }
+    function moveDictionary(name, delta) {
+      const index = state.dictionaries.findIndex(dict => dict.name === name);
+      const next = index + delta;
+      if (index < 0 || next < 0 || next >= state.dictionaries.length) return;
+      const item = state.dictionaries.splice(index, 1)[0];
+      state.dictionaries.splice(next, 0, item);
+      renderDictionaries();
+      postOrder();
+    }
+    function moveDictionaryBefore(name, beforeName) {
+      if (!name || !beforeName || name === beforeName) return;
+      const from = state.dictionaries.findIndex(dict => dict.name === name);
+      const to = state.dictionaries.findIndex(dict => dict.name === beforeName);
+      if (from < 0 || to < 0) return;
+      const item = state.dictionaries.splice(from, 1)[0];
+      const target = state.dictionaries.findIndex(dict => dict.name === beforeName);
+      state.dictionaries.splice(Math.max(0, target), 0, item);
+      renderDictionaries();
+      postOrder();
+    }
+    function renderProfiles() {
+      els.profileSelect.innerHTML = '';
+      const profiles = state.profiles && state.profiles.length ? state.profiles : [{ id: 'default', name: 'Default', active: true }];
+      profiles.forEach(profile => {
+        const option = document.createElement('option');
+        option.value = profile.id;
+        option.textContent = profile.name || profile.id;
+        option.selected = profile.id === state.activeProfileId;
+        els.profileSelect.appendChild(option);
+      });
+      els.profileSelect.disabled = profiles.length < 2 || state.busy;
+    }
+    function renderDictionaries() {
+      els.dictionaryList.innerHTML = '';
+      if (!state.dictionaries.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'No dictionaries installed.';
+        els.dictionaryList.appendChild(empty);
+        return;
+      }
+      state.dictionaries.forEach((dict, index) => {
+        const row = document.createElement('div');
+        row.className = 'dictionary-row' + (state.draggingName === dict.name ? ' dragging' : '');
+        row.draggable = true;
+        row.dataset.name = dict.name;
+
+        const handle = document.createElement('button');
+        handle.className = 'drag-handle';
+        handle.type = 'button';
+        handle.title = 'Drag';
+        handle.textContent = '::';
+        row.appendChild(handle);
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = !!dict.enabled;
+        checkbox.addEventListener('change', () => {
+          dict.enabled = checkbox.checked;
+          send('dictionary-manager-set-enabled', { name: dict.name, enabled: checkbox.checked });
+        });
+        row.appendChild(checkbox);
+
+        const body = document.createElement('div');
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = dict.title || dict.name;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = dictionaryMeta(dict);
+        body.appendChild(title);
+        body.appendChild(meta);
+        row.appendChild(body);
+
+        const actions = document.createElement('div');
+        actions.className = 'row-actions';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.textContent = 'Up';
+        up.disabled = index === 0;
+        up.addEventListener('click', () => moveDictionary(dict.name, -1));
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.textContent = 'Down';
+        down.disabled = index === state.dictionaries.length - 1;
+        down.addEventListener('click', () => moveDictionary(dict.name, 1));
+        actions.appendChild(up);
+        actions.appendChild(down);
+        row.appendChild(actions);
+
+        row.addEventListener('dragstart', event => {
+          state.draggingName = dict.name;
+          row.classList.add('dragging');
+          try { event.dataTransfer.setData('text/plain', dict.name); } catch (_) {}
+          try { event.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+        });
+        row.addEventListener('dragend', () => {
+          state.draggingName = '';
+          Array.from(document.querySelectorAll('.dictionary-row')).forEach(el => el.classList.remove('drag-over', 'dragging'));
+        });
+        row.addEventListener('dragover', event => {
+          event.preventDefault();
+          row.classList.add('drag-over');
+          try { event.dataTransfer.dropEffect = 'move'; } catch (_) {}
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', event => {
+          event.preventDefault();
+          row.classList.remove('drag-over');
+          const name = state.draggingName || (event.dataTransfer && event.dataTransfer.getData('text/plain'));
+          state.draggingName = '';
+          moveDictionaryBefore(name, dict.name);
+        });
+
+        els.dictionaryList.appendChild(row);
+      });
+    }
+    function render() {
+      renderProfiles();
+      renderDictionaries();
+      updateBusyState();
+    }
+
+    els.downloadRecommended.addEventListener('click', () => send('dictionary-manager-download-recommended'));
+    els.importZip.addEventListener('click', () => send('dictionary-manager-import-zip'));
+    els.refresh.addEventListener('click', () => send('dictionary-manager-refresh'));
+    els.profileSelect.addEventListener('change', () => {
+      send('dictionary-manager-switch-profile', { profileId: els.profileSelect.value });
+    });
+
+    const bridge = iinaBridge();
+    if (bridge && typeof bridge.onMessage === 'function') {
+      bridge.onMessage('dictionary-manager-state', payload => {
+        state.dictionaries = Array.isArray(payload && payload.dictionaries) ? payload.dictionaries.slice() : [];
+        state.profiles = Array.isArray(payload && payload.profiles) ? payload.profiles.slice() : [];
+        state.activeProfileId = String((payload && payload.activeProfileId) || 'default');
+        render();
+      });
+      bridge.onMessage('dictionary-manager-status', payload => {
+        setStatus(
+          String((payload && payload.message) || ''),
+          String((payload && payload.kind) || 'info'),
+          !!(payload && payload.busy)
+        );
+      });
+    }
+
+    render();
+    send('dictionary-manager-ready');
+  </script>
+</body>
+</html>

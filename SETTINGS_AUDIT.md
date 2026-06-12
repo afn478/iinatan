@@ -33,3 +33,5 @@ This audit covers every key in `Info.json` `preferenceDefaults`, its preference 
 | `workerIdleSleepMs` | `2` | Advanced number `1..100` | `src/main/30_backend_import_worker_lookup.js`, `src/native/iina_hoshi.cpp` | Sleep interval for the native worker when idle. Applied the next time the worker starts. |
 
 Removed historical settings: `workerPollMs`, `lineLookupDelayMs`, `lineLookupYieldMs`, and `maxLineLookupPositions`. The current lookup architecture performs serialized hover lookup instead of full-line precompute, so those keys no longer had a live behavior to audit.
+
+Dictionary management is manifest-backed rather than an `Info.json` preference. The standalone Dictionary Manager updates the active profile's `dictionaryOrder`, disabled dictionary map, and future profile preference snapshot fields in `manifest.json`; root-level `disabled` and `dictionaryOrder` mirrors are kept for compatibility with older manifests and troubleshooting.

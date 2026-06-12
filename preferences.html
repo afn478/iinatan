@@ -14,11 +14,6 @@
     small, .hint { display: block; color: -apple-system-secondary-label; font-size: 12px; line-height: 1.35; margin-top: 3px; }
     .row { margin-bottom: 12px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .dictionary-list { border: 1px solid -apple-system-separator; border-radius: 8px; padding: 8px 10px; max-height: 220px; overflow: auto; background: rgba(128,128,128,0.06); }
-    .dictionary-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid -apple-system-separator; }
-    .dictionary-item:last-child { border-bottom: 0; }
-    .dictionary-item label { margin: 0; font-weight: 600; }
-    .dictionary-meta { color: -apple-system-secondary-label; font-size: 12px; line-height: 1.35; margin-top: 2px; }
     .status { color: -apple-system-secondary-label; font-size: 12px; margin-top: 6px; }
   </style>
 </head>
@@ -105,11 +100,8 @@
     <input data-pref="importTimeoutMs" type="number" min="30000" max="7200000" step="30000">
   </div>
   <div class="row">
-    <label>Installed dictionaries</label>
-    <div id="dictionaryList" class="dictionary-list">Loading dictionaries...</div>
-    <button id="refreshDictionaries" type="button">Refresh</button>
-    <small>Enable or disable dictionaries explicitly here. Changing the lookup language does not change these choices.</small>
-    <div id="dictionaryStatus" class="status"></div>
+    <label>Dictionary manager</label>
+    <small>Use Plugins -> iinatan -> Dictionaries -> Manage Dictionaries... to import, enable, disable, and reorder installed dictionaries.</small>
   </div>
 
   <h3>Appearance</h3>
@@ -194,9 +186,6 @@
 
 	  <script>
 	    const controls = Array.from(document.querySelectorAll('[data-pref]'));
-	    const dictionaryListEl = document.getElementById('dictionaryList');
-	    const dictionaryStatusEl = document.getElementById('dictionaryStatus');
-	    const refreshDictionariesEl = document.getElementById('refreshDictionaries');
 
 	    function load() {
 	      controls.forEach(el => {
@@ -213,126 +202,9 @@
 	      iina.preferences.set(el.dataset.pref, value);
 	      if (iina.preferences.sync) iina.preferences.sync();
 	    }
-	    function setDictionaryStatus(message) {
-	      dictionaryStatusEl.textContent = message || '';
-	    }
-	    function escapeHtml(s) {
-	      return String(s || '')
-	        .replace(/&/g, '&amp;')
-	        .replace(/</g, '&lt;')
-	        .replace(/>/g, '&gt;')
-	        .replace(/"/g, '&quot;')
-	        .replace(/'/g, '&#39;');
-	    }
-	    function pathJoin() {
-	      return Array.from(arguments)
-	        .filter(part => part !== null && part !== undefined && String(part).length)
-	        .map((part, index) => {
-	          const s = String(part);
-	          return index === 0 ? s.replace(/\/+$/, '') : s.replace(/^\/+|\/+$/g, '');
-	        })
-	        .join('/');
-	    }
-	    function dataRoot() {
-	      if (!iina.utils || typeof iina.utils.resolvePath !== 'function') return '';
-	      const resolved = String(iina.utils.resolvePath('@data/') || '').replace(/\/+$/, '');
-	      return resolved.charAt(0) === '/' ? resolved : '';
-	    }
-	    function readJson(path, fallback) {
-	      try {
-	        if (!iina.file || !iina.file.exists(path)) return fallback;
-	        const parsed = JSON.parse(String(iina.file.read(path) || ''));
-	        return parsed && typeof parsed === 'object' ? parsed : fallback;
-	      } catch (_) {
-	        return fallback;
-	      }
-	    }
-	    function manifestPath() {
-	      return pathJoin(dataRoot(), 'manifest.json');
-	    }
-	    function dictionaryRoot() {
-	      return pathJoin(dataRoot(), 'dictionaries');
-	    }
-	    function readManifest() {
-	      const manifest = readJson(manifestPath(), { dictionaries: {}, disabled: {} });
-	      if (!manifest.dictionaries) manifest.dictionaries = {};
-	      if (!manifest.disabled) manifest.disabled = {};
-	      return manifest;
-	    }
-	    function writeManifest(manifest) {
-	      iina.file.write(manifestPath(), JSON.stringify(manifest || { dictionaries: {}, disabled: {} }, null, 2));
-	    }
-	    function readDictionaryIndex(dictPath) {
-	      return readJson(pathJoin(dictPath, 'index.json'), {});
-	    }
-	    function installedDictionaries() {
-	      if (!iina.file || typeof iina.file.list !== 'function') return null;
-	      const root = dictionaryRoot();
-	      if (!root || !iina.file.exists(root)) return [];
-	      return (iina.file.list(root, { includeSubDir: false }) || [])
-	        .filter(item => item && item.isDir)
-	        .map(item => {
-	          const meta = readDictionaryIndex(item.path);
-	          const manifest = readManifest();
-	          const manifestEntry = (manifest.dictionaries && (manifest.dictionaries[item.filename] || manifest.dictionaries[meta.title])) || {};
-	          return {
-	            name: item.filename,
-	            title: meta.title || item.filename,
-	            language: meta.language || meta.lang || manifestEntry.language || 'unknown',
-	            termCount: Number(manifestEntry.termCount || 0),
-	            path: item.path
-	          };
-	        })
-	        .sort((a, b) => a.name.localeCompare(b.name));
-	    }
-	    function renderDictionaries() {
-	      try {
-	        const root = dataRoot();
-	        if (!root || !iina.file || typeof iina.file.list !== 'function' || typeof iina.file.write !== 'function') {
-	          dictionaryListEl.innerHTML = '<small>This IINA preferences view does not expose the file-system APIs needed for dictionary management. Use the plugin menu for import actions; installed dictionary enable/disable state is stored in the plugin data manifest.</small>';
-	          refreshDictionariesEl.disabled = true;
-	          return;
-	        }
-	        const dicts = installedDictionaries();
-	        const manifest = readManifest();
-	        const disabled = manifest.disabled || {};
-	        if (!dicts || !dicts.length) {
-	          dictionaryListEl.innerHTML = '<small>No dictionaries installed yet. Use Plugins -> iinatan -> Dictionaries to add or import one.</small>';
-	          setDictionaryStatus('');
-	          return;
-	        }
-	        dictionaryListEl.innerHTML = dicts.map((dict, index) => {
-	          const checked = !disabled[dict.name];
-	          const meta = [
-	            dict.language && dict.language !== 'unknown' ? ('language: ' + dict.language) : '',
-	            dict.termCount ? (dict.termCount + ' terms') : ''
-	          ].filter(Boolean).join(' · ');
-	          return '<div class="dictionary-item">' +
-	            '<div><label><input type="checkbox" data-dictionary-index="' + index + '"' + (checked ? ' checked' : '') + '> ' + escapeHtml(dict.title || dict.name) + '</label>' +
-	            '<div class="dictionary-meta">' + escapeHtml(meta || dict.name) + '</div></div>' +
-	            '</div>';
-	        }).join('');
-	        Array.from(dictionaryListEl.querySelectorAll('[data-dictionary-index]')).forEach(input => {
-	          input.addEventListener('change', () => {
-	            const dict = dicts[Number(input.dataset.dictionaryIndex || 0)];
-	            if (!dict) return;
-	            const next = readManifest();
-	            if (!next.disabled) next.disabled = {};
-	            if (input.checked) delete next.disabled[dict.name];
-	            else next.disabled[dict.name] = true;
-	            writeManifest(next);
-	            setDictionaryStatus((input.checked ? 'Enabled ' : 'Disabled ') + dict.name + '. The next lookup uses this selection.');
-	          });
-	        });
-	      } catch (error) {
-	        dictionaryListEl.innerHTML = '<small>Could not load installed dictionaries: ' + escapeHtml(error && error.message ? error.message : String(error)) + '</small>';
-	      }
-	    }
 
 	    controls.forEach(el => el.addEventListener('change', () => save(el)));
-	    refreshDictionariesEl.addEventListener('click', renderDictionaries);
 	    load();
-	    renderDictionaries();
 	  </script>
 </body>
 </html>

@@ -120,7 +120,7 @@ function stopBackendWorkerFromMenu() {
 function showInstalledDictionaries() {
   const dicts = dictionaryDirs();
   const disabled = disabledDictionaryMap();
-  if (!dicts.length) { alert("No dictionaries installed yet. Add Jitendex or import a Yomitan dictionary ZIP."); return; }
+  if (!dicts.length) { alert("No dictionaries installed yet. Download recommended dictionaries or import a Yomitan dictionary ZIP."); return; }
   alert("Installed dictionaries:\n\n" + dicts.map(d => (disabled[d.name] ? "[off] " : "[on] ") + d.name).join("\n"));
 }
 function emitDebugLogTestMessage() {
@@ -256,12 +256,19 @@ function rebuildMenu() {
     addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
 
     const dictMenu = menu.item("Dictionaries");
-    addSubMenuItemCompat(dictMenu, menu.item("Add Jitendex Dictionary", () => { getRecommendedDictionaries(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Import Yomitan Dictionary ZIP...", () => { chooseAndImportDictionary(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Import ZIP from Manual Import Folder", () => { importDictionaryFromManualFolder(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Reveal Manual Import Folder", () => { revealManualImportFolder(); }));
-    addSubMenuItemCompat(dictMenu, menu.separator());
-    addSubMenuItemCompat(dictMenu, menu.item("Manage Installed Dictionaries in Settings", null, { enabled: false }));
+    addSubMenuItemCompat(dictMenu, menu.item("Manage Dictionaries...", () => { openDictionaryManager(); }));
+    addSubMenuItemCompat(dictMenu, menu.item("Download Recommended Dictionaries...", () => { getRecommendedDictionaries(); }));
+    const profiles = profileSummaries(readManifest());
+    if (profiles.length) {
+      addSubMenuItemCompat(dictMenu, menu.separator());
+      if (profiles.length === 1) {
+        addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profiles[0].name, null, { selected: true, enabled: false }));
+      } else {
+        profiles.forEach(profile => {
+          addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+        });
+      }
+    }
     addMenuItemSafe(dictMenu);
 
     const debugMenu = menu.item("Debug");

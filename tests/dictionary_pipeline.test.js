@@ -136,7 +136,35 @@ assert(!fingerprint.includes('\n'), 'Worker fingerprint must stay on one config 
 const parsed = JSON.parse(fingerprint);
 assert(parsed.language === 'en', 'Worker fingerprint should include selected language');
 assert(parsed.dictionaries.length === 12, 'Worker fingerprint should include every supplied dictionary path');
-assert(parsed.dictionaries[0].includes('/Jitendex.org'), 'Worker fingerprint should sort dictionary paths');
+assert(parsed.dictionaries[0] === enPaths[0], 'Worker fingerprint should preserve dictionary order');
+assert(parsed.dictionaries[enPaths.length] === koPaths[0], 'Worker fingerprint should preserve repeated supplied order');
+
+const originalRead = context.file.read;
+context.file.read = function read(p) {
+  if (p === '/data/manifest.json') {
+    return JSON.stringify({
+      dictionaries: {},
+      disabled: {},
+      activeProfileId: 'default',
+      profiles: {
+        default: {
+          id: 'default',
+          name: 'Default',
+          dictionaryOrder: ['wty-ko-en', 'Jitendex.org [2026-06-06]'],
+          disabled: { 'wty-ko-en': true },
+          preferences: { lookupLanguage: 'ko', unknownSetting: true }
+        }
+      }
+    });
+  }
+  return originalRead.call(context.file, p);
+};
+const orderedNames = context.dictionaryDirs().map(d => d.name);
+assert(orderedNames[0] === 'wty-ko-en', 'Profile dictionary order should put selected dictionaries first');
+assert(orderedNames[1] === 'Jitendex.org [2026-06-06]', 'Profile dictionary order should preserve explicit order');
+assert(context.disabledDictionaryMap()['wty-ko-en'] === true, 'Profile disabled map should drive active dictionary state');
+assert(context.profileSummaries()[0].id === 'default', 'Profile summaries should expose the default profile');
+context.file.read = originalRead;
 
 assert(
   /No dictionaries installed\/enabled for English/.test(context.dictionarySetupMessage(en, [])),
@@ -155,8 +183,8 @@ assert(
   'Chinese setup message should be language-specific'
 );
 assert(
-  /Add Jitendex/.test(context.dictionarySetupMessage(ja, [])),
-  'Japanese setup message should preserve Jitendex guidance'
+  /Download Recommended Dictionaries/.test(context.dictionarySetupMessage(ja, [])),
+  'Japanese setup message should point to recommended dictionary download'
 );
 
 console.log('dictionary pipeline tests passed');
