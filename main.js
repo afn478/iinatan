@@ -25,6 +25,7 @@ let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
+let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
@@ -44,6 +45,11 @@ let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
 let dictionaryManagerInitialized = false;
 let dictionaryManagerActionInFlight = false;
+let debugLogSnapshot = null;
+let debugLogPending = "";
+let debugLogFlushTimer = null;
+const DEBUG_LOG_MAX_BYTES = 1000000;
+const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 
 function pref(key, fallback) {
   const value = preferences.get(key);
@@ -114,11 +120,9 @@ function debugLog(message, level) {
   const lvl = level || "debug";
   emitToIinaLogViewer(message, lvl);
   try {
-    const p = dataPath("debug.log");
-    let prev = "";
-    try { if (file.exists(p)) prev = String(file.read(p) || ""); } catch (_) {}
     const line = (new Date()).toISOString() + " [main][" + lvl + "] " + String(message || "") + "\n";
-    file.write(p, (prev + line).slice(-1000000));
+    debugLogPending = trimDebugLogText(debugLogPending + line);
+    scheduleDebugLogFlush();
   } catch (_) {}
 }
 function debugVerbose(message) {
@@ -126,6 +130,34 @@ function debugVerbose(message) {
 }
 function debugWarn(message) { debugLog(message, "warn"); }
 function debugError(message) { debugLog(message, "error"); }
+function trimDebugLogText(text) {
+  return String(text || "").slice(-DEBUG_LOG_MAX_BYTES);
+}
+function flushDebugLogBuffer() {
+  if (debugLogFlushTimer !== null) {
+    clearTimeout(debugLogFlushTimer);
+    debugLogFlushTimer = null;
+  }
+  if (!debugLogPending) return;
+  try {
+    const p = dataPath("debug.log");
+    if (debugLogSnapshot === null) {
+      let prev = "";
+      try { if (file.exists(p)) prev = String(file.read(p) || ""); } catch (_) {}
+      debugLogSnapshot = trimDebugLogText(prev);
+    }
+    const nextSnapshot = trimDebugLogText(debugLogSnapshot + debugLogPending);
+    file.write(p, nextSnapshot);
+    debugLogSnapshot = nextSnapshot;
+    debugLogPending = "";
+  } catch (_) {
+    debugLogPending = trimDebugLogText(debugLogPending);
+  }
+}
+function scheduleDebugLogFlush() {
+  if (debugLogFlushTimer !== null) return;
+  debugLogFlushTimer = setTimeout(flushDebugLogBuffer, DEBUG_LOG_FLUSH_DELAY_MS);
+}
 function postToOverlay(name, data) {
   try { overlay.postMessage(name, data || {}); } catch (error) { try { debugLog("overlay.postMessage failed for " + name + ": " + compactError(error)); } catch (_) {} console.warn("overlay.postMessage failed: " + compactError(error)); }
 }
@@ -1517,7 +1549,7 @@ function publishSubtitle(text) {
   currentSubtitleLineId = ++subtitleLineSerial;
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
-  debugLog("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " activeDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
+  debugVerbose("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " activeDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
   postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
@@ -1534,7 +1566,7 @@ function canHideNativeSubtitlesForCurrentLanguage() {
     const language = selectedLanguageModule();
     const dicts = activeDictionaryPaths(language);
     if (dictionarySetupMessage(language, dicts)) return false;
-    const ready = readWorkerReady();
+    const ready = activeWorkerReady || readWorkerReady();
     return !!ready && activeWorkerFingerprint === workerFingerprint(dicts, language) && ready.fingerprint === activeWorkerFingerprint;
   } catch (_) { return false; }
 }
@@ -1879,6 +1911,7 @@ function setDictionaryEnabled(name, enabledNow) {
   writeManifest(manifest);
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
@@ -1892,6 +1925,7 @@ function setDictionaryOrder(names) {
   writeManifest(manifest);
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
@@ -1971,6 +2005,7 @@ function setActiveDictionaryProfile(profileId) {
   applyProfilePreferences(activeDictionaryProfile(normalized));
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
@@ -2442,6 +2477,7 @@ async function stopBackendWorker() {
   safeDelete(workerPidPath());
   safeDelete(workerReadyPath());
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   await sleep(120);
 }
 async function startBackendWorkerProcess(dicts, language) {
@@ -2451,6 +2487,7 @@ async function startBackendWorkerProcess(dicts, language) {
   await clearDirFiles(workerResponseDir());
   safeDelete(workerStopPath());
   safeDelete(workerReadyPath());
+  activeWorkerReady = null;
   const lang = language || selectedLanguageModule();
   const fingerprint = workerFingerprint(dicts, lang);
   debugLog("start backend worker language=" + lang.id + " dictCount=" + (dicts || []).length + " fingerprint=" + fingerprint);
@@ -2475,6 +2512,7 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
     const ready = readWorkerReady();
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
+      activeWorkerReady = ready;
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
@@ -2501,8 +2539,8 @@ async function ensureBackendWorker(dicts, language) {
     setOverlayStatus(advisory, "info", 7000);
   }
   const fingerprint = workerFingerprint(dicts, lang);
-  debugLog("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
-  if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
+  debugVerbose("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
+  if (activeWorkerFingerprint === fingerprint && activeWorkerReady) return activeWorkerReady;
   if (workerStartInFlight) return workerStartInFlight;
   workerStartInFlight = (async () => {
     await stopBackendWorker().catch(() => {});
@@ -2544,7 +2582,7 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
       safeDelete(resp);
       safeDelete(req);
       const parsed = parseBackendJsonOutput(raw, "");
-      debugLog("direct worker lookup done requestId=" + String(requestId || "") + " workerRequestId=" + id + " elapsedMs=" + (Date.now() - startedAt) + " stdoutBytes=" + raw.length + " resultCount=" + (parsed && parsed.results ? parsed.results.length : "n/a"));
+      debugVerbose("direct worker lookup done requestId=" + String(requestId || "") + " workerRequestId=" + id + " elapsedMs=" + (Date.now() - startedAt) + " stdoutBytes=" + raw.length + " resultCount=" + (parsed && parsed.results ? parsed.results.length : "n/a"));
       if (!parsed || parsed.ok === false) throw new Error((parsed && parsed.error) || "Direct worker lookup failed");
       return parsed;
     }
@@ -2570,19 +2608,17 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   ];
   const lookupStartedAt = Date.now();
   const result = await runBackendJson(clientArgs, timeout + 2500, "Dictionary lookup command");
-  debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
+  debugVerbose("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
 async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries, language) {
   const lang = language || selectedLanguageModule();
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
+  debugVerbose("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
       const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
-      if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
       debugWarn("direct worker lookup failed requestId=" + String(requestId || "") + ": " + compactError(error));
@@ -2590,9 +2626,7 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId,
     }
   }
 
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
   const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }
@@ -2714,7 +2748,7 @@ async function handleLookupAt(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : String(++requestSerial);
   const text = payload && typeof payload.text === "string" ? payload.text : (lastSubtitle || "");
   const position = payload && payload.position !== undefined ? Number(payload.position) : 0;
-  debugLog("lookup-at received requestId=" + requestId + " pos=" + position + " textLen=" + String(text || "").length + " payloadType=" + typeof payload);
+  debugVerbose("lookup-at received requestId=" + requestId + " pos=" + position + " textLen=" + String(text || "").length + " payloadType=" + typeof payload);
   postToOverlay("config", overlayConfig());
   postToOverlay("lookup-ack", { requestId, message: "Plugin received hover request." });
   postToOverlay("lookup-status", { requestId, message: "Plugin received hover request." });
@@ -2722,7 +2756,7 @@ async function handleLookupAt(payload) {
   try {
     if (!lookupInFlight[inflightKey]) lookupInFlight[inflightKey] = lookupAtPosition(text, position, requestId).finally(() => { delete lookupInFlight[inflightKey]; });
     const result = await lookupInFlight[inflightKey];
-    debugLog("lookup success requestId=" + requestId + " resultCount=" + (result && result.results ? result.results.length : 0));
+    debugVerbose("lookup success requestId=" + requestId + " resultCount=" + (result && result.results ? result.results.length : 0));
     postToOverlay("lookup-result", { requestId, ok: true, result });
   } catch (error) {
     debugLog("lookup failed requestId=" + requestId + ": " + compactError(error));
@@ -2751,7 +2785,7 @@ function ensureOverlayBridge() {
 	    ws.onMessage((conn, message) => {
 	      try {
 	        const raw = message && typeof message.text === "function" ? String(message.text() || "") : "";
-	        debugLog("overlay bridge message=" + raw.slice(0, 200));
+	        debugVerbose("overlay bridge message=" + raw.slice(0, 200));
 	        let payload = raw;
 	        try { payload = JSON.parse(raw); } catch (_) {}
 	        if (payload && typeof payload === "object" && payload.type === "popup") {
@@ -2818,7 +2852,6 @@ function ensureOverlayBridge() {
 
   // Ack immediately. The overlay uses this to stop retrying the WebSocket lookup
   // request, so pause heartbeats + mouseenter spam cannot flood the lookup queue.
-  postToOverlay("config", overlayConfig());
   postToOverlay("lookup-request-ack", { requestId, lineId, position });
 
   if (!enabled || lineId !== currentSubtitleLineId) {
@@ -2832,7 +2865,7 @@ function ensureOverlayBridge() {
   }
 
   pendingHoverLookup = { requestId, lineId, position, key, seq: ++hoverLookupSequence };
-  debugLog("hover lookup queued requestId=" + requestId + " key=" + key + " currentLineId=" + currentSubtitleLineId + " inFlight=" + hoverLookupInFlight + " activeKey=" + hoverLookupActiveKey);
+  debugVerbose("hover lookup queued requestId=" + requestId + " key=" + key + " currentLineId=" + currentSubtitleLineId + " inFlight=" + hoverLookupInFlight + " activeKey=" + hoverLookupActiveKey);
   processHoverLookupQueue();
 }
 function processHoverLookupQueue() {
@@ -2851,17 +2884,16 @@ function processHoverLookupQueue() {
           continue;
         }
         try {
-          postToOverlay("line-lookup-progress", { lineId, ok: true, done: 0, total: 1, message: "Looking up hovered word…" });
-          debugLog("hover lookup start requestId=" + requestId + " key=" + key + " pendingNext=" + String(!!pendingHoverLookup));
+          debugVerbose("hover lookup start requestId=" + requestId + " key=" + key + " pendingNext=" + String(!!pendingHoverLookup));
           const hoverStartedAt = Date.now();
           const result = await lookupAtPosition(lastSubtitle || "", position, requestId);
-          debugLog("hover lookup completed requestId=" + requestId + " key=" + key + " elapsedMs=" + (Date.now() - hoverStartedAt));
+          debugVerbose("hover lookup completed requestId=" + requestId + " key=" + key + " elapsedMs=" + (Date.now() - hoverStartedAt));
           if (!enabled || lineId !== currentSubtitleLineId) {
             hoverLookupActiveKey = "";
             continue;
           }
           postToOverlay("line-lookup-result", { lineId, position, ok: true, result, hover: true, requestId, seq });
-          debugLog("hover lookup result requestId=" + requestId + " key=" + key + " count=" + (result && result.results ? result.results.length : 0));
+          debugVerbose("hover lookup result requestId=" + requestId + " key=" + key + " count=" + (result && result.results ? result.results.length : 0));
         } catch (error) {
           if (!enabled || lineId !== currentSubtitleLineId) {
             hoverLookupActiveKey = "";
@@ -3414,6 +3446,7 @@ function emitDebugLogTestMessage() {
 function revealDebugLogFile() {
   try {
     const p = dataPath("debug.log");
+    flushDebugLogBuffer();
     if (!file.exists(p)) file.write(p, "");
     file.showInFinder(p);
   } catch (error) {
@@ -3597,6 +3630,7 @@ event.on("mpv.end-file", () => {
 event.on("iina.window-will-close", () => {
   resetLookupPopupPause();
   stopPolling();
+  flushDebugLogBuffer();
 });
 try {
   if (core.window.loaded) {

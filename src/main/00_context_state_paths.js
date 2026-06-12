@@ -25,6 +25,7 @@ let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
 let activeWorkerFingerprint = null;
+let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
@@ -44,6 +45,11 @@ let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
 let dictionaryManagerInitialized = false;
 let dictionaryManagerActionInFlight = false;
+let debugLogSnapshot = null;
+let debugLogPending = "";
+let debugLogFlushTimer = null;
+const DEBUG_LOG_MAX_BYTES = 1000000;
+const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 
 function pref(key, fallback) {
   const value = preferences.get(key);
@@ -114,11 +120,9 @@ function debugLog(message, level) {
   const lvl = level || "debug";
   emitToIinaLogViewer(message, lvl);
   try {
-    const p = dataPath("debug.log");
-    let prev = "";
-    try { if (file.exists(p)) prev = String(file.read(p) || ""); } catch (_) {}
     const line = (new Date()).toISOString() + " [main][" + lvl + "] " + String(message || "") + "\n";
-    file.write(p, (prev + line).slice(-1000000));
+    debugLogPending = trimDebugLogText(debugLogPending + line);
+    scheduleDebugLogFlush();
   } catch (_) {}
 }
 function debugVerbose(message) {
@@ -126,6 +130,34 @@ function debugVerbose(message) {
 }
 function debugWarn(message) { debugLog(message, "warn"); }
 function debugError(message) { debugLog(message, "error"); }
+function trimDebugLogText(text) {
+  return String(text || "").slice(-DEBUG_LOG_MAX_BYTES);
+}
+function flushDebugLogBuffer() {
+  if (debugLogFlushTimer !== null) {
+    clearTimeout(debugLogFlushTimer);
+    debugLogFlushTimer = null;
+  }
+  if (!debugLogPending) return;
+  try {
+    const p = dataPath("debug.log");
+    if (debugLogSnapshot === null) {
+      let prev = "";
+      try { if (file.exists(p)) prev = String(file.read(p) || ""); } catch (_) {}
+      debugLogSnapshot = trimDebugLogText(prev);
+    }
+    const nextSnapshot = trimDebugLogText(debugLogSnapshot + debugLogPending);
+    file.write(p, nextSnapshot);
+    debugLogSnapshot = nextSnapshot;
+    debugLogPending = "";
+  } catch (_) {
+    debugLogPending = trimDebugLogText(debugLogPending);
+  }
+}
+function scheduleDebugLogFlush() {
+  if (debugLogFlushTimer !== null) return;
+  debugLogFlushTimer = setTimeout(flushDebugLogBuffer, DEBUG_LOG_FLUSH_DELAY_MS);
+}
 function postToOverlay(name, data) {
   try { overlay.postMessage(name, data || {}); } catch (error) { try { debugLog("overlay.postMessage failed for " + name + ": " + compactError(error)); } catch (_) {} console.warn("overlay.postMessage failed: " + compactError(error)); }
 }

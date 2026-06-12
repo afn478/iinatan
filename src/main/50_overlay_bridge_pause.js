@@ -19,7 +19,7 @@ function ensureOverlayBridge() {
 	    ws.onMessage((conn, message) => {
 	      try {
 	        const raw = message && typeof message.text === "function" ? String(message.text() || "") : "";
-	        debugLog("overlay bridge message=" + raw.slice(0, 200));
+	        debugVerbose("overlay bridge message=" + raw.slice(0, 200));
 	        let payload = raw;
 	        try { payload = JSON.parse(raw); } catch (_) {}
 	        if (payload && typeof payload === "object" && payload.type === "popup") {
@@ -86,7 +86,6 @@ function ensureOverlayBridge() {
 
   // Ack immediately. The overlay uses this to stop retrying the WebSocket lookup
   // request, so pause heartbeats + mouseenter spam cannot flood the lookup queue.
-  postToOverlay("config", overlayConfig());
   postToOverlay("lookup-request-ack", { requestId, lineId, position });
 
   if (!enabled || lineId !== currentSubtitleLineId) {
@@ -100,7 +99,7 @@ function ensureOverlayBridge() {
   }
 
   pendingHoverLookup = { requestId, lineId, position, key, seq: ++hoverLookupSequence };
-  debugLog("hover lookup queued requestId=" + requestId + " key=" + key + " currentLineId=" + currentSubtitleLineId + " inFlight=" + hoverLookupInFlight + " activeKey=" + hoverLookupActiveKey);
+  debugVerbose("hover lookup queued requestId=" + requestId + " key=" + key + " currentLineId=" + currentSubtitleLineId + " inFlight=" + hoverLookupInFlight + " activeKey=" + hoverLookupActiveKey);
   processHoverLookupQueue();
 }
 function processHoverLookupQueue() {
@@ -119,17 +118,16 @@ function processHoverLookupQueue() {
           continue;
         }
         try {
-          postToOverlay("line-lookup-progress", { lineId, ok: true, done: 0, total: 1, message: "Looking up hovered word…" });
-          debugLog("hover lookup start requestId=" + requestId + " key=" + key + " pendingNext=" + String(!!pendingHoverLookup));
+          debugVerbose("hover lookup start requestId=" + requestId + " key=" + key + " pendingNext=" + String(!!pendingHoverLookup));
           const hoverStartedAt = Date.now();
           const result = await lookupAtPosition(lastSubtitle || "", position, requestId);
-          debugLog("hover lookup completed requestId=" + requestId + " key=" + key + " elapsedMs=" + (Date.now() - hoverStartedAt));
+          debugVerbose("hover lookup completed requestId=" + requestId + " key=" + key + " elapsedMs=" + (Date.now() - hoverStartedAt));
           if (!enabled || lineId !== currentSubtitleLineId) {
             hoverLookupActiveKey = "";
             continue;
           }
           postToOverlay("line-lookup-result", { lineId, position, ok: true, result, hover: true, requestId, seq });
-          debugLog("hover lookup result requestId=" + requestId + " key=" + key + " count=" + (result && result.results ? result.results.length : 0));
+          debugVerbose("hover lookup result requestId=" + requestId + " key=" + key + " count=" + (result && result.results ? result.results.length : 0));
         } catch (error) {
           if (!enabled || lineId !== currentSubtitleLineId) {
             hoverLookupActiveKey = "";

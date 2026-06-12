@@ -427,6 +427,7 @@ async function stopBackendWorker() {
   safeDelete(workerPidPath());
   safeDelete(workerReadyPath());
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   await sleep(120);
 }
 async function startBackendWorkerProcess(dicts, language) {
@@ -436,6 +437,7 @@ async function startBackendWorkerProcess(dicts, language) {
   await clearDirFiles(workerResponseDir());
   safeDelete(workerStopPath());
   safeDelete(workerReadyPath());
+  activeWorkerReady = null;
   const lang = language || selectedLanguageModule();
   const fingerprint = workerFingerprint(dicts, lang);
   debugLog("start backend worker language=" + lang.id + " dictCount=" + (dicts || []).length + " fingerprint=" + fingerprint);
@@ -460,6 +462,7 @@ async function waitForWorkerReady(fingerprint, timeoutMs) {
     const ready = readWorkerReady();
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
+      activeWorkerReady = ready;
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
@@ -486,8 +489,8 @@ async function ensureBackendWorker(dicts, language) {
     setOverlayStatus(advisory, "info", 7000);
   }
   const fingerprint = workerFingerprint(dicts, lang);
-  debugLog("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
-  if (activeWorkerFingerprint === fingerprint && readWorkerReady()) return readWorkerReady();
+  debugVerbose("ensureBackendWorker language=" + lang.id + " dictCount=" + dicts.length + " activeFingerprintMatches=" + String(activeWorkerFingerprint === fingerprint));
+  if (activeWorkerFingerprint === fingerprint && activeWorkerReady) return activeWorkerReady;
   if (workerStartInFlight) return workerStartInFlight;
   workerStartInFlight = (async () => {
     await stopBackendWorker().catch(() => {});
@@ -529,7 +532,7 @@ async function runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults,
       safeDelete(resp);
       safeDelete(req);
       const parsed = parseBackendJsonOutput(raw, "");
-      debugLog("direct worker lookup done requestId=" + String(requestId || "") + " workerRequestId=" + id + " elapsedMs=" + (Date.now() - startedAt) + " stdoutBytes=" + raw.length + " resultCount=" + (parsed && parsed.results ? parsed.results.length : "n/a"));
+      debugVerbose("direct worker lookup done requestId=" + String(requestId || "") + " workerRequestId=" + id + " elapsedMs=" + (Date.now() - startedAt) + " stdoutBytes=" + raw.length + " resultCount=" + (parsed && parsed.results ? parsed.results.length : "n/a"));
       if (!parsed || parsed.ok === false) throw new Error((parsed && parsed.error) || "Direct worker lookup failed");
       return parsed;
     }
@@ -555,19 +558,17 @@ async function runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResult
   ];
   const lookupStartedAt = Date.now();
   const result = await runBackendJson(clientArgs, timeout + 2500, "Dictionary lookup command");
-  debugLog("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
+  debugVerbose("client exec lookup result requestId=" + String(requestId || "") + " elapsedMs=" + (Date.now() - lookupStartedAt) + " resultCount=" + (result && result.results ? result.results.length : "n/a"));
   return result;
 }
 async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId, backendMode, maxGlossaries, language) {
   const lang = language || selectedLanguageModule();
-  debugLog("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Preparing dictionary lookup..." });
+  debugVerbose("lookupViaWorker begin requestId=" + String(requestId || "") + " language=" + lang.id + " suffix=" + JSON.stringify(String(suffix || "").slice(0, 80)) + " dicts=" + dicts.length + " mode=" + String(backendMode || "yomitan-japanese") + " directIpc=" + String(prefBool("directWorkerIpc", true)));
   const timeout = Math.max(1500, prefNumber("lookupTimeoutMs", 9000));
 
   if (prefBool("directWorkerIpc", true)) {
     try {
       const result = await runWorkerQueueLookupDirect(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
-      if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
       return result;
     } catch (error) {
       debugWarn("direct worker lookup failed requestId=" + String(requestId || "") + ": " + compactError(error));
@@ -575,9 +576,7 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId,
     }
   }
 
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Trying another lookup path..." });
   const result = await runWorkerLookupViaClientExec(suffix, dicts, scanLength, maxResults, requestId, timeout, backendMode, maxGlossaries, lang);
-  if (requestId) postToOverlay("lookup-status", { requestId, message: "Dictionary result ready; rendering..." });
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }

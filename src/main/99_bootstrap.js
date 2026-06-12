@@ -23,6 +23,7 @@ event.on("mpv.end-file", () => {
 event.on("iina.window-will-close", () => {
   resetLookupPopupPause();
   stopPolling();
+  flushDebugLogBuffer();
 });
 try {
   if (core.window.loaded) {

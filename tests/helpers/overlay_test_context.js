@@ -37,7 +37,11 @@ class FakeElement {
     if (this.tagName === '#text') return this._textContent;
     return this._textContent || this.children.map(child => child.textContent).join('');
   }
-  set innerHTML(value) { this._innerHTML = String(value || ''); this.children = []; }
+  set innerHTML(value) {
+    this._innerHTML = String(value || '');
+    this.children = [];
+    this._materializePopupShell();
+  }
   get innerHTML() { return this._innerHTML; }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
@@ -52,6 +56,28 @@ class FakeElement {
     child.parentNode = this;
     this.children.push(child);
     return child;
+  }
+  _materializePopupShell() {
+    if (this.tagName !== 'popup') return;
+    const html = this._innerHTML;
+    const headOpen = html.indexOf('<div class="head">');
+    const bodyOpen = html.indexOf('<div class="body">');
+    if (headOpen < 0 || bodyOpen < 0 || bodyOpen < headOpen) return;
+    const headContentStart = headOpen + '<div class="head">'.length;
+    const headContentEnd = html.indexOf('</div>', headContentStart);
+    if (headContentEnd < 0) return;
+    const bodyContentStart = bodyOpen + '<div class="body">'.length;
+    const bodyContentEnd = html.lastIndexOf('</div>');
+    if (bodyContentEnd < bodyContentStart) return;
+    const head = new FakeElement('div');
+    head.className = 'head';
+    head._innerHTML = html.slice(headContentStart, headContentEnd);
+    head.parentNode = this;
+    const body = new FakeElement('div');
+    body.className = 'body';
+    body._innerHTML = html.slice(bodyContentStart, bodyContentEnd);
+    body.parentNode = this;
+    this.children = [head, body];
   }
   insertBefore(child, before) {
     child.parentNode = this;

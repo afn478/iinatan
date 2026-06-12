@@ -132,6 +132,7 @@ function emitDebugLogTestMessage() {
 function revealDebugLogFile() {
   try {
     const p = dataPath("debug.log");
+    flushDebugLogBuffer();
     if (!file.exists(p)) file.write(p, "");
     file.showInFinder(p);
   } catch (error) {

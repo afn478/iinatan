@@ -318,6 +318,7 @@ function setDictionaryEnabled(name, enabledNow) {
   writeManifest(manifest);
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
@@ -331,6 +332,7 @@ function setDictionaryOrder(names) {
   writeManifest(manifest);
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
@@ -410,6 +412,7 @@ function setActiveDictionaryProfile(profileId) {
   applyProfilePreferences(activeDictionaryProfile(normalized));
   lookupCache = Object.create(null);
   activeWorkerFingerprint = null;
+  activeWorkerReady = null;
   stopBackendWorker().catch(() => {});
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
