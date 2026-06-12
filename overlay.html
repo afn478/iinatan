@@ -385,9 +385,11 @@
     lookupRequestSeq: 0,
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
+    charByPos: Object.create(null),
     task: null,
 	    taskTimer: null
 	  };
+  const LOOKUP_RETRY_INTERVAL_MS = 60;
 	  let customPopupStyleEl = null;
 	  let lastCustomPopupCss = null;
 
@@ -543,7 +545,7 @@
 
   function lookupAnchorForUnit(unit, fallback) {
     if (unit && unit.isWord) {
-      const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(unit.pos) + '"]');
+      const el = charElementAt(unit.pos);
       if (el) return el;
     }
     return fallback || null;
@@ -581,6 +583,7 @@
     Object.keys(state.pendingLookupRequests || {}).forEach(k => cancelPendingLookupRequest(k));
     state.pendingLookupTimers = Object.create(null);
     state.pendingLookupRequests = Object.create(null);
+    state.charByPos = Object.create(null);
     state.lookupByPos = Object.create(null);
     state.progress = null;
     state.currentPos = null;
@@ -605,6 +608,7 @@
       if (lookupable) {
         span.setAttribute('data-clickable', 'true');
         span.dataset.pos = String(i);
+        state.charByPos[i] = span;
         span.addEventListener('mouseenter', onCharEnter);
         span.addEventListener('click', onCharEnter);
         span.addEventListener('mouseleave', scheduleHidePopup);
@@ -700,7 +704,7 @@
     state.activeMatchLength = len;
     const rects = [];
     for (let i = 0; i < len; i++) {
-      const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(start + i) + '"]');
+      const el = charElementAt(start + i);
       if (!el) continue;
       el.classList.add('active-match');
       const r = el.getBoundingClientRect();
@@ -733,8 +737,8 @@
       return;
     }
     activateMatchRange(preview.start, preview.text || anchor.textContent || '');
-    showPopup(anchor, preview.text, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
     requestLookupFromPlugin(pos);
+    showPopup(anchor, preview.text, '<div class="loading">' + escapeHtml('Looking up…') + '</div>');
   }
 
 	  function scheduleHidePopup() {
@@ -798,8 +802,11 @@
         overlayDebug("bridge socket open");
         try { socket.send(JSON.stringify({ type: 'hello', source: 'overlay' })); } catch (_) {}
         if (state.lookupPopupVisible) {
+          if (state.currentPos !== null && state.currentPos !== undefined && !state.lookupByPos[state.currentPos] && !state.pendingLookupRequests[state.currentPos]) {
+            requestLookupFromPlugin(state.currentPos);
+          }
+          flushPendingLookupRequests();
           sendBridgePopupVisibility(true);
-          if (state.currentPos !== null && state.currentPos !== undefined && !state.lookupByPos[state.currentPos]) requestLookupFromPlugin(state.currentPos);
         }
       };
       socket.onclose = () => {
@@ -862,6 +869,39 @@
     });
   }
 
+  function lookupRequestIsCurrent(req) {
+    if (!req) return false;
+    const pos = req.pos;
+    return !!state.pendingLookupRequests[pos] &&
+      state.pendingLookupRequests[pos] === req &&
+      !req.sent &&
+      !state.lookupByPos[pos] &&
+      state.currentPos === pos &&
+      state.lineId === req.lineId;
+  }
+
+  function trySendLookupRequest(req) {
+    if (!lookupRequestIsCurrent(req)) {
+      if (req && !req.sent) cancelPendingLookupRequest(req.pos);
+      return false;
+    }
+    req.attempts++;
+    overlayDebug("lookup send attempt requestId=" + req.requestId + " pos=" + req.pos + " attempt=" + req.attempts);
+    req.sent = sendLookupRequestPayload(req);
+    if (req.sent && req.retryTimer) {
+      clearInterval(req.retryTimer);
+      req.retryTimer = null;
+    }
+    return req.sent;
+  }
+
+  function flushPendingLookupRequests() {
+    Object.keys(state.pendingLookupRequests || {}).forEach(key => {
+      const req = state.pendingLookupRequests[key];
+      if (req && !req.sent) trySendLookupRequest(req);
+    });
+  }
+
   function requestLookupFromPlugin(pos) {
     overlayDebug("requestLookupFromPlugin pos=" + String(pos) + " lineId=" + state.lineId + " hasCached=" + String(!!state.lookupByPos[pos]));
     cancelPendingLookupRequestsExcept(pos);
@@ -882,29 +922,15 @@
     };
     state.pendingLookupRequests[pos] = req;
 
-    const trySend = () => {
-      if (!state.pendingLookupRequests[pos] || req.sent || state.lookupByPos[pos] || state.currentPos !== pos || state.lineId !== req.lineId) {
-        if (!req.sent) cancelPendingLookupRequest(pos);
-        return;
-      }
-      req.attempts++;
-      overlayDebug("lookup send attempt requestId=" + req.requestId + " pos=" + pos + " attempt=" + req.attempts);
-      req.sent = sendLookupRequestPayload(req);
-      if (req.sent && req.retryTimer) {
-        clearInterval(req.retryTimer);
-        req.retryTimer = null;
-      }
-    };
-
-    trySend();
+    trySendLookupRequest(req);
     if (!req.sent) {
       req.retryTimer = setInterval(() => {
-        trySend();
+        trySendLookupRequest(req);
         if (req.sent || req.attempts >= 6) {
           if (req.retryTimer) clearInterval(req.retryTimer);
           req.retryTimer = null;
         }
-      }, 200);
+      }, LOOKUP_RETRY_INTERVAL_MS);
     }
 
     req.timeoutTimer = setTimeout(() => {
@@ -916,9 +942,11 @@
   }
 
   function postLookupPopupVisibility(visible) {
-    sendBridgePopupVisibility(visible);
-    try { iina.postMessage('lookup-popup-visibility', visible ? 'show' : 'hide'); } catch (_) {}
-    try { iina.postMessage('lookup-popup-visible', { visible: !!visible, seq: state.popupVisibilitySeq }); } catch (_) {}
+    const bridgeSent = sendBridgePopupVisibility(visible);
+    if (!bridgeSent) {
+      try { iina.postMessage('lookup-popup-visibility', visible ? 'show' : 'hide'); } catch (_) {}
+      try { iina.postMessage('lookup-popup-visible', { visible: !!visible, seq: state.popupVisibilitySeq }); } catch (_) {}
+    }
   }
   function setLookupPopupVisibility(visible) {
     visible = !!visible;
@@ -974,6 +1002,9 @@
   function markPopupClickable() {
     popupEl.setAttribute('data-clickable', 'true');
     popupEl.querySelectorAll('*').forEach(el => el.setAttribute('data-clickable', 'true'));
+  }
+  function charElementAt(pos) {
+    return state.charByPos && state.charByPos[pos] ? state.charByPos[pos] : null;
   }
 
   function visibleSubtitleRect() {
@@ -1711,7 +1742,7 @@
     const start = run && Number.isFinite(Number(run.start)) ? Number(run.start) : pos;
     const end = run && Number.isFinite(Number(run.end)) ? Number(run.end) : pos + 1;
     for (let i = start; i < end; i++) {
-      const el = subtitleEl.querySelector('.char.lookupable[data-pos="' + String(i) + '"]');
+      const el = charElementAt(i);
       if (el) el.classList.add('ready');
     }
   }

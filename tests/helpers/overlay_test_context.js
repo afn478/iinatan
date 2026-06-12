@@ -122,7 +122,8 @@ function matchesSelector(el, selector) {
   return false;
 }
 
-function makeOverlayContext() {
+function makeOverlayContext(options) {
+  options = options || {};
   const elements = {
     subtitle: new FakeElement('subtitle'),
     popup: new FakeElement('popup'),
@@ -133,7 +134,12 @@ function makeOverlayContext() {
   const head = new FakeElement('head');
   const sent = [];
   const handlers = Object.create(null);
-  function FakeWebSocket() { this.readyState = FakeWebSocket.OPEN; }
+  const sockets = [];
+  function FakeWebSocket(url) {
+    this.url = url;
+    this.readyState = options.autoOpenWebSocket === false ? FakeWebSocket.CONNECTING : FakeWebSocket.OPEN;
+    sockets.push(this);
+  }
   FakeWebSocket.OPEN = 1;
   FakeWebSocket.CONNECTING = 0;
   FakeWebSocket.prototype.send = function send(message) { sent.push(JSON.parse(message)); };
@@ -164,14 +170,22 @@ function makeOverlayContext() {
     __elements: elements,
     __head: head,
     __sent: sent,
-    __handlers: handlers
+    __handlers: handlers,
+    __sockets: sockets,
+    __openSocket(index) {
+      const socket = sockets[index == null ? sockets.length - 1 : index];
+      if (!socket) throw new Error('No fake WebSocket to open');
+      socket.readyState = FakeWebSocket.OPEN;
+      if (typeof socket.onopen === 'function') socket.onopen();
+      return socket;
+    }
   };
   vm.createContext(context);
   return context;
 }
 
-function loadOverlayForTest(exportList) {
-  const context = makeOverlayContext();
+function loadOverlayForTest(exportList, options) {
+  const context = makeOverlayContext(options);
   const exports = Array.isArray(exportList) ? exportList.join(', ') : String(exportList || '');
   let source = fs.readFileSync(path.join(root, 'src/overlay/overlay.js'), 'utf8');
   source = source.replace(
