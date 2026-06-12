@@ -56,11 +56,20 @@ function pref(key, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
   return value;
 }
-function prefBool(key, fallback) {
-  const value = pref(key, fallback);
+function preferenceValueToBool(value, fallback) {
+  if (value === undefined || value === null || value === "") return !!fallback;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value === "true";
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return !!fallback;
+    if (["true", "1", "yes", "on"].indexOf(normalized) >= 0) return true;
+    if (["false", "0", "no", "off"].indexOf(normalized) >= 0) return false;
+  }
   return !!value;
+}
+function prefBool(key, fallback) {
+  return preferenceValueToBool(pref(key, fallback), fallback);
 }
 function prefNumber(key, fallback) {
   const value = Number(pref(key, fallback));
@@ -1872,6 +1881,23 @@ function activeDictionaryProfile(manifest) {
   const normalized = normalizeManifestShape(manifest || readManifest());
   return normalized.profiles[normalized.activeProfileId] || normalized.profiles[DEFAULT_PROFILE_ID] || makeDefaultProfile(DEFAULT_PROFILE_ID, "Default");
 }
+function activeProfilePreferenceValue(key, fallback) {
+  const preferenceKey = String(key || "");
+  const fallbackValue = Object.prototype.hasOwnProperty.call(PROFILE_PREFERENCE_DEFAULTS, preferenceKey) ? PROFILE_PREFERENCE_DEFAULTS[preferenceKey] : fallback;
+  const profile = activeDictionaryProfile(readManifest());
+  const prefs = normalizeProfilePreferences(profile.preferences);
+  if (Object.prototype.hasOwnProperty.call(prefs, preferenceKey)) return prefs[preferenceKey];
+  return fallbackValue;
+}
+function activeProfilePreferenceBool(key, fallback) {
+  const preferenceKey = String(key || "");
+  const fallbackValue = Object.prototype.hasOwnProperty.call(PROFILE_PREFERENCE_DEFAULTS, preferenceKey) ? PROFILE_PREFERENCE_DEFAULTS[preferenceKey] : fallback;
+  try {
+    return preferenceValueToBool(activeProfilePreferenceValue(preferenceKey, fallbackValue), fallbackValue);
+  } catch (_) {
+    return prefBool(preferenceKey, fallbackValue);
+  }
+}
 function profileSummaries(manifest) {
   const normalized = normalizeManifestShape(manifest || readManifest());
   return Object.keys(normalized.profiles).sort((a, b) => {
@@ -3463,6 +3489,14 @@ function scheduleLookupPopupWatchdog() {
   // intentionally does not resume playback when the popup closes.
   clearLookupPopupWatchdog();
 }
+function lookupPopupPauseEnabled() {
+  try {
+    return activeProfilePreferenceBool("pauseWhilePopupVisible", true);
+  } catch (error) {
+    debugWarn("falling back to plugin popup pause preference: " + compactError(error));
+    return prefBool("pauseWhilePopupVisible", true);
+  }
+}
 function handleLookupPopupVisibility(payload) {
   const visible = (payload === true) || payload === "show" || payload === "visible" || (payload && !!payload.visible);
   const seq = payload && typeof payload === "object" && payload.seq !== undefined ? Number(payload.seq) : null;
@@ -3473,7 +3507,11 @@ function handleLookupPopupVisibility(payload) {
     }
     lookupPopupLastSeq = seq;
   }
-  if (!prefBool("pauseWhilePopupVisible", true)) return;
+  if (!lookupPopupPauseEnabled()) {
+    if (lookupPopupPauseActive) finishLookupPopupPause("preference-disabled");
+    debugVerbose("popup visibility ignored because pauseWhilePopupVisible is disabled visible=" + String(visible) + " seq=" + String(seq));
+    return;
+  }
   if (lookupPopupPauseResumeTimer !== null) {
     clearTimeout(lookupPopupPauseResumeTimer);
     lookupPopupPauseResumeTimer = null;

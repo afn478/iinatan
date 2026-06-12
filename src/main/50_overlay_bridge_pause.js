@@ -176,6 +176,14 @@ function scheduleLookupPopupWatchdog() {
   // intentionally does not resume playback when the popup closes.
   clearLookupPopupWatchdog();
 }
+function lookupPopupPauseEnabled() {
+  try {
+    return activeProfilePreferenceBool("pauseWhilePopupVisible", true);
+  } catch (error) {
+    debugWarn("falling back to plugin popup pause preference: " + compactError(error));
+    return prefBool("pauseWhilePopupVisible", true);
+  }
+}
 function handleLookupPopupVisibility(payload) {
   const visible = (payload === true) || payload === "show" || payload === "visible" || (payload && !!payload.visible);
   const seq = payload && typeof payload === "object" && payload.seq !== undefined ? Number(payload.seq) : null;
@@ -186,7 +194,11 @@ function handleLookupPopupVisibility(payload) {
     }
     lookupPopupLastSeq = seq;
   }
-  if (!prefBool("pauseWhilePopupVisible", true)) return;
+  if (!lookupPopupPauseEnabled()) {
+    if (lookupPopupPauseActive) finishLookupPopupPause("preference-disabled");
+    debugVerbose("popup visibility ignored because pauseWhilePopupVisible is disabled visible=" + String(visible) + " seq=" + String(seq));
+    return;
+  }
   if (lookupPopupPauseResumeTimer !== null) {
     clearTimeout(lookupPopupPauseResumeTimer);
     lookupPopupPauseResumeTimer = null;

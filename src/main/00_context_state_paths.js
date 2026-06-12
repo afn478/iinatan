@@ -56,11 +56,20 @@ function pref(key, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
   return value;
 }
-function prefBool(key, fallback) {
-  const value = pref(key, fallback);
+function preferenceValueToBool(value, fallback) {
+  if (value === undefined || value === null || value === "") return !!fallback;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value === "true";
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return !!fallback;
+    if (["true", "1", "yes", "on"].indexOf(normalized) >= 0) return true;
+    if (["false", "0", "no", "off"].indexOf(normalized) >= 0) return false;
+  }
   return !!value;
+}
+function prefBool(key, fallback) {
+  return preferenceValueToBool(pref(key, fallback), fallback);
 }
 function prefNumber(key, fallback) {
   const value = Number(pref(key, fallback));

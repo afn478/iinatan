@@ -112,6 +112,23 @@ function activeDictionaryProfile(manifest) {
   const normalized = normalizeManifestShape(manifest || readManifest());
   return normalized.profiles[normalized.activeProfileId] || normalized.profiles[DEFAULT_PROFILE_ID] || makeDefaultProfile(DEFAULT_PROFILE_ID, "Default");
 }
+function activeProfilePreferenceValue(key, fallback) {
+  const preferenceKey = String(key || "");
+  const fallbackValue = Object.prototype.hasOwnProperty.call(PROFILE_PREFERENCE_DEFAULTS, preferenceKey) ? PROFILE_PREFERENCE_DEFAULTS[preferenceKey] : fallback;
+  const profile = activeDictionaryProfile(readManifest());
+  const prefs = normalizeProfilePreferences(profile.preferences);
+  if (Object.prototype.hasOwnProperty.call(prefs, preferenceKey)) return prefs[preferenceKey];
+  return fallbackValue;
+}
+function activeProfilePreferenceBool(key, fallback) {
+  const preferenceKey = String(key || "");
+  const fallbackValue = Object.prototype.hasOwnProperty.call(PROFILE_PREFERENCE_DEFAULTS, preferenceKey) ? PROFILE_PREFERENCE_DEFAULTS[preferenceKey] : fallback;
+  try {
+    return preferenceValueToBool(activeProfilePreferenceValue(preferenceKey, fallbackValue), fallbackValue);
+  } catch (_) {
+    return prefBool(preferenceKey, fallbackValue);
+  }
+}
 function profileSummaries(manifest) {
   const normalized = normalizeManifestShape(manifest || readManifest());
   return Object.keys(normalized.profiles).sort((a, b) => {
