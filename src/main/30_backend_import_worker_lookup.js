@@ -722,6 +722,23 @@ async function lookupAtPosition(text, position, requestId) {
   const triedLookupTexts = Object.create(null);
   let nonLemmaFallbackResult = null;
   let nonLemmaFallbackCandidate = null;
+  async function followNonLemmaLemmaReferences(nonLemmaResult) {
+    const lemmaCandidates = nonLemmaLemmaCandidates(nonLemmaResult, triedLookupTexts, maxResults);
+    for (let i = 0; i < lemmaCandidates.length && mergedEntries.length < maxResults; i++) {
+      const candidate = lemmaCandidates[i];
+      triedLookupTexts[candidate.text] = true;
+      const candidateScanLength = Math.max(1, charsOf(candidate.text).length || effectiveScanLength);
+      debugVerbose("lookupAtPosition non-lemma lemma candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text));
+      const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+      debugVerbose("lookupAtPosition non-lemma lemma result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
+      if (!candidateResult || !candidateResult.results || !candidateResult.results.length || lookupResultIsOnlyNonLemma(candidateResult)) continue;
+      if (!candidateUsed) {
+        result = Object.assign({}, candidateResult, { results: mergedEntries });
+        candidateUsed = candidate;
+      }
+      appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
+    }
+  }
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     triedLookupTexts[candidate.text] = true;
@@ -737,6 +754,8 @@ async function lookupAtPosition(text, position, requestId) {
           nonLemmaFallbackCandidate = candidate;
         }
         debugVerbose("lookupAtPosition candidate non-lemma-only language=" + language.id + " text=" + JSON.stringify(candidate.text) + " continuing=true");
+        await followNonLemmaLemmaReferences(candidateResult);
+        if (mergedEntries.length >= maxResults) break;
         continue;
       }
       if (!candidateUsed) {
@@ -749,21 +768,7 @@ async function lookupAtPosition(text, position, requestId) {
     }
   }
   if (!candidateUsed && nonLemmaFallbackResult) {
-    const lemmaCandidates = nonLemmaLemmaCandidates(nonLemmaFallbackResult, triedLookupTexts, maxResults);
-    for (let i = 0; i < lemmaCandidates.length && mergedEntries.length < maxResults; i++) {
-      const candidate = lemmaCandidates[i];
-      triedLookupTexts[candidate.text] = true;
-      const candidateScanLength = Math.max(1, charsOf(candidate.text).length || effectiveScanLength);
-      debugVerbose("lookupAtPosition non-lemma lemma candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text));
-      const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
-      debugVerbose("lookupAtPosition non-lemma lemma result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
-      if (!candidateResult || !candidateResult.results || !candidateResult.results.length || lookupResultIsOnlyNonLemma(candidateResult)) continue;
-      if (!candidateUsed) {
-        result = Object.assign({}, candidateResult, { results: mergedEntries });
-        candidateUsed = candidate;
-      }
-      appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
-    }
+    await followNonLemmaLemmaReferences(nonLemmaFallbackResult);
   }
   if (candidateUsed) {
     result.results = mergedEntries;

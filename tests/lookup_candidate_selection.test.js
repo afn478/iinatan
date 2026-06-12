@@ -130,6 +130,18 @@ async function runLookupSelection(candidates, responses, maxEntries) {
   assert(tupleLemma.result.lookupText === 'traditionsreich', 'Lookup should report the referenced lemma when it finds definitions');
   assert(tupleLemma.result.results.map(r => r.term.expression).join('|') === 'traditionsreich', 'Referenced lemma definitions should replace tuple-only non-lemma rows');
 
+  const capitalizedFormBeforeLowercase = await runLookupSelection([
+    { text: 'Erben', displayText: 'Erben', source: 'surface' },
+    { text: 'erben', displayText: 'Erben', source: 'lowercase' }
+  ], {
+    Erben: nonLemmaTupleResult('Erben', 'Erbe'),
+    Erbe: resultFor('Erbe', 'n'),
+    erben: resultFor('erben', 'v')
+  });
+  assert(capitalizedFormBeforeLowercase.calls.join('|') === 'Erben|Erbe|erben', 'Lookup should follow capitalized non-lemma references before lowercase candidates');
+  assert(capitalizedFormBeforeLowercase.result.lookupText === 'Erbe', 'Capitalized non-lemma references should stay primary over lowercase hits');
+  assert(capitalizedFormBeforeLowercase.result.results.map(r => r.term.expression).join('|') === 'Erbe|erben', 'Capitalized noun lemma should be returned before lowercase verb definitions');
+
   console.log('lookup candidate selection tests passed');
 })().catch(error => {
   console.error(error);
