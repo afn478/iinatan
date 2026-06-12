@@ -18,18 +18,21 @@
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
-      maxEntries: 3,
-      maxGlossesPerEntry: 4,
-      scanLength: 24,
-      language: {
+	      maxEntries: 3,
+	      maxGlossesPerEntry: 4,
+	      scanLength: 24,
+	      etymologyCollapseDefault: 'collapsed',
+	      wiktionaryEtymologyCollapseOverride: 'collapsed',
+	      customPopupCss: '',
+	      language: {
         id: 'ja',
         label: 'Japanese',
         lookupUnit: 'character',
         wordMode: 'rightward-prefix'
       },
       hoverRequestTimeoutMs: 15000,
-      debugLogVerbose: false
-    },
+	      debugLogVerbose: false
+	    },
     hideTimer: null,
     currentAnchor: null,
     activeMatchStart: null,
@@ -44,17 +47,103 @@
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     task: null,
-    taskTimer: null
-  };
+	    taskTimer: null
+	  };
+	  let customPopupStyleEl = null;
+	  let lastCustomPopupCss = null;
 
-  function escapeHtml(s) {
-    return String(s || '')
+	  function escapeHtml(s) {
+	    return String(s || '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+	      .replace(/"/g, '&quot;')
+	      .replace(/'/g, '&#39;');
+	  }
+	  function normalizeWhitespace(s) {
+	    return String(s || '').replace(/\s+/g, ' ').trim();
+	  }
+	  function compareTextKey(s) {
+	    const raw = normalizeWhitespace(s).toLowerCase();
+	    try { return raw.normalize('NFKC'); } catch (_) { return raw; }
+	  }
+	  function safeExternalUrl(raw) {
+	    const value = String(raw || '').trim();
+	    if (!value || !/^https?:\/\//i.test(value)) {
+	      if (value) overlayDebug("source URL rejected scheme=" + JSON.stringify(value.slice(0, 160)));
+	      return '';
+	    }
+	    try {
+	      if (typeof URL === 'function') {
+	        const url = new URL(value);
+	        if (url.protocol === 'http:' || url.protocol === 'https:') {
+	          overlayDebug("source URL accepted=" + JSON.stringify(url.href.slice(0, 180)));
+	          return url.href;
+	        }
+	      } else if (/^https?:\/\/[^\s<>"']+$/i.test(value)) {
+	        overlayDebug("source URL accepted=" + JSON.stringify(value.slice(0, 180)));
+	        return value;
+	      }
+	    } catch (_) {}
+	    overlayDebug("source URL rejected invalid=" + JSON.stringify(value.slice(0, 160)));
+	    return '';
+	  }
+	  function nodeHref(node) {
+	    if (!node || typeof node !== 'object') return '';
+	    const data = node.data || {};
+	    const attrs = node.attributes || node.attrs || {};
+	    return node.href || node.url || data.href || data.url || attrs.href || attrs.url || '';
+	  }
+	  function externalLinkHtml(url, innerHtml) {
+	    const safe = safeExternalUrl(url);
+	    if (!safe) return '';
+	    const body = innerHtml || escapeHtml(safe);
+	    return '<a class="xref-link external-source-link" href="' + escapeHtml(safe) + '" data-external-url="' + escapeHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + body + '</a>';
+	  }
+	  function escapeAndLinkifyText(raw) {
+	    const text = String(raw || '');
+	    const re = /https?:\/\/[^\s<>"']+/gi;
+	    let out = '';
+	    let last = 0;
+	    let match;
+	    while ((match = re.exec(text))) {
+	      out += escapeHtml(text.slice(last, match.index));
+	      let url = match[0];
+	      let trailing = '';
+	      while (/[.,;:!?)\]}]$/.test(url)) {
+	        trailing = url.slice(-1) + trailing;
+	        url = url.slice(0, -1);
+	      }
+	      const safe = safeExternalUrl(url);
+	      out += safe ? externalLinkHtml(safe, escapeHtml(url)) : escapeHtml(match[0]);
+	      out += escapeHtml(trailing);
+	      last = match.index + match[0].length;
+	    }
+	    out += escapeHtml(text.slice(last));
+	    return out;
+	  }
+	  function applyCustomPopupCss(cssText) {
+	    const css = String(cssText || '');
+	    if (css === lastCustomPopupCss) return;
+	    lastCustomPopupCss = css;
+	    if (!css.trim()) {
+	      if (customPopupStyleEl) customPopupStyleEl.textContent = '';
+	      overlayDebug("custom popup CSS skipped empty");
+	      return;
+	    }
+	    try {
+	      if (!customPopupStyleEl) {
+	        customPopupStyleEl = document.createElement('style');
+	        customPopupStyleEl.id = 'iinatan-custom-popup-css';
+	        const host = document.head || document.documentElement;
+	        if (host && host.appendChild) host.appendChild(customPopupStyleEl);
+	      }
+	      customPopupStyleEl.textContent = css.slice(0, 50000);
+	      overlayDebug("custom popup CSS applied bytes=" + String(customPopupStyleEl.textContent.length));
+	    } catch (error) {
+	      overlayDebug("custom popup CSS apply failed " + String(error && error.message ? error.message : error));
+	    }
+	  }
   function overlayDebug(message) {
     try {
       if (!state.config || state.config.debugLogVerbose === false) return;
@@ -79,6 +168,7 @@
     const s = String(ch || '');
     if (lang.wordMode === 'latin-word' || lang.id === 'en' || lang.id === 'fr' || lang.id === 'de') return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/.test(s);
     if (lang.id === 'ko') return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(s);
+    if (lang.id === 'zh') return /[\u3400-\u9fff\uf900-\ufaff]/.test(s);
     return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(s);
   }
 
@@ -131,16 +221,17 @@
     if (state.config.subtitleFontStyle) document.documentElement.style.setProperty('--subtitle-font-style', String(state.config.subtitleFontStyle));
     if (state.config.subtitleColor) document.documentElement.style.setProperty('--subtitle-color', String(state.config.subtitleColor));
     if (state.config.subtitleBorderColor) document.documentElement.style.setProperty('--subtitle-border-color', String(state.config.subtitleBorderColor));
-    if (state.config.subtitleOutlineWidth) document.documentElement.style.setProperty('--subtitle-outline-width', String(state.config.subtitleOutlineWidth));
-    if (state.config.subtitleShadowColor) document.documentElement.style.setProperty('--subtitle-shadow-color', String(state.config.subtitleShadowColor));
-    if (state.config.subtitleShadowOffset) document.documentElement.style.setProperty('--subtitle-shadow-offset', String(state.config.subtitleShadowOffset));
-    if (state.config.subtitleShadowBlur) document.documentElement.style.setProperty('--subtitle-shadow-blur', String(state.config.subtitleShadowBlur));
-    if (state.config.overlayBridgePort) {
-      state.bridgePort = Number(state.config.overlayBridgePort);
-      ensureBridgeSocket();
-    }
-    overlayDebug("config applied bridgePort=" + String(state.bridgePort) + " popupScale=" + String(state.config.popupScale));
-  }
+	    if (state.config.subtitleOutlineWidth) document.documentElement.style.setProperty('--subtitle-outline-width', String(state.config.subtitleOutlineWidth));
+	    if (state.config.subtitleShadowColor) document.documentElement.style.setProperty('--subtitle-shadow-color', String(state.config.subtitleShadowColor));
+	    if (state.config.subtitleShadowOffset) document.documentElement.style.setProperty('--subtitle-shadow-offset', String(state.config.subtitleShadowOffset));
+	    if (state.config.subtitleShadowBlur) document.documentElement.style.setProperty('--subtitle-shadow-blur', String(state.config.subtitleShadowBlur));
+	    applyCustomPopupCss(state.config.customPopupCss || '');
+	    if (state.config.overlayBridgePort) {
+	      state.bridgePort = Number(state.config.overlayBridgePort);
+	      ensureBridgeSocket();
+	    }
+	    overlayDebug("config applied bridgePort=" + String(state.bridgePort) + " popupScale=" + String(state.config.popupScale) + " etymologyCollapseDefault=" + String(state.config.etymologyCollapseDefault || "collapsed") + " wiktionaryOverride=" + String(state.config.wiktionaryEtymologyCollapseOverride || "inherit"));
+	  }
 
   function renderSubtitle(text, lineId) {
     state.text = flattenSubtitleText(text);
@@ -307,12 +398,36 @@
     requestLookupFromPlugin(pos);
   }
 
-  function scheduleHidePopup() {
-    if (state.hideTimer) clearTimeout(state.hideTimer);
-    state.hideTimer = setTimeout(() => hidePopup(), 240);
-  }
-  popupEl.addEventListener('mouseenter', () => { if (state.hideTimer) clearTimeout(state.hideTimer); });
-  popupEl.addEventListener('mouseleave', scheduleHidePopup);
+	  function scheduleHidePopup() {
+	    if (state.hideTimer) clearTimeout(state.hideTimer);
+	    state.hideTimer = setTimeout(() => hidePopup(), 240);
+	  }
+	  function closestExternalLink(target) {
+	    let el = target;
+	    while (el && el !== popupEl) {
+	      if (el.getAttribute && el.getAttribute('data-external-url')) return el;
+	      el = el.parentNode;
+	    }
+	    return null;
+	  }
+	  function onPopupClick(ev) {
+	    const link = closestExternalLink(ev.target);
+	    if (!link) return;
+	    const url = safeExternalUrl(link.getAttribute('data-external-url') || link.getAttribute('href') || '');
+	    ev.preventDefault();
+	    ev.stopPropagation();
+	    if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+	    if (!url) {
+	      overlayDebug("source link click rejected");
+	      return;
+	    }
+	    const sent = sendBridgeMessage({ type: 'open-url', url, at: Date.now() });
+	    try { iina.postMessage('open-external-url', { url }); } catch (_) {}
+	    overlayDebug("source link click url=" + JSON.stringify(url.slice(0, 180)) + " bridgeSent=" + String(sent));
+	  }
+	  popupEl.addEventListener('mouseenter', () => { if (state.hideTimer) clearTimeout(state.hideTimer); });
+	  popupEl.addEventListener('mouseleave', scheduleHidePopup);
+	  popupEl.addEventListener('click', onPopupClick, true);
   function trapPopupWheel(ev) {
     if (popupEl.classList.contains('hidden')) return;
     ev.preventDefault();
@@ -494,20 +609,25 @@
     clearActiveMatch();
   }
 
-  function showPopup(anchor, heading, bodyHtml) {
-    state.currentAnchor = anchor || null;
-    popupEl.innerHTML = '<div class="head"><span class="term">' + escapeHtml(heading || '') + '</span></div><div class="body">' + bodyHtml + '</div>';
-    markPopupClickable();
-    popupEl.classList.remove('hidden');
-    setLookupPopupVisibility(true);
-    placePopup(anchor);
-  }
-  function setPopupBody(bodyHtml, heading, reading) {
-    const head = popupEl.querySelector('.head');
-    const body = popupEl.querySelector('.body');
-    if (head && heading !== undefined) {
-      head.innerHTML = '<span class="term">' + escapeHtml(heading || '') + '</span>' + (reading ? '<span class="reading">' + escapeHtml(reading) + '</span>' : '');
-    }
+	  function renderPopupHead(heading, reading, secondaryText) {
+	    return '<span class="term">' + escapeHtml(heading || '') + '</span>' +
+	      (reading ? '<span class="reading">' + escapeHtml(reading) + '</span>' : '') +
+	      (secondaryText ? '<div class="lookup-source">' + escapeHtml(secondaryText) + '</div>' : '');
+	  }
+	  function showPopup(anchor, heading, bodyHtml) {
+	    state.currentAnchor = anchor || null;
+	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '') + '</div><div class="body">' + bodyHtml + '</div>';
+	    markPopupClickable();
+	    popupEl.classList.remove('hidden');
+	    setLookupPopupVisibility(true);
+	    placePopup(anchor);
+	  }
+	  function setPopupBody(bodyHtml, heading, reading, secondaryText) {
+	    const head = popupEl.querySelector('.head');
+	    const body = popupEl.querySelector('.body');
+	    if (head && heading !== undefined) {
+	      head.innerHTML = renderPopupHead(heading || '', reading || '', secondaryText || '');
+	    }
     if (body) body.innerHTML = bodyHtml;
     markPopupClickable();
     if (state.currentAnchor && !popupEl.classList.contains('hidden')) placePopup(state.currentAnchor);
@@ -619,20 +739,26 @@
     });
     return '<ruby>' + escapeHtml(base) + (rt ? '<rt>' + escapeHtml(rt) + '</rt>' : '') + '</ruby>';
   }
-  function renderInlineNode(node) {
-    if (node == null) return '';
-    if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return escapeHtml(String(node));
-    if (Array.isArray(node)) return node.map(renderInlineNode).join('');
-    if (typeof node === 'object') {
-      if (node.type === 'structured-content') return renderInlineNode(node.content);
-      const tag = node.tag || '';
-      if (tag === 'ruby') return renderRubyNode(node);
-      if (tag === 'rt') return '';
-      if (tag === 'a') return '<span class="xref-link">' + renderInlineNode(node.content) + '</span>';
-      return renderInlineNode(node.content);
-    }
-    return '';
-  }
+	  function renderInlineNode(node, ctx) {
+	    if (node == null) return '';
+	    if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return escapeHtml(String(node)).replace(/\n/g, '<br>');
+	    if (Array.isArray(node)) return node.map(part => renderInlineNode(part, ctx)).join('');
+	    if (typeof node === 'object') {
+	      if (node.type === 'structured-content') return renderInlineNode(node.content, ctx);
+	      const tag = node.tag || '';
+		      if (tag === 'ruby') return renderRubyNode(node);
+		      if (tag === 'rt') return '';
+		      if (tag === 'br') return '<br>';
+		      if (tag === 'a') {
+		        const inner = renderInlineNode(node.content, ctx) || escapeHtml(nodeHref(node));
+		        const linked = externalLinkHtml(nodeHref(node), inner);
+		        return linked || '<span class="xref-link">' + inner + '</span>';
+		      }
+		      if (tag === 'span') return renderStructuredSpan(node, ctx);
+		      return renderInlineNode(node.content, ctx);
+		    }
+	    return '';
+	  }
   function findNodes(node, predicate, out) {
     out = out || [];
     if (node == null) return out;
@@ -664,65 +790,481 @@
     }
     return bits.length ? bits.join('\n') : s;
   }
-  function renderExampleBox(node) {
-    const jaNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-a')[0];
-    const enNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-b')[0];
-    const ja = jaNode ? renderInlineNode(jaNode.content) : '';
-    const en = enNode ? renderInlineNode(enNode.content) : '';
-    if (!ja && !en) return '';
-    return '<div class="example-card">' + (ja ? '<div class="example-ja">' + ja + '</div>' : '') + (en ? '<div class="example-en">' + en + '</div>' : '') + '</div>';
-  }
-  function renderXrefBox(node) {
-    const labelNode = findNodes(node, n => n && n.data && n.data.content === 'reference-label')[0];
-    const glossNode = findNodes(node, n => n && n.data && n.data.content === 'xref-glossary')[0];
-    const linkNodes = findNodes(node, n => n && n.tag === 'a');
-    const label = labelNode ? plainTextFromNode(labelNode.content) : 'See also';
-    const links = linkNodes.map(n => renderInlineNode(n.content)).filter(Boolean);
-    const gloss = glossNode ? renderInlineNode(glossNode.content) : '';
-    if (!links.length && !gloss) return '';
-    return '<div class="xref-card">' + '<span class="xref-label">' + escapeHtml(label || 'See also') + '</span>' + (links.length ? '<div>' + links.join(' · ') + '</div>' : '') + (gloss ? '<div class="xref-glossary">' + gloss + '</div>' : '') + '</div>';
-  }
-  function renderStructuredNode(node) {
-    if (node == null) return '';
-    if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return escapeHtml(String(node));
-    if (Array.isArray(node)) return node.map(renderStructuredNode).join('');
-    if (typeof node !== 'object') return '';
-    if (node.type === 'structured-content') return renderStructuredNode(node.content);
-    const tag = node.tag || '';
-    const data = node.data || {};
-    const kind = data.content || '';
-    const cls = data.class || '';
-    if (kind === 'attribution') return '';
-    if (kind === 'part-of-speech-info') return '<span class="pos-pill">' + escapeHtml(plainTextFromNode(node.content)) + '</span>';
-    if (cls === 'extra-box' && kind === 'example-sentence') return renderExampleBox(node);
-    if (cls === 'extra-box' && kind === 'xref') return renderXrefBox(node);
-    if (kind === 'sense-groups') return '<div class="sense-groups">' + renderStructuredNode(node.content) + '</div>';
-    if (kind === 'sense-group') return '<div class="sense-group">' + renderStructuredNode(node.content) + '</div>';
-    if (kind === 'sense') return '<div class="sense-body">' + renderStructuredNode(node.content) + '</div>';
-    if (kind === 'glossary' && (tag === 'ul' || tag === 'ol')) {
-      return '<ol class="glossary-list tight">' + toArray(node.content).map(item => '<li>' + renderStructuredNode(item.content !== undefined ? item.content : item) + '</li>').join('') + '</ol>';
-    }
-    if (kind === 'extra-info') return '<div class="extra-info">' + renderStructuredNode(node.content) + '</div>';
-    if (tag === 'ruby') return renderRubyNode(node);
-    if (tag === 'rt') return '';
-    if (tag === 'a') return '<span class="xref-link">' + renderStructuredNode(node.content) + '</span>';
-    if (tag === 'ul') return '<ul class="glossary-list">' + toArray(node.content).map(item => '<li>' + renderStructuredNode(item.content !== undefined ? item.content : item) + '</li>').join('') + '</ul>';
-    if (tag === 'ol') return '<ol class="glossary-list">' + toArray(node.content).map(item => '<li>' + renderStructuredNode(item.content !== undefined ? item.content : item) + '</li>').join('') + '</ol>';
-    if (tag === 'li') return '<div>' + renderStructuredNode(node.content) + '</div>';
-    return renderStructuredNode(node.content);
-  }
-  function renderGlossaryPayload(glossaryItem) {
-    const parsed = parseGlossaryJson(glossaryItem && glossaryItem.glossary);
-    const metaBits = [];
-    if (glossaryItem && glossaryItem.definitionTags) metaBits.push('<span class="badge-star">' + escapeHtml(glossaryItem.definitionTags) + '</span>');
-    if (glossaryItem && glossaryItem.termTags) metaBits.push('<span class="pos-pill">' + escapeHtml(glossaryItem.termTags) + '</span>');
-    const metaRow = metaBits.length ? '<div class="note-row">' + metaBits.join(' ') + '</div>' : '';
-    if (!parsed) {
-      return metaRow + '<div class="gloss">' + escapeHtml(fallbackGlossaryText((glossaryItem && glossaryItem.glossary) || '')).replace(/\n/g, '<br>') + '</div>';
-    }
-    return metaRow + renderStructuredNode(parsed);
-  }
-  function renderStoredLookup(stored) {
+	  function nodeDataContent(node) {
+	    const data = node && node.data ? node.data : {};
+	    return String(data.content || data['data-content'] || node.dataContent || node.kind || '');
+	  }
+	  function nodeClassName(node) {
+	    const data = node && node.data ? node.data : {};
+	    const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+	    return String(data.class || data.className || attrs.class || node.className || '');
+	  }
+	  function nodeDataMap(node) {
+	    return (node && typeof node === 'object' && node.data && typeof node.data === 'object') ? node.data : {};
+	  }
+	  function hasDataFlag(node, name) {
+	    const data = nodeDataMap(node);
+	    return Object.prototype.hasOwnProperty.call(data, name);
+	  }
+	  function nodeTitle(node) {
+	    const data = nodeDataMap(node);
+	    const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+	    return String((node && node.title) || data.title || attrs.title || '');
+	  }
+	  function directContent(node) {
+	    return toArray(node && node.content);
+	  }
+	  function isSummaryNode(node) {
+	    return !!(node && typeof node === 'object' && node.tag === 'summary');
+	  }
+	  function detailsSummaryText(node) {
+	    const parts = directContent(node);
+	    const summary = parts.find(isSummaryNode);
+	    const text = normalizeWhitespace(summary ? plainTextFromNode(summary.content) : '');
+	    if (text) return text;
+	    const kind = nodeDataContent(node);
+	    if (/grammar/i.test(kind)) return 'Grammar';
+	    if (/etymology/i.test(kind)) return 'Etymology';
+	    return 'Details';
+	  }
+	  function detailsBody(node) {
+	    return directContent(node).filter(part => !isSummaryNode(part));
+	  }
+	  function isGrammarDetails(node) {
+	    const kind = nodeDataContent(node);
+	    if (/details-entry-grammar/i.test(kind)) return true;
+	    return (node && node.tag === 'details' && /^grammar\b/i.test(detailsSummaryText(node)));
+	  }
+	  function isEtymologyDetails(node) {
+	    const kind = nodeDataContent(node);
+	    if (/details-entry-etymology/i.test(kind)) return true;
+	    return (node && node.tag === 'details' && /^etymology\b/i.test(detailsSummaryText(node)));
+	  }
+	  function detectDictionarySource(glossaryItem, parsed) {
+	    const dictName = String((glossaryItem && glossaryItem.dict) || '');
+	    const raw = String((glossaryItem && glossaryItem.glossary) || '');
+	    const hay = (dictName + ' ' + raw.slice(0, 1600)).toLowerCase();
+	    if (hay.indexOf('kaikki') >= 0) return 'kaikki';
+	    if (hay.indexOf('wiktionary') >= 0 || /(^|[^a-z])wty[-_]/.test(hay)) return 'wiktionary';
+	    if (/details-entry-(grammar|etymology)/i.test(raw) || findNodes(parsed, n => isGrammarDetails(n) || isEtymologyDetails(n)).length) return 'wiktionary-style';
+	    return 'generic';
+	  }
+	  function isWiktionaryLike(ctx) {
+	    const kind = ctx && ctx.sourceKind ? String(ctx.sourceKind) : '';
+	    return /^(wiktionary|kaikki|wiktionary-style)$/.test(kind);
+	  }
+	  function etymologyShouldOpen(ctx) {
+	    let mode = String((state.config && state.config.etymologyCollapseDefault) || 'collapsed');
+	    const override = String((state.config && state.config.wiktionaryEtymologyCollapseOverride) || 'inherit');
+	    if (isWiktionaryLike(ctx) && override && override !== 'inherit') {
+	      overlayDebug("dictionary-specific etymology collapse override source=" + String(ctx.sourceKind || "") + " mode=" + override);
+	      mode = override;
+	    }
+	    overlayDebug("etymology collapsibility applied source=" + String(ctx && ctx.sourceKind || "generic") + " mode=" + mode);
+	    return mode === 'expanded';
+	  }
+	  function renderGrammarHtml(content, ctx) {
+	    const inline = normalizeWhitespace(renderInlineNode(content, ctx).replace(/<br\s*\/?>/gi, ' '));
+	    if (!inline) return '';
+	    overlayDebug("detected grammar section source=" + String(ctx && ctx.sourceKind || "generic"));
+	    return '<div class="grammar-row"><b>Grammar</b>: <span>' + inline + '</span></div>';
+	  }
+	  function renderGrammarText(text, ctx) {
+	    const value = normalizeWhitespace(String(text || '').replace(/^[:\s]+/, ''));
+	    if (!value) return '';
+	    overlayDebug("detected grammar section source=" + String(ctx && ctx.sourceKind || "generic"));
+	    return '<div class="grammar-row"><b>Grammar</b>: <span>' + escapeAndLinkifyText(value) + '</span></div>';
+	  }
+	  const NONLEMMA_GRAMMAR_START = '(?:nominative|genitive|dative|accusative|ablative|vocative|instrumental|locative|ergative|absolutive|masculine|feminine|neuter|common|animate|inanimate|singular|plural|dual|definite|indefinite|comparative|superlative|infinitive|participle|present|past|preterite|imperfect|subjunctive|conditional|imperative|first|second|third)';
+	  const NONLEMMA_GRAMMAR_WORD_RE = /\b(?:nominative|genitive|dative|accusative|ablative|vocative|instrumental|locative|ergative|absolutive|masculine|feminine|neuter|common|singular|plural|dual|definite|indefinite|comparative|superlative|infinitive|participle|present|past|preterite|imperfect|subjunctive|conditional|imperative|first|second|third)\b/i;
+	  function containsWiktionaryPathFragment(text) {
+	    const withoutUrls = String(text || '').replace(/https?:\/\/[^\s<>"']+/gi, '');
+	    return /(?:\b[a-z]{2,4}|[a-z])\/(?:languages|appendix|wiki|dictionary|thesaurus|wikipedia|wikisource)\b/i.test(withoutUrls);
+	  }
+	  function isNonLemmaText(text, ctx) {
+	    const raw = String(text || '');
+	    if (!isWiktionaryLike(ctx) && !containsWiktionaryPathFragment(raw)) return false;
+	    if (containsWiktionaryPathFragment(raw)) return true;
+	    if (/\b(?:non-lemma|nonlemma|form-of|inflection of|inflected form of|plural of|singular of|comparative of|superlative of|past participle of|present participle of|conjugation of|declension of)\b/i.test(raw)) return true;
+	    const grammarHits = raw.match(new RegExp(NONLEMMA_GRAMMAR_START, 'gi')) || [];
+	    return grammarHits.length >= 3 && !/\b(?:Etymology|Grammar)\b/i.test(raw);
+	  }
+	  function cleanupNonLemmaText(text) {
+	    const urls = [];
+	    let raw = String(text || '').replace(/\r/g, '\n').replace(/https?:\/\/[^\s<>"']+/gi, url => {
+	      const token = '__IINATAN_URL_' + urls.length + '__';
+	      urls.push(url);
+	      return token;
+	    });
+	    raw = raw.replace(new RegExp('(?:\\b[a-z]{2,4}|[a-z])\\/(?:languages|appendix|wiki|dictionary|thesaurus|wikipedia|wikisource)[A-Za-z0-9 _.-]*?(?=' + NONLEMMA_GRAMMAR_START + '\\b|$)', 'gi'), '');
+	    raw = raw.replace(/([a-zà-öø-ÿ])([A-ZÀ-Ö])/g, '$1\n$2');
+	    raw = raw.replace(new RegExp('\\b(singular|plural|dual|definite|indefinite|masculine|feminine|neuter|common)(?=' + NONLEMMA_GRAMMAR_START + '\\b)', 'gi'), '$1\n');
+	    raw = raw.replace(/\b(non-lemma|form-of|inflection of|inflected form of|plural of|singular of|comparative of|superlative of|past participle of|present participle of|conjugation of|declension of)\b\s*:?\s*/gi, '\n$1: ');
+	    return raw.split(/\n+/).map(part => {
+	      let restored = normalizeWhitespace(part);
+	      urls.forEach((url, index) => { restored = restored.replace('__IINATAN_URL_' + index + '__', url); });
+	      return restored;
+	    }).filter(Boolean);
+	  }
+	  function renderNonLemmaText(text, ctx) {
+	    if (!isNonLemmaText(text, ctx)) return '';
+	    const rows = cleanupNonLemmaText(text).filter(part => !containsWiktionaryPathFragment(part));
+	    if (!rows.length) return '';
+	    overlayDebug("detected non-lemma entry source=" + String(ctx && ctx.sourceKind || "generic") + " rows=" + rows.length);
+	    return rows.map(part => {
+	      const label = NONLEMMA_GRAMMAR_WORD_RE.test(part) ? 'Inflection' : 'Definition';
+	      return '<div class="nonlemma-row"><b>' + label + '</b>: <span>' + escapeAndLinkifyText(part) + '</span></div>';
+	    }).join('');
+	  }
+	  function renderCollapsibleSection(label, bodyHtml, open, className) {
+	    const body = bodyHtml || '';
+	    if (!body) return '';
+	    const cls = className ? ' ' + className : '';
+	    return '<details class="dict-details' + cls + '"' + (open ? ' open' : '') + '><summary>' + escapeHtml(label || 'Details') + '</summary><div class="details-body">' + body + '</div></details>';
+	  }
+	  function renderEtymologyHtml(content, ctx, label) {
+	    const body = renderStructuredNode(content, ctx);
+	    if (!normalizeWhitespace(plainTextFromNode(content)) && !body) return '';
+	    overlayDebug("detected etymology section source=" + String(ctx && ctx.sourceKind || "generic") + " label=" + String(label || "Etymology"));
+	    return renderCollapsibleSection(label || 'Etymology', body, etymologyShouldOpen(ctx), 'etymology-section');
+	  }
+	  function renderEtymologyText(text, ctx, label) {
+	    const value = String(text || '').replace(/^[:\s]+/, '').trim();
+	    if (!value) return '';
+	    overlayDebug("detected etymology section source=" + String(ctx && ctx.sourceKind || "generic") + " label=" + String(label || "Etymology"));
+	    return renderCollapsibleSection(label || 'Etymology', '<div class="gloss">' + escapeAndLinkifyText(value).replace(/\n/g, '<br>') + '</div>', etymologyShouldOpen(ctx), 'etymology-section');
+	  }
+	  function renderDetailsNode(node, ctx) {
+	    const summary = detailsSummaryText(node);
+	    const body = detailsBody(node);
+	    if (isGrammarDetails(node)) return renderGrammarHtml(body, ctx);
+	    if (isEtymologyDetails(node)) return renderEtymologyHtml(body, ctx, summary || 'Etymology');
+	    const kind = nodeDataContent(node);
+	    const cls = /details-entry-examples/i.test(kind) || /^(?:\d+\s+examples?|examples?|例文)/i.test(summary) ? 'example-section' : 'nested-details';
+	    return renderCollapsibleSection(summary, renderStructuredNode(body, ctx), false, cls);
+	  }
+	  function renderBacklinkRow(node, ctx) {
+	    const linkNodes = findNodes(node, n => n && n.tag === 'a');
+	    const links = linkNodes.map(n => renderInlineNode(n, ctx)).filter(Boolean);
+	    const text = normalizeWhitespace(plainTextFromNode(node.content));
+	    const body = links.length ? links.join(' · ') : escapeAndLinkifyText(text);
+	    if (!body) return '';
+	    overlayDebug("detected source/backlink row source=" + String(ctx && ctx.sourceKind || "generic"));
+	    return '<div class="source-row"><span class="source-label">Source</span> ' + body + '</div>';
+	  }
+	  function isPriorityTag(label) {
+	    const cleaned = normalizeWhitespace(label).replace(/^[\u2605*]\s*/, '');
+	    return /^(priority[\s_-]*form|popular[\s_-]*form)$/i.test(cleaned);
+	  }
+	  function tagLabels(value) {
+	    const raw = String(value || '').trim();
+	    if (!raw) return [];
+	    if (isPriorityTag(raw)) return [raw];
+	    return raw.split(/[;,|]+/).map(s => normalizeWhitespace(s)).filter(Boolean);
+	  }
+	  function renderOneTag(label, kind) {
+	    if (isPriorityTag(label)) {
+	      return '<span class="tag-chip tag-priority" title="priority form" aria-label="priority form">&#9733;</span>';
+	    }
+	    return '<span class="tag-chip tag-' + escapeHtml(kind || 'tag') + '">' + escapeHtml(label) + '</span>';
+	  }
+	  function renderTagChips(glossaryItem) {
+	    const tags = [];
+	    tagLabels(glossaryItem && glossaryItem.definitionTags).forEach(label => tags.push(renderOneTag(label, 'definition')));
+	    tagLabels(glossaryItem && glossaryItem.termTags).forEach(label => tags.push(renderOneTag(label, 'term')));
+	    return tags.length ? '<div class="tag-row">' + tags.join('') + '</div>' : '';
+	  }
+	  function shouldCleanupPlainWiktionary(text, ctx) {
+	    const raw = String(text || '');
+	    if (isWiktionaryLike(ctx)) return true;
+	    return /\bGrammar\b[\s\S]{0,800}\bEtymology\b/i.test(raw) || /^\s*(Grammar|Etymology)\b/i.test(raw);
+	  }
+	  function renderPlainWiktionarySections(text, ctx) {
+	    let raw = String(text || '').replace(/\r/g, '').trim();
+	    const nonLemma = renderNonLemmaText(raw, ctx);
+	    if (nonLemma) return nonLemma;
+	    raw = raw.replace(/\bGrammar\s*(?=\{)/i, 'Grammar: ');
+	    raw = raw.replace(/([}\]])\s*(Etymology)/gi, '$1\n$2');
+	    raw = raw.replace(/\b(Etymology)(?=Etymology\b)/gi, '$1\n');
+	    const re = /\b(Grammar|Etymology(?:\s+\d+)?)\b\s*:?\s*/gi;
+	    const matches = [];
+	    let match;
+	    while ((match = re.exec(raw))) matches.push({ label: match[1], start: match.index, contentStart: re.lastIndex });
+	    if (!matches.length) return '<div class="gloss">' + escapeAndLinkifyText(raw).replace(/\n/g, '<br>') + '</div>';
+	    let html = '';
+	    const before = raw.slice(0, matches[0].start).trim();
+	    if (before) html += '<div class="gloss">' + escapeAndLinkifyText(before).replace(/\n/g, '<br>') + '</div>';
+	    matches.forEach((m, index) => {
+	      const end = index + 1 < matches.length ? matches[index + 1].start : raw.length;
+	      const content = raw.slice(m.contentStart, end).trim();
+	      if (/^grammar$/i.test(m.label)) html += renderGrammarText(content, ctx);
+	      else html += renderEtymologyText(content, ctx, m.label);
+	    });
+	    return html;
+	  }
+	  function renderPlainGlossaryText(raw, ctx) {
+	    const text = fallbackGlossaryText(raw);
+	    const nonLemma = renderNonLemmaText(text, ctx);
+	    if (nonLemma) return nonLemma;
+	    if (shouldCleanupPlainWiktionary(text, ctx)) return renderPlainWiktionarySections(text, ctx);
+	    return '<div class="gloss">' + escapeAndLinkifyText(text).replace(/\n/g, '<br>') + '</div>';
+	  }
+	  function hasStructuredBlockContent(node) {
+	    return findNodes(node && node.content, n => n && /^(div|details|ul|ol|table)$/i.test(String(n.tag || ''))).length > 0;
+	  }
+	  function renderStructuredSpan(node, ctx) {
+	    const kind = nodeDataContent(node);
+	    const cls = nodeClassName(node);
+	    const data = nodeDataMap(node);
+	    const text = normalizeWhitespace(plainTextFromNode(node.content));
+	    const blocky = hasStructuredBlockContent(node);
+	    const body = blocky ? renderStructuredNode(node.content, ctx) : renderInlineNode(node.content, ctx);
+	    if (kind === 'bold-text') return '<b>' + body + '</b>';
+	    if (kind === 'example-keyword' || hasDataFlag(node, 'spellout')) return '<span class="example-keyword">' + body + '</span>';
+	    if (kind === 'tag') return renderOneTag(text, data.category || 'tag');
+	    if (kind === 'forms-label') return '<span class="forms-label" title="' + escapeHtml(nodeTitle(node) || 'forms') + '">' + escapeHtml(text || 'forms') + '</span>';
+	    if (hasDataFlag(node, 'POS') || hasDataFlag(node, 'pos') || hasDataFlag(node, 'hinshi') || kind === 'part-of-speech-info') return '<span class="pos-pill" title="' + escapeHtml(nodeTitle(node)) + '">' + body + '</span>';
+	    if (hasDataFlag(node, 'katsuyo')) return '<span class="grammar-inline">' + body + '</span>';
+	    if (hasDataFlag(node, 'num') || hasDataFlag(node, 'bc') || hasDataFlag(node, 'rect') || /(?:^|\s)(?:FM|gaiji)(?:\s|$)/i.test(cls)) return '<span class="sense-number">' + body + '</span>';
+	    if (hasDataFlag(node, 'sup')) return '<span class="usage-marker">' + body + '</span>';
+	    if (hasDataFlag(node, 'logo') || hasDataFlag(node, '補足ロゴ')) return '<span class="section-label">' + body + '</span>';
+	    if (hasDataFlag(node, 'ex') || hasDataFlag(node, 'ExG') || hasDataFlag(node, 'example')) return '<span class="dict-inline-example">' + body + '</span>';
+	    if (hasDataFlag(node, 'headword') || /(?:見出|headword|カナ|かな|表記)/.test(cls)) return '<span class="dict-headword-inline">' + body + '</span>';
+	    return body;
+	  }
+	  function renderExampleBox(node, ctx) {
+	    const jaNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-a')[0];
+	    const enNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-b')[0];
+	    const citeNode = findNodes(node, n => n && n.data && n.data.content === 'example-sentence-c')[0];
+	    const ja = jaNode ? renderInlineNode(jaNode.content, ctx) : '';
+	    const en = enNode ? renderInlineNode(enNode.content, ctx) : '';
+	    const cite = citeNode ? renderInlineNode(citeNode.content, ctx) : '';
+	    if (!ja && !en && !cite) return '';
+	    const primaryClass = en ? 'example-ja' : 'example-text';
+	    return '<div class="example-card">' + (ja ? '<div class="' + primaryClass + '">' + ja + '</div>' : '') + (en ? '<div class="example-en">' + en + '</div>' : '') + (cite ? '<div class="example-cite">' + cite + '</div>' : '') + '</div>';
+	  }
+	  function renderXrefBox(node, ctx) {
+	    const labelNode = findNodes(node, n => n && n.data && n.data.content === 'reference-label')[0];
+	    const glossNode = findNodes(node, n => n && n.data && n.data.content === 'xref-glossary')[0];
+	    const linkNodes = findNodes(node, n => n && n.tag === 'a');
+	    const label = labelNode ? plainTextFromNode(labelNode.content) : 'See also';
+	    const links = linkNodes.map(n => renderInlineNode(n, ctx)).filter(Boolean);
+	    const gloss = glossNode ? renderInlineNode(glossNode.content, ctx) : '';
+	    if (!links.length && !gloss) return '';
+	    return '<div class="xref-card">' + '<span class="xref-label">' + escapeHtml(label || 'See also') + '</span>' + (links.length ? '<div>' + links.join(' · ') + '</div>' : '') + (gloss ? '<div class="xref-glossary">' + gloss + '</div>' : '') + '</div>';
+	  }
+	  function renderListMarker(item) {
+	    const style = item && item.style ? item.style : {};
+	    const marker = normalizeWhitespace(String(style.listStyleType || '').replace(/^['"]|['"]$/g, ''));
+	    return marker && marker !== 'disc' && marker !== 'decimal' ? marker : '';
+	  }
+	  function renderListNode(node, ctx, ordered, className) {
+	    const tag = ordered ? 'ol' : 'ul';
+	    const items = toArray(node.content);
+	    return '<' + tag + ' class="glossary-list ' + className + '">' + items.map(item => {
+	      const marker = renderListMarker(item);
+	      const content = item && typeof item === 'object' && item.tag === 'li' ? item.content : item;
+	      const body = renderStructuredNode(content, ctx);
+	      if (marker) return '<li class="custom-marker"><span class="sense-number">' + escapeHtml(marker) + '</span>' + body + '</li>';
+	      return '<li>' + body + '</li>';
+	    }).join('') + '</' + tag + '>';
+	  }
+	  function renderGlossaryLinesNode(node, ctx) {
+	    const items = toArray(node.content).map(item => {
+	      const content = item && typeof item === 'object' && item.tag === 'li' ? item.content : item;
+	      return renderStructuredNode(content, ctx);
+	    }).filter(Boolean);
+	    return '<div class="glossary-lines">' + items.map(html => '<div class="glossary-line">' + html + '</div>').join('') + '</div>';
+	  }
+	  function formMarkerForCell(node) {
+	    const cls = nodeClassName(node);
+	    const title = nodeTitle(node) || findNodes(node, n => !!nodeTitle(n)).map(nodeTitle)[0] || '';
+	    const hay = (cls + ' ' + title).toLowerCase();
+	    if (/form-pri|high priority|priority/.test(hay)) return { className: 'form-pri', label: title || 'high priority form', symbol: '&#9651;' };
+	    if (/form-rare|rare/.test(hay)) return { className: 'form-rare', label: title || 'rarely used form', symbol: '&#9661;' };
+	    return null;
+	  }
+	  function renderTableCell(node, ctx) {
+	    const tag = node.tag === 'th' ? 'th' : 'td';
+	    const marker = formMarkerForCell(node);
+	    let body = marker
+	      ? '<span class="form-marker ' + marker.className + '" title="' + escapeHtml(marker.label) + '" aria-label="' + escapeHtml(marker.label) + '">' + marker.symbol + '</span>'
+	      : renderStructuredNode(node.content, ctx);
+	    if (!body && tag === 'th') body = '&nbsp;';
+	    const cls = nodeClassName(node);
+	    const classAttr = cls ? ' class="' + escapeHtml(cls) + '"' : '';
+	    return '<' + tag + classAttr + '>' + body + '</' + tag + '>';
+	  }
+	  function renderTableNode(node, ctx) {
+	    return '<table class="forms-table">' + toArray(node.content).map(row => renderStructuredNode(row, ctx)).join('') + '</table>';
+	  }
+	  function renderFormsNode(node, ctx) {
+	    return '<div class="forms-block">' + renderStructuredNode(node.content, ctx) + '</div>';
+	  }
+	  function renderEntryIndexNode(node, ctx) {
+	    const items = toArray(node.content).map(item => {
+	      const content = item && typeof item === 'object' && item.content !== undefined ? item.content : item;
+	      return normalizeWhitespace(plainTextFromNode(content)) ? renderInlineNode(content, ctx) : '';
+	    }).filter(Boolean);
+	    if (!items.length) return '';
+	    return '<div class="entry-index">' + items.map(html => '<span class="entry-index-item">' + html + '</span>').join('') + '</div>';
+	  }
+	  function renderBlockNode(node, ctx) {
+	    const data = nodeDataMap(node);
+	    const kind = nodeDataContent(node);
+	    const cls = nodeClassName(node);
+	    if (hasDataFlag(node, 'entry-index')) return renderEntryIndexNode(node, ctx);
+	    const body = renderStructuredNode(node.content, ctx);
+	    if (!body) return '';
+	    let outClass = 'structured-block';
+	    if (kind === 'preamble') outClass += ' preamble-block';
+	    if (hasDataFlag(node, 'head') || hasDataFlag(node, 'head2') || hasDataFlag(node, '見出G')) outClass += ' dictionary-head-block';
+	    if (hasDataFlag(node, 'meaning') || hasDataFlag(node, 'level0') || hasDataFlag(node, 'level1') || /(?:level|L3|no|MG|meaning)/.test(cls)) outClass += ' meaning-block';
+	    if (hasDataFlag(node, '活用') || hasDataFlag(node, '参考') || hasDataFlag(node, 'column') || hasDataFlag(node, 'コラム') || hasDataFlag(node, '表現')) outClass += ' info-block';
+	    if (hasDataFlag(node, 'title2')) outClass += ' subsection-title';
+	    if (kind === 'extra-info') outClass += ' extra-info';
+	    return '<div class="' + outClass + '">' + body + '</div>';
+	  }
+	  function renderStructuredNode(node, ctx) {
+	    if (node == null) return '';
+	    if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return escapeHtml(String(node)).replace(/\n/g, '<br>');
+	    if (Array.isArray(node)) return node.map(part => renderStructuredNode(part, ctx)).join('');
+	    if (typeof node !== 'object') return '';
+	    if (node.type === 'structured-content') return renderStructuredNode(node.content, ctx);
+	    const tag = node.tag || '';
+	    const kind = nodeDataContent(node);
+	    const cls = nodeClassName(node);
+	    if (hasDataFlag(node, 'entry-index')) return renderEntryIndexNode(node, ctx);
+	    if (kind === 'attribution') return '';
+	    if (tag === 'details' || isGrammarDetails(node) || isEtymologyDetails(node)) return renderDetailsNode(node, ctx);
+	    if (kind === 'backlink') return renderBacklinkRow(node, ctx);
+	    if (kind === 'tags') return '<span class="inline-tag-row">' + renderStructuredNode(node.content, ctx) + '</span>';
+	    if (kind === 'tag') return renderOneTag(plainTextFromNode(node.content), nodeDataMap(node).category || 'tag');
+	    if (kind === 'part-of-speech-info') return '<span class="pos-pill">' + escapeHtml(plainTextFromNode(node.content)) + '</span>';
+	    if ((cls === 'extra-box' && kind === 'example-sentence') || kind === 'example-sentence') return renderExampleBox(node, ctx);
+	    if (cls === 'extra-box' && kind === 'xref') return renderXrefBox(node, ctx);
+	    if (kind === 'sense-groups') return '<div class="sense-groups">' + renderStructuredNode(node.content, ctx) + '</div>';
+	    if (kind === 'sense-group') return '<div class="sense-group">' + renderStructuredNode(node.content, ctx) + '</div>';
+	    if (kind === 'sense') return '<div class="sense-body">' + renderStructuredNode(node.content, ctx) + '</div>';
+	    if (kind === 'forms') return renderFormsNode(node, ctx);
+	    if (kind === 'glossary' && (tag === 'ul' || tag === 'ol')) return renderGlossaryLinesNode(node, ctx);
+	    if (kind === 'glosses' && (tag === 'ul' || tag === 'ol')) return renderListNode(node, ctx, true, 'glosses-list');
+	    if (kind === 'extra-info') return renderBlockNode(node, ctx);
+	    if (tag === 'ruby') return renderRubyNode(node);
+	    if (tag === 'rt') return '';
+	    if (tag === 'br') return '<br>';
+	    if (tag === 'a') return renderInlineNode(node, ctx);
+	    if (tag === 'table') return renderTableNode(node, ctx);
+	    if (tag === 'tr') return '<tr>' + renderStructuredNode(node.content, ctx) + '</tr>';
+	    if (tag === 'th' || tag === 'td') return renderTableCell(node, ctx);
+	    if (tag === 'thead' || tag === 'tbody') return renderStructuredNode(node.content, ctx);
+	    if (tag === 'span') return renderStructuredSpan(node, ctx);
+	    if (tag === 'ul') return renderListNode(node, ctx, false, '');
+	    if (tag === 'ol') return renderListNode(node, ctx, true, '');
+	    if (tag === 'li') return '<div class="list-item-body">' + renderStructuredNode(node.content, ctx) + '</div>';
+	    if (tag === 'div') return renderBlockNode(node, ctx);
+	    return renderStructuredNode(node.content, ctx);
+	  }
+	  function renderGlossaryPayload(glossaryItem) {
+	    const parsed = parseGlossaryJson(glossaryItem && glossaryItem.glossary);
+	    const ctx = {
+	      dictName: String((glossaryItem && glossaryItem.dict) || ''),
+	      sourceKind: detectDictionarySource(glossaryItem, parsed)
+	    };
+	    if (ctx.sourceKind !== 'generic') overlayDebug("detected dictionary source/type dict=" + JSON.stringify(ctx.dictName) + " source=" + ctx.sourceKind);
+	    const metaRow = renderTagChips(glossaryItem);
+	    if (!parsed) {
+	      return metaRow + renderPlainGlossaryText((glossaryItem && glossaryItem.glossary) || '', ctx);
+	    }
+	    return metaRow + renderStructuredNode(parsed, ctx);
+	  }
+	  function splitJapaneseMoras(text) {
+	    const chars = Array.from(String(text || '').replace(/\s+/g, ''));
+	    const small = /[ゃゅょぁぃぅぇぉャュョァィゥェォㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿ]/;
+	    const out = [];
+	    chars.forEach(ch => {
+	      if (small.test(ch) && out.length) out[out.length - 1] += ch;
+	      else out.push(ch);
+	    });
+	    return out;
+	  }
+	  function pitchMoraClass(index, position) {
+	    const i = index + 1;
+	    if (position === 0) return i === 1 ? 'pitch-low' : 'pitch-high';
+	    if (i === 1) return position === 1 ? 'pitch-high pitch-drop' : 'pitch-low';
+	    if (i <= position) return 'pitch-high' + (i === position ? ' pitch-drop' : '');
+	    return 'pitch-low';
+	  }
+	  function renderPitchPattern(reading, position) {
+	    const pos = Number(position);
+	    if (!Number.isFinite(pos)) return '';
+	    const moras = splitJapaneseMoras(reading);
+	    if (!moras.length) return '<span class="pitch-number">[' + escapeHtml(String(pos)) + ']</span>';
+	    return '<span class="pitch-pattern" title="' + escapeHtml(String(reading) + ' pitch ' + String(pos)) + '"><span class="pitch-reading">' +
+	      moras.map((mora, index) => '<span class="pitch-mora ' + pitchMoraClass(index, pos) + '">' + escapeHtml(mora) + '</span>').join('') +
+	      '</span><span class="pitch-number">[' + escapeHtml(String(pos)) + ']</span></span>';
+	  }
+	  function renderEntryMetadata(term) {
+	    const chips = [];
+	    const frequencies = Array.isArray(term && term.frequencies) ? term.frequencies : [];
+	    frequencies.forEach(entry => {
+	      const dict = String(entry.dict || entry.dictName || entry.dictionary || '');
+	      const values = Array.isArray(entry.frequencies) ? entry.frequencies : [];
+	      const display = values.map(v => normalizeWhitespace((v && (v.displayValue || v.display_value)) || (v && v.value !== undefined ? String(v.value) : ''))).filter(Boolean).join(', ');
+	      if (!dict && !display) return;
+	      overlayDebug("frequency metadata detected dict=" + JSON.stringify(dict) + " values=" + values.length);
+	      chips.push('<span class="freq-chip" title="' + escapeHtml((dict || 'Frequency') + (display ? ' ' + display : '')) + '"><span class="meta-label">' + escapeHtml(dict || 'Frequency') + '</span>' + (display ? ' ' + escapeHtml(display) : '') + '</span>');
+	    });
+	    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
+	    pitches.forEach(entry => {
+	      const dict = String(entry.dict || entry.dictName || entry.dictionary || '');
+	      const positions = Array.isArray(entry.positions) ? entry.positions : (Array.isArray(entry.pitchPositions) ? entry.pitchPositions : (Array.isArray(entry.pitch_positions) ? entry.pitch_positions : []));
+	      const transcriptions = Array.isArray(entry.transcriptions) ? entry.transcriptions : [];
+	      const reading = String((term && term.reading) || (term && term.expression) || '');
+	      const patterns = reading ? positions.slice(0, 4).map(pos => renderPitchPattern(reading, pos)).filter(Boolean) : [];
+	      const bits = [];
+	      if (!patterns.length && positions.length) bits.push(positions.map(v => String(v)).join(', '));
+	      if (transcriptions.length) bits.push(transcriptions.map(v => normalizeWhitespace(v)).filter(Boolean).join(', '));
+	      const display = patterns.length ? patterns.join('') + (positions.length > patterns.length ? '<span class="pitch-more">+' + escapeHtml(String(positions.length - patterns.length)) + '</span>' : '') : escapeHtml(bits.filter(Boolean).join(' · '));
+	      const titleDisplay = positions.length ? positions.map(v => String(v)).join(', ') : bits.filter(Boolean).join(' · ');
+	      if (!dict && !display) return;
+	      overlayDebug("pitch accent metadata detected dict=" + JSON.stringify(dict) + " positions=" + positions.length + " transcriptions=" + transcriptions.length);
+	      chips.push('<span class="pitch-chip pitch-chip-visual" title="' + escapeHtml((dict || 'Pitch') + (titleDisplay ? ' ' + titleDisplay : '')) + '"><span class="meta-label">' + escapeHtml(dict || 'Pitch') + '</span>' + (display ? ' ' + display : '') + '</span>');
+	    });
+	    return chips.length ? '<div class="entry-meta-row">' + chips.join('') + '</div>' : '';
+	  }
+	  function displayHeadwordForEntry(entry) {
+	    const term = entry && entry.term ? entry.term : {};
+	    return String(term.expression || entry.deinflected || entry.matched || '');
+	  }
+	  function lookupSurfaceForResult(result, entry) {
+	    if (result && /^(ja|zh)$/.test(String(result.language || '')) && entry && entry.matched) return String(entry.matched);
+	    const candidate = result && result.candidateUsed ? result.candidateUsed : null;
+	    if (candidate && candidate.displayText) return String(candidate.displayText);
+	    if (result && typeof result.text === 'string') {
+	      const start = Number(result.lookupStart);
+	      const end = Number(result.lookupEnd);
+	      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+	        const surface = Array.from(result.text).slice(start, end).join('');
+	        if (surface) return surface;
+	      }
+	    }
+	    if (entry && entry.matched) return String(entry.matched);
+	    if (result && result.lookupText) return String(result.lookupText);
+	    return '';
+	  }
+	  function displayHeaderForResult(result, firstEntry) {
+	    const heading = displayHeadwordForEntry(firstEntry);
+	    const term = firstEntry && firstEntry.term ? firstEntry.term : {};
+	    const reading = term.reading ? String(term.reading) : '';
+	    const surface = lookupSurfaceForResult(result, firstEntry);
+	    const secondary = surface && compareTextKey(surface) !== compareTextKey(heading)
+	      ? 'looked up from: ' + surface
+	      : '';
+	    overlayDebug("display headword selected heading=" + JSON.stringify(heading) + " surface=" + JSON.stringify(surface) + " secondary=" + JSON.stringify(secondary));
+	    return { heading, reading, secondary };
+	  }
+	  function renderStoredLookup(stored) {
     if (!stored || !stored.ok) {
       setPopupBody('<div class="error">' + escapeHtml((stored && stored.error) || 'Lookup failed') + '</div>');
       return;
@@ -737,21 +1279,27 @@
       setPopupBody('<div class="empty">No dictionary entry found from this ' + label + '.</div>');
       return;
     }
-    const first = entries[0];
-    const heading = first.matched || (first.term && first.term.expression) || '';
-    if (state.currentPos !== null && state.currentPos !== undefined) {
-      activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
-    }
-    const reading = first.term && first.term.reading ? first.term.reading : '';
-    const maxEntries = Math.max(1, state.config.maxEntries || 3);
-    const maxGlosses = Math.max(1, state.config.maxGlossesPerEntry || 4);
+	    const first = entries[0];
+	    const header = displayHeaderForResult(result, first);
+	    if (state.currentPos !== null && state.currentPos !== undefined) {
+	      activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
+	    }
+	    const maxEntries = Math.max(1, state.config.maxEntries || 3);
+	    const maxGlosses = Math.max(1, state.config.maxGlossesPerEntry || 4);
     let html = '';
-    entries.slice(0, maxEntries).forEach(entry => {
-      const term = entry.term || {};
-      html += '<div class="entry">';
-      if (term.expression || term.reading) {
-        html += '<div class="dict-term">' + escapeHtml(term.expression || entry.matched || '') + (term.reading ? '<span class="dict-reading">' + escapeHtml(term.reading) + '</span>' : '') + '</div>';
-      }
+	    entries.slice(0, maxEntries).forEach((entry, entryIndex) => {
+	      const term = entry.term || {};
+	      html += '<div class="entry">';
+	      if (term.expression || term.reading) {
+	        const entryHeadword = displayHeadwordForEntry(entry);
+	        const repeatsHeader = entryIndex === 0 &&
+	          compareTextKey(entryHeadword) === compareTextKey(header.heading) &&
+	          compareTextKey(term.reading || '') === compareTextKey(header.reading || '');
+	        if (!repeatsHeader) {
+	          html += '<div class="dict-term">' + escapeHtml(entryHeadword) + (term.reading ? '<span class="dict-reading">' + escapeHtml(term.reading) + '</span>' : '') + '</div>';
+	        }
+	      }
+	      html += renderEntryMetadata(term);
       const glossaries = Array.isArray(term.glossaries) ? term.glossaries : [];
       glossaries.slice(0, maxGlosses).forEach(g => {
         html += '<div class="dict-section">';
@@ -764,8 +1312,8 @@
       if (Array.isArray(entry.trace) && entry.trace.length) html += '<div class="trace">' + escapeHtml(entry.trace.map(t => t.name || '').filter(Boolean).join(' → ')) + '</div>';
       html += '</div>';
     });
-    setPopupBody(html, heading, reading);
-  }
+	    setPopupBody(html, header.heading, header.reading, header.secondary);
+	  }
 
   function updateCharReady(pos) {
     const run = findLookupRun(pos);

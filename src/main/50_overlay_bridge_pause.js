@@ -16,18 +16,20 @@ function ensureOverlayBridge() {
     ws.onConnectionStateUpdate((conn, state, error) => {
       debugLog("overlay bridge conn=" + conn + " state=" + String(state) + (error ? " error=" + compactError(error.message || error.description || error) : ""));
     });
-    ws.onMessage((conn, message) => {
-      try {
-        const raw = message && typeof message.text === "function" ? String(message.text() || "") : "";
-        debugLog("overlay bridge message=" + raw.slice(0, 200));
-        let payload = raw;
-        try { payload = JSON.parse(raw); } catch (_) {}
-        if (payload && typeof payload === "object" && payload.type === "popup") {
-          handleLookupPopupVisibility(payload);
-        } else if (payload && typeof payload === "object" && payload.type === "lookup") {
-          handleBridgeLookup(payload);
-        } else if (payload && typeof payload === "object" && payload.type === "overlay-log") {
-          debugVerbose("[overlay] " + String(payload.message || ""));
+	    ws.onMessage((conn, message) => {
+	      try {
+	        const raw = message && typeof message.text === "function" ? String(message.text() || "") : "";
+	        debugLog("overlay bridge message=" + raw.slice(0, 200));
+	        let payload = raw;
+	        try { payload = JSON.parse(raw); } catch (_) {}
+	        if (payload && typeof payload === "object" && payload.type === "popup") {
+	          handleLookupPopupVisibility(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "lookup") {
+	          handleBridgeLookup(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "open-url") {
+	          openExternalUrlFromOverlay(payload.url);
+	        } else if (payload && typeof payload === "object" && payload.type === "overlay-log") {
+	          debugVerbose("[overlay] " + String(payload.message || ""));
         } else if (raw === "popup:show" || raw === "show" || raw === "visible") {
           handleLookupPopupVisibility({ visible: true });
         } else if (raw === "popup:hide" || raw === "hide" || raw === "hidden") {
@@ -41,10 +43,42 @@ function ensureOverlayBridge() {
     debugLog("overlay bridge starting on ws://127.0.0.1:" + overlayBridgePort);
   } catch (error) {
     debugLog("overlay bridge start failed: " + compactError(error));
-  }
-}
+	  }
+	}
 
-function handleBridgeLookup(payload) {
+	function safeExternalHttpUrl(rawUrl) {
+	  const value = String(rawUrl || "").trim();
+	  if (!/^https?:\/\//i.test(value)) return "";
+	  try {
+	    if (typeof URL === "function") {
+	      const parsed = new URL(value);
+	      if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+	      return "";
+	    }
+	  } catch (_) {
+	    return "";
+	  }
+	  return /^[^\s<>"']+$/.test(value) ? value : "";
+	}
+	function openExternalUrlFromOverlay(rawUrl) {
+	  const url = safeExternalHttpUrl(rawUrl);
+	  if (!url) {
+	    debugWarn("Rejected unsafe external URL from overlay: " + JSON.stringify(String(rawUrl || "").slice(0, 180)));
+	    return false;
+	  }
+	  try {
+	    debugLog("Opening external dictionary URL: " + url);
+	    utils.open(url);
+	    return true;
+	  } catch (error) {
+	    const message = "Could not open external dictionary URL: " + compactError(error);
+	    debugWarn(message + " url=" + JSON.stringify(url));
+	    notify(message, "error", 8000);
+	    return false;
+	  }
+	}
+
+	function handleBridgeLookup(payload) {
   const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : String(++requestSerial);
   const lineId = Number(payload && payload.lineId !== undefined ? payload.lineId : currentSubtitleLineId);
   const position = Math.max(0, Number(payload && payload.position !== undefined ? payload.position : 0) || 0);

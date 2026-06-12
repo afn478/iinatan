@@ -32,6 +32,7 @@ function runLanguageUnitTests() {
   const en = languageModuleById("en");
   const fr = languageModuleById("fr");
   const de = languageModuleById("de");
+  const zh = languageModuleById("zh");
   const ko = languageModuleById("ko");
   check(ja.isHoverableChar("魔"), "Japanese kanji should be hoverable");
   check(!ja.isHoverableChar("r"), "Latin should not be Japanese-hoverable");
@@ -40,6 +41,7 @@ function runLanguageUnitTests() {
   check(en.lookupMode === "exact", "English should declare exact lookup mode");
   check(fr.lookupMode === "exact", "French should declare exact lookup mode");
   check(de.lookupMode === "exact", "German should declare exact lookup mode");
+  check(zh.lookupMode === "prefix", "Chinese should declare prefix lookup mode");
   check(ko.lookupMode === "exact", "Korean should declare exact lookup mode");
   check(typeof en.dictionaryMatches === "function", "English should expose dictionary compatibility checks");
   check(typeof fr.dictionaryMatches === "function", "French should expose dictionary compatibility checks");
@@ -48,6 +50,7 @@ function runLanguageUnitTests() {
   check(en.lookupUnit === "word", "English should use word lookup units");
   check(fr.lookupUnit === "word", "French should use word lookup units");
   check(de.lookupUnit === "word", "German should use word lookup units");
+  check(zh.lookupUnit === "character", "Chinese should use character lookup units");
   const englishText = "I am running fast";
   const enReq = en.lookupRequest(englishText, charsOf(englishText).indexOf("n"), 24);
   check(enReq && enReq.lookupText === "running", "English hover inside running should query running");
@@ -60,6 +63,10 @@ function runLanguageUnitTests() {
   check(frReq && frReq.candidates.some(c => c.text === "homme"), "French should generate elision-tail candidates");
   const deReq = de.lookupRequest("Ich stehe morgen früh auf.", 5, 24);
   check(deReq && deReq.candidates.some(c => c.text === "aufstehen"), "German should generate split-verb candidates");
+  check(fr.lookupRequest("mangent", 2, 24).candidates.some(c => c.text === "manger"), "French should load Yomitan present-indicative rules");
+  check(de.lookupRequest("Die Sammlung ist groß", 5, 24).candidates.some(c => c.text === "sammeln"), "German should load Yomitan -lung rules");
+  const zhReq = zh.lookupRequest("我喜欢中文", 0, 4);
+  check(zhReq && zhReq.lookupText === "我喜欢中" && zhReq.backendMode === "prefix", "Chinese should use bounded prefix lookup");
   const jaReq = ja.lookupRequest("魔法使い", 1, 24);
   check(jaReq && jaReq.lookupText === "法使い", "Japanese should keep rightward-prefix lookup");
   check(jaReq && jaReq.cacheStrategy === "exact-position", "Japanese should keep exact-position cache semantics");
@@ -78,6 +85,9 @@ function runSettingsAuditChecks() {
   check(Number.isFinite(Number(cfg.maxGlossesPerEntry)) && cfg.maxGlossesPerEntry >= 1, "maxGlossesPerEntry should be numeric");
   check(Number.isFinite(Number(cfg.popupMaxHeightVh)) && cfg.popupMaxHeightVh >= 20, "popupMaxHeightVh should be sent to overlay");
   check(Number.isFinite(Number(cfg.popupSubtitleGapPx)) && cfg.popupSubtitleGapPx >= 12, "popupSubtitleGapPx should be sent to overlay");
+  check(cfg.etymologyCollapseDefault === "collapsed" || cfg.etymologyCollapseDefault === "expanded", "etymologyCollapseDefault should be sent to overlay");
+  check(["collapsed", "expanded", "inherit"].indexOf(cfg.wiktionaryEtymologyCollapseOverride) >= 0, "wiktionaryEtymologyCollapseOverride should be sent to overlay");
+  check(typeof cfg.customPopupCss === "string", "customPopupCss should be sent to overlay as a string");
   check(typeof prefBool("directWorkerIpc", true) === "boolean", "directWorkerIpc should be boolean-readable");
   check(typeof prefBool("fallbackToClientExec", true) === "boolean", "fallbackToClientExec should be boolean-readable");
   check(Number.isFinite(prefNumber("directIpcPollMs", 2)), "directIpcPollMs should be numeric");
@@ -251,17 +261,7 @@ function rebuildMenu() {
     addSubMenuItemCompat(dictMenu, menu.item("Import ZIP from Manual Import Folder", () => { importDictionaryFromManualFolder(); }));
     addSubMenuItemCompat(dictMenu, menu.item("Reveal Manual Import Folder", () => { revealManualImportFolder(); }));
     addSubMenuItemCompat(dictMenu, menu.separator());
-    const disabled = disabledDictionaryMap();
-    const dicts = dictionaryDirs();
-    if (!dicts.length) addSubMenuItemCompat(dictMenu, menu.item("No dictionaries installed", null, { enabled: false }));
-    else {
-      for (const d of dicts) {
-        const isEnabled = !disabled[d.name];
-        addSubMenuItemCompat(dictMenu, menu.item(d.name, () => setDictionaryEnabled(d.name, !isEnabled), { selected: isEnabled }));
-      }
-      addSubMenuItemCompat(dictMenu, menu.separator());
-      addSubMenuItemCompat(dictMenu, menu.item("Show Installed Dictionaries", () => showInstalledDictionaries()));
-    }
+    addSubMenuItemCompat(dictMenu, menu.item("Manage Installed Dictionaries in Settings", null, { enabled: false }));
     addMenuItemSafe(dictMenu);
 
     const debugMenu = menu.item("Debug");

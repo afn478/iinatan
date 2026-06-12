@@ -139,6 +139,9 @@ function overlayConfig() {
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
     scanLength: Math.max(1, prefNumber("scanLength", 24)),
     hoverRequestTimeoutMs: Math.max(1500, prefNumber("hoverRequestTimeoutMs", 15000)),
+    etymologyCollapseDefault: String(pref("etymologyCollapseDefault", "collapsed") || "collapsed"),
+    wiktionaryEtymologyCollapseOverride: String(pref("wiktionaryEtymologyCollapseOverride", "collapsed") || "collapsed"),
+    customPopupCss: String(pref("customPopupCss", "") || ""),
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
     overlayBridgePort

@@ -21,4 +21,9 @@ const scripts = Array.from(overlayHtml.matchAll(/<script[^>]*>([\s\S]*?)<\/scrip
 if (!scripts.length) throw new Error('overlay.html: no script tag found');
 scripts.forEach((script, index) => checkScript('overlay.html script #' + (index + 1), script));
 
+const preferencesHtml = fs.readFileSync(path.join(root, 'preferences.html'), 'utf8');
+const preferenceScripts = Array.from(preferencesHtml.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)).map(match => match[1]);
+if (!preferenceScripts.length) throw new Error('preferences.html: no script tag found');
+preferenceScripts.forEach((script, index) => checkScript('preferences.html script #' + (index + 1), script));
+
 console.log('generated syntax checks passed');

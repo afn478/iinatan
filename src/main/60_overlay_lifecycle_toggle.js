@@ -15,10 +15,11 @@ function initializeOverlay() {
     if (enabled) pollSubtitle();
   });
   overlay.onMessage("lookup-at", payload => { handleLookupAt(payload); });
-  overlay.onMessage("lookup-at-lite", payload => { handleLookupAt(payload); });
-  overlay.onMessage("lookup-popup-visibility", payload => { handleLookupPopupVisibility(payload); });
-  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
-}
+	  overlay.onMessage("lookup-at-lite", payload => { handleLookupAt(payload); });
+	  overlay.onMessage("lookup-popup-visibility", payload => { handleLookupPopupVisibility(payload); });
+	  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
+	  overlay.onMessage("open-external-url", payload => { openExternalUrlFromOverlay(payload && payload.url !== undefined ? payload.url : payload); });
+	}
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
   debugLog("startPolling subtitlePollMs=" + nextMs);
