@@ -8,7 +8,7 @@
     "package": "python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz",
     "validate": "python3 scripts/build_plugin.py --validate",
     "validate:release": "python3 scripts/build_plugin.py --validate --require-backend",
-    "test": "node tests/languages.test.js && node tests/import_validation.test.js && node tests/dictionary_pipeline.test.js && node tests/dictionary_import_manifest.test.js && node tests/overlay_word_units.test.js && node tests/overlay_dictionary_formatting.test.js && node tests/overlay_bridge_latency.test.js && node tests/settings_menu_layout.test.js && node tests/native_backend_schema.test.js && node tests/debug_log_performance.test.js && node tests/check_generated_syntax.js && python3 scripts/build_plugin.py --validate",
+    "test": "node tests/languages.test.js && node tests/import_validation.test.js && node tests/dictionary_pipeline.test.js && node tests/dictionary_import_manifest.test.js && node tests/lookup_candidate_selection.test.js && node tests/overlay_word_units.test.js && node tests/overlay_dictionary_formatting.test.js && node tests/overlay_bridge_latency.test.js && node tests/settings_menu_layout.test.js && node tests/native_backend_schema.test.js && node tests/debug_log_performance.test.js && node tests/check_generated_syntax.js && python3 scripts/build_plugin.py --validate",
     "test:perf": "node tests/lookup_performance.test.js",
     "pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
     "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link .",

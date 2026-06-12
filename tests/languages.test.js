@@ -146,6 +146,9 @@ assertIncludes(aime, 'aimer', 'French should deinflect aime to aimer');
 const mangent = candidateTexts(fr.lookupRequest('mangent', 2, 24));
 assertIncludes(mangent, 'manger', 'French should include Yomitan present-indicative rules');
 
+const attendez = candidateTexts(fr.lookupRequest('attendez', 2, 24));
+assertIncludes(attendez, 'attendre', 'French should deinflect attendez to attendre');
+
 const finies = candidateTexts(fr.lookupRequest('finies', 2, 24));
 assertIncludes(finies, 'finir', 'French should include local feminine/plural past participle patches');
 

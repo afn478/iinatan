@@ -580,6 +580,54 @@ async function lookupViaWorker(suffix, dicts, scanLength, maxResults, requestId,
   if (!result || result.ok === false) throw new Error((result && result.error) || "Worker client lookup failed");
   return result;
 }
+function glossaryTagsIndicateNonLemma(glossary) {
+  const tags = String((glossary && glossary.definitionTags) || "") + " " + String((glossary && glossary.termTags) || "");
+  return /\bnon[-\s]?lemma\b/i.test(tags);
+}
+function lookupResultIsOnlyNonLemma(result) {
+  const results = result && Array.isArray(result.results) ? result.results : [];
+  if (!results.length) return false;
+  let glossaryCount = 0;
+  for (let i = 0; i < results.length; i++) {
+    const glossaries = results[i] && results[i].term && Array.isArray(results[i].term.glossaries)
+      ? results[i].term.glossaries
+      : [];
+    if (!glossaries.length) return false;
+    for (let g = 0; g < glossaries.length; g++) {
+      glossaryCount++;
+      if (!glossaryTagsIndicateNonLemma(glossaries[g])) return false;
+    }
+  }
+  return glossaryCount > 0;
+}
+function lookupEntryKey(entry) {
+  const term = entry && entry.term ? entry.term : {};
+  const glossaries = Array.isArray(term.glossaries) ? term.glossaries : [];
+  return [
+    entry && entry.matched,
+    entry && entry.deinflected,
+    term.expression,
+    term.reading,
+    term.rules,
+    glossaries.map(g => [
+      g && g.dict,
+      g && g.definitionTags,
+      g && g.termTags,
+      g && g.glossary
+    ].join("\u0002")).join("\u0003")
+  ].map(v => String(v || "")).join("\u0001");
+}
+function appendLookupResultEntries(target, seen, candidateResult, limit) {
+  const entries = candidateResult && Array.isArray(candidateResult.results) ? candidateResult.results : [];
+  const max = Math.max(1, Number(limit) || 1);
+  for (let i = 0; i < entries.length && target.length < max; i++) {
+    const key = lookupEntryKey(entries[i]);
+    if (seen[key]) continue;
+    seen[key] = true;
+    target.push(entries[i]);
+  }
+  return target.length;
+}
 async function lookupAtPosition(text, position, requestId) {
   const language = selectedLanguageModule();
   const clean = language.normalizeText(cleanSubtitleText(text));
@@ -629,6 +677,10 @@ async function lookupAtPosition(text, position, requestId) {
   debugVerbose("lookupAtPosition cache miss lang=" + language.id + " mode=" + backendMode + " pos=" + pos + " candidateCount=" + candidates.length + " cacheKey=" + JSON.stringify(languageCacheKey) + " candidates=" + JSON.stringify(candidates.map(c => ({ text: c.text, source: c.source, reason: c.reason })).slice(0, 24)));
   let result = null;
   let candidateUsed = null;
+  const mergedEntries = [];
+  const seenEntryKeys = Object.create(null);
+  let nonLemmaFallbackResult = null;
+  let nonLemmaFallbackCandidate = null;
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
     const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
@@ -637,11 +689,29 @@ async function lookupAtPosition(text, position, requestId) {
     debugVerbose("lookupAtPosition candidate result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
     if (!result) result = candidateResult;
     if (candidateResult && candidateResult.results && candidateResult.results.length) {
-      result = candidateResult;
-      candidateUsed = candidate;
-      debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " resultCount=" + candidateResult.results.length);
-      break;
+      if (lookupResultIsOnlyNonLemma(candidateResult)) {
+        if (!nonLemmaFallbackResult) {
+          nonLemmaFallbackResult = candidateResult;
+          nonLemmaFallbackCandidate = candidate;
+        }
+        debugVerbose("lookupAtPosition candidate non-lemma-only language=" + language.id + " text=" + JSON.stringify(candidate.text) + " continuing=true");
+        continue;
+      }
+      if (!candidateUsed) {
+        result = Object.assign({}, candidateResult, { results: mergedEntries });
+        candidateUsed = candidate;
+      }
+      appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
+      debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " mergedResultCount=" + mergedEntries.length);
+      if (mergedEntries.length >= maxResults) break;
     }
+  }
+  if (candidateUsed) {
+    result.results = mergedEntries;
+  } else if (nonLemmaFallbackResult) {
+    result = nonLemmaFallbackResult;
+    candidateUsed = nonLemmaFallbackCandidate;
+    debugVerbose("lookupAtPosition using non-lemma fallback language=" + language.id + " text=" + JSON.stringify(candidateUsed && candidateUsed.text || ""));
   }
   if (!result) result = { ok: true, results: [] };
   if (!candidateUsed) debugVerbose("lookupAtPosition no-result terminal language=" + language.id + " candidateCount=" + candidates.length + " reason=all-candidates-empty cacheKey=" + JSON.stringify(languageCacheKey) + " stopScanning=true candidates=" + candidates.map(c => c.text).join(", "));
