@@ -321,6 +321,9 @@ assert(unsafeHtml === '<span class="xref-link">bad</span>', 'Unsafe link text sh
 assert(overlay.safeExternalUrl('ftp://example.test/file') === '', 'Unsafe URL schemes should be rejected');
 
 const css = fs.readFileSync(path.join(root, 'src/overlay/overlay.css'), 'utf8');
+assert(/#popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css), 'Popup header should keep its spacing');
+assert(!/#popup \.head \{[^}]*border-bottom:/s.test(css), 'Popup header should not draw a horizontal rule below the headword');
+assert(/\.entry \+ \.entry \{[^}]*border-top:/s.test(css), 'Entry separators should remain between dictionary entries');
 assert(/\.dict-details \{[^}]*margin: 8px 0;[^}]*\}/.test(css), 'Collapsed details base style should remain present');
 assert(/\.dict-details \{[^}]*padding-left: 8px;[^}]*\}/.test(css), 'Collapsed details should keep a marker gap from the popup edge');
 assert(!/\.dict-details \{[^}]*border-left:/s.test(css), 'Collapsed details should not have a base left border');

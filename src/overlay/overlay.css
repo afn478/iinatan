@@ -105,7 +105,7 @@
     #popup::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 999px; }
     #popup::-webkit-scrollbar-thumb { background: rgba(200,210,225,0.28); border-radius: 999px; border: 2px solid rgba(24,28,34,0.96); }
     #popup::-webkit-scrollbar-thumb:hover { background: rgba(220,230,245,0.42); }
-    #popup .head { padding: 14px 18px 12px; border-bottom: 1px solid rgba(120, 140, 165, 0.25); }
+    #popup .head { padding: 14px 18px 12px; }
     #popup .term { font-size: 30px; font-weight: 800; line-height: 1.15; }
     #popup .reading { margin-left: 10px; color: #9ec3ff; font-size: 16px; font-weight: 650; }
     #popup .lookup-source { margin-top: 4px; color: rgba(215,225,236,0.62); font-size: 12px; font-weight: 650; line-height: 1.25; }
