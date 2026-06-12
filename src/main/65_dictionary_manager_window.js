@@ -141,39 +141,48 @@ function runDictionaryManagerZipImport() {
   })();
 }
 function registerDictionaryManagerHandlers() {
-  if (dictionaryManagerInitialized || !standaloneWindow || typeof standaloneWindow.onMessage !== "function") return;
-  dictionaryManagerInitialized = true;
-  standaloneWindow.onMessage("dictionary-manager-ready", () => {
+  if (!standaloneWindow || typeof standaloneWindow.onMessage !== "function") return;
+  const generation = ++dictionaryManagerHandlerGeneration;
+  const onMessage = (name, handler) => {
+    standaloneWindow.onMessage(name, payload => {
+      if (generation !== dictionaryManagerHandlerGeneration) {
+        debugVerbose("ignored stale dictionary manager message name=" + String(name || "") + " generation=" + generation + " current=" + dictionaryManagerHandlerGeneration);
+        return;
+      }
+      handler(payload);
+    });
+  };
+  onMessage("dictionary-manager-ready", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("", "info", false);
   });
-  standaloneWindow.onMessage("dictionary-manager-refresh", () => {
+  onMessage("dictionary-manager-refresh", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("Dictionary list refreshed.", "info", false);
   });
-  standaloneWindow.onMessage("dictionary-manager-set-enabled", payload => {
+  onMessage("dictionary-manager-set-enabled", payload => {
     const name = payload && payload.name;
     if (!name) return;
     setDictionaryEnabled(String(name), !!(payload && payload.enabled));
     postDictionaryManagerStatus("Dictionary selection saved.", "info", false);
   });
-  standaloneWindow.onMessage("dictionary-manager-set-order", payload => {
+  onMessage("dictionary-manager-set-order", payload => {
     const order = payload && Array.isArray(payload.order) ? payload.order : [];
     setDictionaryOrder(order);
     postDictionaryManagerStatus("Dictionary order saved.", "info", false);
   });
-  standaloneWindow.onMessage("dictionary-manager-delete", payload => {
+  onMessage("dictionary-manager-delete", payload => {
     const name = payload && payload.name;
     if (!name) return;
     runDictionaryManagerAction("Deleting dictionary", () => deleteDictionary(String(name)));
   });
-  standaloneWindow.onMessage("dictionary-manager-download-recommended", () => {
+  onMessage("dictionary-manager-download-recommended", () => {
     runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
   });
-  standaloneWindow.onMessage("dictionary-manager-import-zip", () => {
+  onMessage("dictionary-manager-import-zip", () => {
     runDictionaryManagerZipImport();
   });
-  standaloneWindow.onMessage("dictionary-manager-switch-profile", payload => {
+  onMessage("dictionary-manager-switch-profile", payload => {
     const profileId = payload && payload.profileId;
     if (!profileId) return;
     runDictionaryManagerAction("Switching profile", () => {
@@ -181,7 +190,7 @@ function registerDictionaryManagerHandlers() {
       return Promise.resolve();
     });
   });
-  standaloneWindow.onMessage("dictionary-manager-create-profile", payload => {
+  onMessage("dictionary-manager-create-profile", payload => {
     const name = payload && payload.name;
     runDictionaryManagerAction("Creating profile", () => {
       const profile = createDictionaryProfile(name || "", payload && payload.sourceProfileId);
@@ -189,7 +198,7 @@ function registerDictionaryManagerHandlers() {
       return Promise.resolve();
     });
   });
-  standaloneWindow.onMessage("dictionary-manager-rename-profile", payload => {
+  onMessage("dictionary-manager-rename-profile", payload => {
     try {
       renameDictionaryProfile(payload && payload.profileId, payload && payload.name);
       postDictionaryManagerStatus("Profile renamed.", "info", false);
@@ -200,13 +209,13 @@ function registerDictionaryManagerHandlers() {
       alert(msg);
     }
   });
-  standaloneWindow.onMessage("dictionary-manager-delete-profile", payload => {
+  onMessage("dictionary-manager-delete-profile", payload => {
     runDictionaryManagerAction("Deleting profile", () => {
       deleteDictionaryProfile(payload && payload.profileId);
       return Promise.resolve();
     });
   });
-  standaloneWindow.onMessage("dictionary-manager-update-profile-preferences", payload => {
+  onMessage("dictionary-manager-update-profile-preferences", payload => {
     try {
       updateDictionaryProfilePreferences(payload && payload.profileId, payload && payload.preferences);
       postDictionaryManagerStatus("Profile settings saved.", "info", false);
@@ -217,7 +226,7 @@ function registerDictionaryManagerHandlers() {
       alert(msg);
     }
   });
-  standaloneWindow.onMessage("dictionary-manager-update-global-settings", payload => {
+  onMessage("dictionary-manager-update-global-settings", payload => {
     try {
       updateGlobalSettings(payload && payload.settings);
       postDictionaryManagerStatus("Dictionary import settings saved.", "info", false);
