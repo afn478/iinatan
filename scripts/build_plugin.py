@@ -13,6 +13,7 @@ REQUIRED_PLUGIN_FILES = [
     "dictionary-manager.html",
     "preferences.html",
     "README.md",
+    "LICENSE",
     "package.json",
 ]
 OPTIONAL_PACKAGE_FILES = [

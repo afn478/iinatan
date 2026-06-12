@@ -10,7 +10,7 @@ iinatan is an IINA plugin that shows dictionary popups when you hover subtitle t
 4. Enable the plugin, then open **Plugins -> iinatan -> Settings...** to download the recommended dictionary or import another Yomitan dictionary ZIP.
 5. Toggle iinatan with **Shift+H**.
 
-The repository root is installable because it exposes the runtime files IINA loads directly: `Info.json`, `main.js`, `global.js`, `overlay.html`, `dictionary-manager.html`, `preferences.html`, `README.md`, `package.json`, and the bundled Apple Silicon backend at `bin/iina-hoshi-dicts`.
+The repository root is installable because it exposes the runtime files IINA loads directly: `Info.json`, `main.js`, `global.js`, `overlay.html`, `dictionary-manager.html`, `preferences.html`, `README.md`, `LICENSE`, `package.json`, and the bundled Apple Silicon backend at `bin/iina-hoshi-dicts`.
 
 ## Release Package
 
@@ -92,10 +92,15 @@ Link the working tree into IINA for local testing:
 - `dictionary-manager.html`
 - `preferences.html`
 - `README.md`
+- `LICENSE`
 - `package.json`
 - `bin/iina-hoshi-dicts`
 
 The source remains under `src/`, and `scripts/build_plugin.py` concatenates `src/languages/*.js`, `src/main/*.js`, `src/overlay/overlay.css`, and `src/overlay/overlay.js` into the root runtime files.
+
+## License
+
+iinatan is licensed under the GNU General Public License v3.0 only (`GPL-3.0-only`). See `LICENSE` for the full license text.
 
 ## Diagnostics
 
