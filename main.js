@@ -4101,7 +4101,7 @@ function rebuildMenu() {
     const rootMenu = menu.item("iinatan");
     addSubMenuItemCompat(rootMenu, menu.item("Settings...", () => { openDictionaryManager(); }));
     addSubMenuItemCompat(rootMenu, menu.separator());
-    addSubMenuItemCompat(rootMenu, menu.item("profiles", null, { enabled: false }));
+    addSubMenuItemCompat(rootMenu, menu.item("Profiles", null, { enabled: false }));
     const profiles = profileSummaries(readManifest());
     const inlineProfileLimit = 5;
     const addProfileMenuItem = (parent, profile) => {
