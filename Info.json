@@ -1,7 +1,7 @@
 {
   "name": "iinatan",
   "identifier": "com.afn478.iinatan",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": {
     "name": "afn478"
   },
@@ -11,7 +11,7 @@
   "preferencesPage": "preferences.html",
   "helpPage": "README.md",
   "ghRepo": "afn478/iinatan",
-  "ghVersion": 160,
+  "ghVersion": 170,
   "preferenceDefaults": {
     "enabledByDefault": true,
     "hideNativeSubtitles": true,
