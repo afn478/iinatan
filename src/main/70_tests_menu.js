@@ -254,21 +254,25 @@ function showTaskPanelTest() {
 function rebuildMenu() {
   try { menu.removeAllItems(); } catch (_) {}
   try {
-    addMenuItemSafe(menu.item("Settings...", () => { openDictionaryManager(); }));
-    addMenuItemSafe(menu.separator());
+    const rootMenu = menu.item("iinatan");
+    addSubMenuItemCompat(rootMenu, menu.item("Settings...", () => { openDictionaryManager(); }));
+    addSubMenuItemCompat(rootMenu, menu.separator());
+    addSubMenuItemCompat(rootMenu, menu.item("Profiles", null, { enabled: false }));
     const profiles = profileSummaries(readManifest());
-    if (profiles.length) {
-      if (profiles.length === 1) {
-        addMenuItemSafe(menu.item(profiles[0].name, null, { selected: true, enabled: false }));
-      } else {
-        profiles.forEach(profile => {
-          addMenuItemSafe(menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
-        });
-      }
+    const inlineProfileLimit = 5;
+    const addProfileMenuItem = (parent, profile) => {
+      addSubMenuItemCompat(parent, menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+    };
+    profiles.slice(0, inlineProfileLimit).forEach(profile => {
+      addProfileMenuItem(rootMenu, profile);
+    });
+    if (profiles.length > inlineProfileLimit) {
+      const moreMenu = menu.item("More");
+      profiles.slice(inlineProfileLimit).forEach(profile => {
+        addProfileMenuItem(moreMenu, profile);
+      });
+      addSubMenuItemCompat(rootMenu, moreMenu);
     }
-
-    addMenuItemSafe(menu.separator());
-    addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
 
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
@@ -283,7 +287,8 @@ function rebuildMenu() {
     addSubMenuItemCompat(debugMenu, menu.item("Emit Debug Log Test Message", () => emitDebugLogTestMessage()));
     addSubMenuItemCompat(debugMenu, menu.item("Reveal Debug Log File", () => revealDebugLogFile()));
     addSubMenuItemCompat(debugMenu, menu.item("Reveal Plugin Data Folder", () => { try { file.showInFinder(dataRoot()); } catch (_) { utils.open(dataRoot()); } }));
-    addMenuItemSafe(debugMenu);
+    addSubMenuItemCompat(rootMenu, debugMenu);
+    addMenuItemSafe(rootMenu);
   } catch (error) {
     console.error("Could not rebuild iinatan menu: " + compactError(error));
   }
