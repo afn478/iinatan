@@ -252,6 +252,10 @@ function normalizeChosenFilePaths(value) {
   if (s.indexOf("\n") >= 0) return s.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
   return [s];
 }
+function isFilePickerCancelError(error) {
+  const msg = String(compactError(error) || "").toLowerCase();
+  return /cancel|cancelled|canceled|user abort|user-abort|user declined/.test(msg);
+}
 
 async function chooseDictionaryZipPaths() {
   if (!utils || typeof utils.chooseFile !== "function") {
@@ -270,6 +274,10 @@ async function chooseDictionaryZipPaths() {
     debugLog("manual dictionary import: filtered chooser returned count=" + paths.length + " sample=" + JSON.stringify(paths.slice(0, 5)));
     return paths;
   } catch (error) {
+    if (isFilePickerCancelError(error)) {
+      debugLog("manual dictionary import: filtered chooser cancelled");
+      return [];
+    }
     debugWarn("manual dictionary import chooser with zip filter failed: " + compactError(error));
   }
 
@@ -280,6 +288,10 @@ async function chooseDictionaryZipPaths() {
     debugLog("manual dictionary import: unfiltered chooser returned count=" + paths.length + " sample=" + JSON.stringify(paths.slice(0, 5)));
     return paths;
   } catch (error) {
+    if (isFilePickerCancelError(error)) {
+      debugLog("manual dictionary import: unfiltered chooser cancelled");
+      return [];
+    }
     throw new Error("IINA file picker failed: " + compactError(error));
   }
 }

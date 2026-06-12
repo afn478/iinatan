@@ -86,6 +86,9 @@ assert(
   JSON.stringify(context.normalizeChosenFilePaths('/tmp/a.zip\n/tmp/b.zip')) === JSON.stringify(['/tmp/a.zip', '/tmp/b.zip']),
   'newline-separated picker results should be split'
 );
+assert(context.isFilePickerCancelError(new Error('User cancelled')), 'file picker cancellation should be detected');
+assert(context.isFilePickerCancelError(new Error('canceled by user')), 'alternate cancellation spelling should be detected');
+assert(!context.isFilePickerCancelError(new Error('permission denied')), 'non-cancel picker errors should remain failures');
 
 const backendArgs = [];
 context.runBackendJson = async function runBackendJson(args) {

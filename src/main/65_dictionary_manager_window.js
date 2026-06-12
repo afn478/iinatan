@@ -60,8 +60,12 @@ function runDictionaryManagerAction(label, action) {
     dictionaryManagerActionInFlight = true;
     postDictionaryManagerStatus(actionLabel + "...", "info", true);
     try {
-      await action();
+      const result = await action();
       postDictionaryManagerState();
+      if (result && result.cancelled) {
+        postDictionaryManagerStatus(result.message || actionLabel + " cancelled.", "info", false);
+        return;
+      }
       postDictionaryManagerStatus(actionLabel + " complete.", "info", false);
     } catch (error) {
       const msg = actionLabel + " failed: " + compactError(error);
@@ -79,9 +83,10 @@ function chooseAndImportDictionaryFromManager() {
     const zipPaths = await chooseDictionaryZipPaths();
     if (!zipPaths.length) {
       notify("Dictionary import cancelled.", "info", 3500);
-      return;
+      return { cancelled: true, message: "Dictionary import cancelled." };
     }
     await validateAndImportDictionaryZips(zipPaths, "dictionary-manager-picker");
+    return { imported: zipPaths.length };
   })();
 }
 function registerDictionaryManagerHandlers() {

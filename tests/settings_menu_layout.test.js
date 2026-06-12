@@ -48,5 +48,7 @@ assert(
   'Dictionary manager should load its webview before registering message handlers'
 );
 assert(/postDictionaryManagerStatus\("Dictionary selection saved\."/.test(managerBridgeSource), 'Dictionary manager toggles should acknowledge persistence');
+assert(/result && result\.cancelled/.test(managerBridgeSource), 'Dictionary manager actions should clear busy state after cancellations');
+assert(/Dictionary import cancelled\./.test(managerBridgeSource), 'Dictionary manager should acknowledge cancelled ZIP imports');
 
 console.log('settings and menu layout tests passed');
