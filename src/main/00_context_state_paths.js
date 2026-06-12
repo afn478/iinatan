@@ -43,6 +43,7 @@ let lookupPopupLastSeq = 0;
 let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
 let dictionaryManagerInitialized = false;
+let dictionaryManagerActionInFlight = false;
 
 function pref(key, fallback) {
   const value = preferences.get(key);

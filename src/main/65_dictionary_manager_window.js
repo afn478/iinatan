@@ -53,6 +53,11 @@ function postDictionaryManagerStatus(message, kind, busy) {
 function runDictionaryManagerAction(label, action) {
   (async () => {
     const actionLabel = label || "Working";
+    if (dictionaryManagerActionInFlight) {
+      postDictionaryManagerStatus("Another dictionary action is already running.", "info", true);
+      return;
+    }
+    dictionaryManagerActionInFlight = true;
     postDictionaryManagerStatus(actionLabel + "...", "info", true);
     try {
       await action();
@@ -64,6 +69,8 @@ function runDictionaryManagerAction(label, action) {
       postDictionaryManagerState();
       postDictionaryManagerStatus(msg, "error", false);
       alert(msg);
+    } finally {
+      dictionaryManagerActionInFlight = false;
     }
   })();
 }
@@ -86,15 +93,18 @@ function registerDictionaryManagerHandlers() {
   });
   standaloneWindow.onMessage("dictionary-manager-refresh", () => {
     postDictionaryManagerState();
+    postDictionaryManagerStatus("Dictionary list refreshed.", "info", false);
   });
   standaloneWindow.onMessage("dictionary-manager-set-enabled", payload => {
     const name = payload && payload.name;
     if (!name) return;
     setDictionaryEnabled(String(name), !!(payload && payload.enabled));
+    postDictionaryManagerStatus("Dictionary selection saved.", "info", false);
   });
   standaloneWindow.onMessage("dictionary-manager-set-order", payload => {
     const order = payload && Array.isArray(payload.order) ? payload.order : [];
     setDictionaryOrder(order);
+    postDictionaryManagerStatus("Dictionary order saved.", "info", false);
   });
   standaloneWindow.onMessage("dictionary-manager-download-recommended", () => {
     runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
@@ -130,8 +140,8 @@ function openDictionaryManager() {
     return;
   }
   try {
-    registerDictionaryManagerHandlers();
     standaloneWindow.loadFile("dictionary-manager.html");
+    registerDictionaryManagerHandlers();
     try {
       if (typeof standaloneWindow.setProperty === "function") standaloneWindow.setProperty({ title: "iinatan Dictionary Manager", resizable: true });
     } catch (_) {}

@@ -59,11 +59,23 @@
     }
     button {
       padding: 5px 10px;
-      cursor: default;
+      cursor: pointer;
       white-space: nowrap;
     }
     button:disabled, select:disabled {
       opacity: 0.5;
+      cursor: default;
+    }
+    button:not(:disabled):hover {
+      border-color: rgba(10, 132, 255, 0.42);
+      background: rgba(10, 132, 255, 0.08);
+    }
+    button:not(:disabled):active {
+      background: rgba(10, 132, 255, 0.18);
+      transform: translateY(1px);
+    }
+    input[type="checkbox"], select {
+      cursor: pointer;
     }
     select {
       padding: 5px 26px 5px 10px;
@@ -170,7 +182,8 @@
       profiles: [],
       activeProfileId: 'default',
       busy: false,
-      draggingName: ''
+      draggingName: '',
+      commandSerial: 0
     };
 
     const els = {
@@ -191,8 +204,28 @@
     function send(name, payload) {
       try {
         const bridge = iinaBridge();
-        if (bridge && typeof bridge.postMessage === 'function') bridge.postMessage(name, payload || {});
-      } catch (_) {}
+        if (bridge && typeof bridge.postMessage === 'function') {
+          bridge.postMessage(name, payload || {});
+          return true;
+        }
+      } catch (error) {
+        setStatus('Could not send command: ' + String(error && error.message ? error.message : error), 'error', false);
+        return false;
+      }
+      setStatus('IINA message bridge is unavailable in this window.', 'error', false);
+      return false;
+    }
+    function command(name, payload, message) {
+      const serial = ++state.commandSerial;
+      if (message) {
+        setStatus(message, 'info', true);
+        setTimeout(() => {
+          if (state.busy && state.commandSerial === serial && els.status.textContent === message) {
+            setStatus('No response from the plugin script yet. Try closing and reopening the manager.', 'error', false);
+          }
+        }, 3500);
+      }
+      return send(name, payload);
     }
     function setStatus(message, kind, busy) {
       state.busy = !!busy;
@@ -219,7 +252,7 @@
       return state.dictionaries.map(dict => dict.name);
     }
     function postOrder() {
-      send('dictionary-manager-set-order', { order: currentOrder() });
+      command('dictionary-manager-set-order', { order: currentOrder() }, 'Saving dictionary order...');
     }
     function moveDictionary(name, delta) {
       const index = state.dictionaries.findIndex(dict => dict.name === name);
@@ -280,7 +313,7 @@
         checkbox.checked = !!dict.enabled;
         checkbox.addEventListener('change', () => {
           dict.enabled = checkbox.checked;
-          send('dictionary-manager-set-enabled', { name: dict.name, enabled: checkbox.checked });
+          command('dictionary-manager-set-enabled', { name: dict.name, enabled: checkbox.checked }, 'Saving dictionary selection...');
         });
         row.appendChild(checkbox);
 
@@ -344,11 +377,11 @@
       updateBusyState();
     }
 
-    els.downloadRecommended.addEventListener('click', () => send('dictionary-manager-download-recommended'));
-    els.importZip.addEventListener('click', () => send('dictionary-manager-import-zip'));
-    els.refresh.addEventListener('click', () => send('dictionary-manager-refresh'));
+    els.downloadRecommended.addEventListener('click', () => command('dictionary-manager-download-recommended', {}, 'Starting recommended dictionary download...'));
+    els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...'));
+    els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
-      send('dictionary-manager-switch-profile', { profileId: els.profileSelect.value });
+      command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');
     });
 
     const bridge = iinaBridge();
