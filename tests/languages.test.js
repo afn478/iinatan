@@ -10,6 +10,7 @@ const files = [
   'src/languages/english.js',
   'src/languages/french_yomitan_rules.js',
   'src/languages/french.js',
+  'src/languages/german_yomitan_rules.js',
   'src/languages/german.js',
   'src/languages/chinese.js',
   'src/languages/korean.js',
@@ -174,6 +175,18 @@ assertIncludes(erinnerung, 'erinnern', 'German should include Yomitan -rung nomi
 
 const lesbar = candidateTexts(de.lookupRequest('lesbar', 2, 24));
 assertIncludes(lesbar, 'lesen', 'German should include Yomitan -bar to -en adjective rule');
+
+const unmoeglich = candidateTexts(de.lookupRequest('unmöglich', 2, 24));
+assertIncludes(unmoeglich, 'möglich', 'German should include Yomitan negative un- rule');
+
+const wahrheit = candidateTexts(de.lookupRequest('Wahrheit', 3, 24));
+assertIncludes(wahrheit, 'wahr', 'German should include Yomitan -heit nominalization');
+
+const geschnitzt = candidateTexts(de.lookupRequest('geschnitzt', 3, 24));
+assertIncludes(geschnitzt, 'schnitzen', 'German should include Yomitan regular past participle rules');
+
+const aufzuraeumen = candidateTexts(de.lookupRequest('aufzuräumen', 4, 24));
+assertIncludes(aufzuraeumen, 'aufräumen', 'German should include Yomitan separable zu-infinitive rules');
 
 const split = de.lookupRequest('Ich stehe morgen früh auf.', 'Ich '.length + 1, 24);
 assertIncludes(candidateTexts(split), 'aufstehen', 'German should generate separable verb infinitive from bounded right context');

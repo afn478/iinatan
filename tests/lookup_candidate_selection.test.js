@@ -34,6 +34,12 @@ function resultFor(expression, definitionTags) {
   };
 }
 
+function nonLemmaTupleResult(expression, lemma) {
+  const result = resultFor(expression, 'non-lemma');
+  result.results[0].term.glossaries[0].glossary = JSON.stringify([[lemma, ['inflected form']]]);
+  return result;
+}
+
 async function runLookupSelection(candidates, responses, maxEntries) {
   const calls = [];
   const language = {
@@ -113,6 +119,16 @@ async function runLookupSelection(candidates, responses, maxEntries) {
   });
   assert(fallbackOnly.result.lookupText === 'attendez', 'Non-lemma-only result should remain available when no lemma candidate hits');
   assert(fallbackOnly.result.noResult === false, 'Non-lemma fallback should not become an empty lookup');
+
+  const tupleLemma = await runLookupSelection([
+    { text: 'traditionsreichen', displayText: 'traditionsreichen', source: 'surface' }
+  ], {
+    traditionsreichen: nonLemmaTupleResult('traditionsreichen', 'traditionsreich'),
+    traditionsreich: resultFor('traditionsreich', 'adj')
+  });
+  assert(tupleLemma.calls.join('|') === 'traditionsreichen|traditionsreich', 'Lookup should query tuple non-lemma references before falling back');
+  assert(tupleLemma.result.lookupText === 'traditionsreich', 'Lookup should report the referenced lemma when it finds definitions');
+  assert(tupleLemma.result.results.map(r => r.term.expression).join('|') === 'traditionsreich', 'Referenced lemma definitions should replace tuple-only non-lemma rows');
 
   console.log('lookup candidate selection tests passed');
 })().catch(error => {

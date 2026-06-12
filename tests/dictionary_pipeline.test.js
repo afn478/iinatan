@@ -10,6 +10,7 @@ const files = [
   'src/languages/english.js',
   'src/languages/french_yomitan_rules.js',
   'src/languages/french.js',
+  'src/languages/german_yomitan_rules.js',
   'src/languages/german.js',
   'src/languages/chinese.js',
   'src/languages/korean.js',

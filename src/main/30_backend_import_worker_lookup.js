@@ -600,6 +600,46 @@ function lookupResultIsOnlyNonLemma(result) {
   }
   return glossaryCount > 0;
 }
+function compactLookupText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+function parseLookupGlossaryJson(raw) {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  if (!text || (text[0] !== "[" && text[0] !== "{")) return null;
+  try { return JSON.parse(text); } catch (_) { return null; }
+}
+function nonLemmaLemmaCandidates(result, alreadyTried, limit) {
+  const out = [];
+  const seen = Object.create(null);
+  const max = Math.max(1, Number(limit) || 4);
+  const results = result && Array.isArray(result.results) ? result.results : [];
+  for (let i = 0; i < results.length && out.length < max; i++) {
+    const glossaries = results[i] && results[i].term && Array.isArray(results[i].term.glossaries)
+      ? results[i].term.glossaries
+      : [];
+    for (let g = 0; g < glossaries.length && out.length < max; g++) {
+      const glossary = glossaries[g];
+      if (!glossaryTagsIndicateNonLemma(glossary)) continue;
+      const parsed = parseLookupGlossaryJson(glossary.glossary);
+      if (!Array.isArray(parsed)) continue;
+      for (let r = 0; r < parsed.length && out.length < max; r++) {
+        const row = parsed[r];
+        if (!Array.isArray(row) || row.length < 1) continue;
+        const lemma = compactLookupText(row[0]);
+        if (!lemma || seen[lemma] || (alreadyTried && alreadyTried[lemma])) continue;
+        seen[lemma] = true;
+        out.push({
+          text: lemma,
+          source: "non-lemma-reference",
+          reason: "form-of lemma",
+          displayText: lemma
+        });
+      }
+    }
+  }
+  return out;
+}
 function lookupEntryKey(entry) {
   const term = entry && entry.term ? entry.term : {};
   const glossaries = Array.isArray(term.glossaries) ? term.glossaries : [];
@@ -679,10 +719,12 @@ async function lookupAtPosition(text, position, requestId) {
   let candidateUsed = null;
   const mergedEntries = [];
   const seenEntryKeys = Object.create(null);
+  const triedLookupTexts = Object.create(null);
   let nonLemmaFallbackResult = null;
   let nonLemmaFallbackCandidate = null;
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
+    triedLookupTexts[candidate.text] = true;
     const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
     debugVerbose("lookupAtPosition candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text) + " source=" + String(candidate.source || "") + " reason=" + String(candidate.reason || ""));
     const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
@@ -704,6 +746,23 @@ async function lookupAtPosition(text, position, requestId) {
       appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
       debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " mergedResultCount=" + mergedEntries.length);
       if (mergedEntries.length >= maxResults) break;
+    }
+  }
+  if (!candidateUsed && nonLemmaFallbackResult) {
+    const lemmaCandidates = nonLemmaLemmaCandidates(nonLemmaFallbackResult, triedLookupTexts, maxResults);
+    for (let i = 0; i < lemmaCandidates.length && mergedEntries.length < maxResults; i++) {
+      const candidate = lemmaCandidates[i];
+      triedLookupTexts[candidate.text] = true;
+      const candidateScanLength = Math.max(1, charsOf(candidate.text).length || effectiveScanLength);
+      debugVerbose("lookupAtPosition non-lemma lemma candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text));
+      const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+      debugVerbose("lookupAtPosition non-lemma lemma result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
+      if (!candidateResult || !candidateResult.results || !candidateResult.results.length || lookupResultIsOnlyNonLemma(candidateResult)) continue;
+      if (!candidateUsed) {
+        result = Object.assign({}, candidateResult, { results: mergedEntries });
+        candidateUsed = candidate;
+      }
+      appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
     }
   }
   if (candidateUsed) {

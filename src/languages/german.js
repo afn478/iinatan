@@ -1,6 +1,11 @@
 const IINATAN_GERMAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const YOMITAN_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES : [];
+  const LOCAL_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES : [];
+  const YOMITAN_SUFFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SUFFIX_RULES : [];
+  const LOCAL_SUFFIX_RULES = typeof IINATAN_GERMAN_LOCAL_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_LOCAL_SUFFIX_RULES : [];
+  const YOMITAN_PREFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_PREFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_PREFIX_RULES : [];
   const MAX_RIGHT_CONTEXT_CHARS = 96;
   const MAX_RIGHT_CONTEXT_WORDS = 12;
   const GERMAN_WORD_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+$/;
@@ -10,17 +15,7 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     "i.d.r.", "m.e.", "nr.", "prof.", "s.", "sog.", "u.a.", "u.u.", "usw.",
     "v.a.", "vgl.", "z.b.", "z.t.", "zzgl."
   ];
-  const SEPARABLE_PREFIXES = [
-    "ab", "an", "auf", "aus", "auseinander", "bei", "da", "dabei", "dar", "daran",
-    "dazwischen", "durch", "ein", "empor", "entgegen", "entlang", "entzwei",
-    "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
-    "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
-    "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein",
-    "hinterher", "hinüber", "hinunter", "hinweg", "hinzu", "hoch", "los",
-    "mit", "nach", "nebenher", "nieder", "statt", "teil", "um", "vor",
-    "voran", "voraus", "vorbei", "vorüber", "vorweg", "weg", "weiter",
-    "wieder", "zu", "zurecht", "zurück", "zusammen"
-  ];
+  const SEPARABLE_PREFIXES = YOMITAN_SEPARABLE_PREFIXES.concat(LOCAL_SEPARABLE_PREFIXES);
   const PREFIX_SET = SEPARABLE_PREFIXES.reduce((out, prefix) => {
     out[prefix] = true;
     return out;
@@ -93,28 +88,34 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     wird: ["werden"]
   };
 
+  function yomitanGermanRules() {
+    const rules = [];
+    YOMITAN_SUFFIX_RULES.concat(LOCAL_SUFFIX_RULES).forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+    });
+    YOMITAN_PREFIX_RULES.forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.prefixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+    });
+    return rules;
+  }
+
   const transformer = deinflect.createTransformer({
     maxDepth: 3,
     maxResults: 80,
     conditions: [
       { name: "v", isDefault: true },
+      { name: "vw", isDefault: true },
+      { name: "vst", isDefault: true },
       { name: "n", isDefault: true },
       { name: "adj", isDefault: true }
     ],
-    rules: [
-      deinflect.suffixInflection("ungen", "en", "n", "v", "nominalization -ungen"),
-      deinflect.suffixInflection("ung", "en", "n", "v", "nominalization -ung"),
-      deinflect.suffixInflection("lung", "eln", "n", "v", "nominalization -lung"),
-      deinflect.suffixInflection("rung", "rn", "n", "v", "nominalization -rung"),
-      deinflect.suffixInflection("bar", "en", "adj", "v", "adjective -bar"),
-      deinflect.suffixInflection("bar", "n", "adj", "v", "adjective -bar"),
-      deinflect.prefixInflection("un", "", "adj", "adj", "negative un-"),
-      deinflect.customInflection(getBasicPastParticiples, "v", "v", "past participle"),
-      deinflect.customInflection(getSeparablePastParticiples, "v", "v", "separable past participle"),
-      deinflect.customInflection(getZuInfinitives, "v", "v", "zu-infinitive"),
-      deinflect.suffixInflection("heit", "", "n", ["adj", "n"], "nominalization -heit"),
-      deinflect.suffixInflection("keit", "", "n", ["adj", "n"], "nominalization -keit")
-    ]
+    rules: yomitanGermanRules().concat([
+      deinflect.customInflection(getBasicPastParticiples, [], "vw", "past participle"),
+      deinflect.customInflection(getSeparablePastParticiples, [], "vw", "past participle"),
+      deinflect.customInflection(getZuInfinitives, [], "v", "zu-infinitive")
+    ])
   });
 
   function isHoverableChar(ch) {

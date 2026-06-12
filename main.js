@@ -885,9 +885,48 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
   };
 })();
 
+/*
+ * Derived from Yomitan ext/js/language/de/german-transforms.js
+ * Upstream source: https://github.com/yomidevs/yomitan/blob/master/ext/js/language/de/german-transforms.js
+ * Copyright (C) 2024-2026 Yomitan Authors
+ * License: GPL-3.0-or-later. See DEINFLECTION_NOTES.md for attribution notes.
+ */
+const IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES = [
+  "ab", "an", "auf", "aus", "auseinander", "bei", "da", "dabei", "dar", "daran",
+  "dazwischen", "durch", "ein", "empor", "entgegen", "entlang", "entzwei",
+  "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
+  "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
+  "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein",
+  "hinterher", "hinunter", "hinweg", "hinzu", "hoch", "los", "mit", "nach",
+  "nebenher", "nieder", "statt", "um", "vor", "voran", "voraus", "vorbei",
+  "vorüber", "vorweg", "weg", "weiter", "wieder", "zu", "zurecht", "zurück",
+  "zusammen"
+];
+const IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES = ["hinüber", "teil"];
+const IINATAN_GERMAN_YOMITAN_SUFFIX_RULES = [
+  ["ung", "en", [], ["v"], "nominalization"],
+  ["lung", "eln", [], ["v"], "nominalization"],
+  ["rung", "rn", [], ["v"], "nominalization"],
+  ["bar", "en", ["adj"], ["v"], "-bar"],
+  ["bar", "n", ["adj"], ["v"], "-bar"],
+  ["heit", "", ["n"], ["adj", "n"], "-heit"],
+  ["keit", "", ["n"], ["adj", "n"], "-heit"]
+];
+const IINATAN_GERMAN_LOCAL_SUFFIX_RULES = [
+  ["ungen", "en", ["n"], ["v"], "local plural nominalization -ungen"]
+];
+const IINATAN_GERMAN_YOMITAN_PREFIX_RULES = [
+  ["un", "", [], ["adj"], "negative"]
+];
+
 const IINATAN_GERMAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const YOMITAN_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES : [];
+  const LOCAL_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES : [];
+  const YOMITAN_SUFFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SUFFIX_RULES : [];
+  const LOCAL_SUFFIX_RULES = typeof IINATAN_GERMAN_LOCAL_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_LOCAL_SUFFIX_RULES : [];
+  const YOMITAN_PREFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_PREFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_PREFIX_RULES : [];
   const MAX_RIGHT_CONTEXT_CHARS = 96;
   const MAX_RIGHT_CONTEXT_WORDS = 12;
   const GERMAN_WORD_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+$/;
@@ -897,17 +936,7 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     "i.d.r.", "m.e.", "nr.", "prof.", "s.", "sog.", "u.a.", "u.u.", "usw.",
     "v.a.", "vgl.", "z.b.", "z.t.", "zzgl."
   ];
-  const SEPARABLE_PREFIXES = [
-    "ab", "an", "auf", "aus", "auseinander", "bei", "da", "dabei", "dar", "daran",
-    "dazwischen", "durch", "ein", "empor", "entgegen", "entlang", "entzwei",
-    "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
-    "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
-    "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein",
-    "hinterher", "hinüber", "hinunter", "hinweg", "hinzu", "hoch", "los",
-    "mit", "nach", "nebenher", "nieder", "statt", "teil", "um", "vor",
-    "voran", "voraus", "vorbei", "vorüber", "vorweg", "weg", "weiter",
-    "wieder", "zu", "zurecht", "zurück", "zusammen"
-  ];
+  const SEPARABLE_PREFIXES = YOMITAN_SEPARABLE_PREFIXES.concat(LOCAL_SEPARABLE_PREFIXES);
   const PREFIX_SET = SEPARABLE_PREFIXES.reduce((out, prefix) => {
     out[prefix] = true;
     return out;
@@ -980,28 +1009,34 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     wird: ["werden"]
   };
 
+  function yomitanGermanRules() {
+    const rules = [];
+    YOMITAN_SUFFIX_RULES.concat(LOCAL_SUFFIX_RULES).forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+    });
+    YOMITAN_PREFIX_RULES.forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.prefixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+    });
+    return rules;
+  }
+
   const transformer = deinflect.createTransformer({
     maxDepth: 3,
     maxResults: 80,
     conditions: [
       { name: "v", isDefault: true },
+      { name: "vw", isDefault: true },
+      { name: "vst", isDefault: true },
       { name: "n", isDefault: true },
       { name: "adj", isDefault: true }
     ],
-    rules: [
-      deinflect.suffixInflection("ungen", "en", "n", "v", "nominalization -ungen"),
-      deinflect.suffixInflection("ung", "en", "n", "v", "nominalization -ung"),
-      deinflect.suffixInflection("lung", "eln", "n", "v", "nominalization -lung"),
-      deinflect.suffixInflection("rung", "rn", "n", "v", "nominalization -rung"),
-      deinflect.suffixInflection("bar", "en", "adj", "v", "adjective -bar"),
-      deinflect.suffixInflection("bar", "n", "adj", "v", "adjective -bar"),
-      deinflect.prefixInflection("un", "", "adj", "adj", "negative un-"),
-      deinflect.customInflection(getBasicPastParticiples, "v", "v", "past participle"),
-      deinflect.customInflection(getSeparablePastParticiples, "v", "v", "separable past participle"),
-      deinflect.customInflection(getZuInfinitives, "v", "v", "zu-infinitive"),
-      deinflect.suffixInflection("heit", "", "n", ["adj", "n"], "nominalization -heit"),
-      deinflect.suffixInflection("keit", "", "n", ["adj", "n"], "nominalization -keit")
-    ]
+    rules: yomitanGermanRules().concat([
+      deinflect.customInflection(getBasicPastParticiples, [], "vw", "past participle"),
+      deinflect.customInflection(getSeparablePastParticiples, [], "vw", "past participle"),
+      deinflect.customInflection(getZuInfinitives, [], "v", "zu-infinitive")
+    ])
   });
 
   function isHoverableChar(ch) {
@@ -2879,6 +2914,46 @@ function lookupResultIsOnlyNonLemma(result) {
   }
   return glossaryCount > 0;
 }
+function compactLookupText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+function parseLookupGlossaryJson(raw) {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  if (!text || (text[0] !== "[" && text[0] !== "{")) return null;
+  try { return JSON.parse(text); } catch (_) { return null; }
+}
+function nonLemmaLemmaCandidates(result, alreadyTried, limit) {
+  const out = [];
+  const seen = Object.create(null);
+  const max = Math.max(1, Number(limit) || 4);
+  const results = result && Array.isArray(result.results) ? result.results : [];
+  for (let i = 0; i < results.length && out.length < max; i++) {
+    const glossaries = results[i] && results[i].term && Array.isArray(results[i].term.glossaries)
+      ? results[i].term.glossaries
+      : [];
+    for (let g = 0; g < glossaries.length && out.length < max; g++) {
+      const glossary = glossaries[g];
+      if (!glossaryTagsIndicateNonLemma(glossary)) continue;
+      const parsed = parseLookupGlossaryJson(glossary.glossary);
+      if (!Array.isArray(parsed)) continue;
+      for (let r = 0; r < parsed.length && out.length < max; r++) {
+        const row = parsed[r];
+        if (!Array.isArray(row) || row.length < 1) continue;
+        const lemma = compactLookupText(row[0]);
+        if (!lemma || seen[lemma] || (alreadyTried && alreadyTried[lemma])) continue;
+        seen[lemma] = true;
+        out.push({
+          text: lemma,
+          source: "non-lemma-reference",
+          reason: "form-of lemma",
+          displayText: lemma
+        });
+      }
+    }
+  }
+  return out;
+}
 function lookupEntryKey(entry) {
   const term = entry && entry.term ? entry.term : {};
   const glossaries = Array.isArray(term.glossaries) ? term.glossaries : [];
@@ -2958,10 +3033,12 @@ async function lookupAtPosition(text, position, requestId) {
   let candidateUsed = null;
   const mergedEntries = [];
   const seenEntryKeys = Object.create(null);
+  const triedLookupTexts = Object.create(null);
   let nonLemmaFallbackResult = null;
   let nonLemmaFallbackCandidate = null;
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
+    triedLookupTexts[candidate.text] = true;
     const candidateScanLength = Math.max(1, Number(candidate.scanLength) || charsOf(candidate.text).length || effectiveScanLength);
     debugVerbose("lookupAtPosition candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text) + " source=" + String(candidate.source || "") + " reason=" + String(candidate.reason || ""));
     const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
@@ -2983,6 +3060,23 @@ async function lookupAtPosition(text, position, requestId) {
       appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
       debugVerbose("lookupAtPosition candidate matched language=" + language.id + " text=" + JSON.stringify(candidate.text) + " mergedResultCount=" + mergedEntries.length);
       if (mergedEntries.length >= maxResults) break;
+    }
+  }
+  if (!candidateUsed && nonLemmaFallbackResult) {
+    const lemmaCandidates = nonLemmaLemmaCandidates(nonLemmaFallbackResult, triedLookupTexts, maxResults);
+    for (let i = 0; i < lemmaCandidates.length && mergedEntries.length < maxResults; i++) {
+      const candidate = lemmaCandidates[i];
+      triedLookupTexts[candidate.text] = true;
+      const candidateScanLength = Math.max(1, charsOf(candidate.text).length || effectiveScanLength);
+      debugVerbose("lookupAtPosition non-lemma lemma candidate language=" + language.id + " index=" + i + " text=" + JSON.stringify(candidate.text));
+      const candidateResult = await lookupViaWorker(candidate.text, dicts, candidateScanLength, maxResults, requestId, backendMode, maxGlossaries, language);
+      debugVerbose("lookupAtPosition non-lemma lemma result language=" + language.id + " index=" + i + " resultCount=" + (candidateResult && candidateResult.results ? candidateResult.results.length : 0));
+      if (!candidateResult || !candidateResult.results || !candidateResult.results.length || lookupResultIsOnlyNonLemma(candidateResult)) continue;
+      if (!candidateUsed) {
+        result = Object.assign({}, candidateResult, { results: mergedEntries });
+        candidateUsed = candidate;
+      }
+      appendLookupResultEntries(mergedEntries, seenEntryKeys, candidateResult, maxResults);
     }
   }
   if (candidateUsed) {

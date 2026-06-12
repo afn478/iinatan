@@ -1,0 +1,33 @@
+/*
+ * Derived from Yomitan ext/js/language/de/german-transforms.js
+ * Upstream source: https://github.com/yomidevs/yomitan/blob/master/ext/js/language/de/german-transforms.js
+ * Copyright (C) 2024-2026 Yomitan Authors
+ * License: GPL-3.0-or-later. See DEINFLECTION_NOTES.md for attribution notes.
+ */
+const IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES = [
+  "ab", "an", "auf", "aus", "auseinander", "bei", "da", "dabei", "dar", "daran",
+  "dazwischen", "durch", "ein", "empor", "entgegen", "entlang", "entzwei",
+  "fehl", "fern", "fest", "fort", "frei", "gegenüber", "gleich", "heim", "her",
+  "herab", "heran", "herauf", "heraus", "herbei", "herein", "herüber", "herum",
+  "herunter", "hervor", "hin", "hinab", "hinauf", "hinaus", "hinein",
+  "hinterher", "hinunter", "hinweg", "hinzu", "hoch", "los", "mit", "nach",
+  "nebenher", "nieder", "statt", "um", "vor", "voran", "voraus", "vorbei",
+  "vorüber", "vorweg", "weg", "weiter", "wieder", "zu", "zurecht", "zurück",
+  "zusammen"
+];
+const IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES = ["hinüber", "teil"];
+const IINATAN_GERMAN_YOMITAN_SUFFIX_RULES = [
+  ["ung", "en", [], ["v"], "nominalization"],
+  ["lung", "eln", [], ["v"], "nominalization"],
+  ["rung", "rn", [], ["v"], "nominalization"],
+  ["bar", "en", ["adj"], ["v"], "-bar"],
+  ["bar", "n", ["adj"], ["v"], "-bar"],
+  ["heit", "", ["n"], ["adj", "n"], "-heit"],
+  ["keit", "", ["n"], ["adj", "n"], "-heit"]
+];
+const IINATAN_GERMAN_LOCAL_SUFFIX_RULES = [
+  ["ungen", "en", ["n"], ["v"], "local plural nominalization -ungen"]
+];
+const IINATAN_GERMAN_YOMITAN_PREFIX_RULES = [
+  ["un", "", [], ["adj"], "negative"]
+];

@@ -30,6 +30,7 @@ LANGUAGE_PARTS = [
     "english.js",
     "french_yomitan_rules.js",
     "french.js",
+    "german_yomitan_rules.js",
     "german.js",
     "chinese.js",
     "korean.js",
