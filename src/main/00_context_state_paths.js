@@ -41,6 +41,7 @@ let lookupPopupPauseResumeTimer = null;
 let lookupPopupWatchdogTimer = null;
 let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
+let lookupPopupSessionId = "";
 let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
 let dictionaryManagerInitialized = false;

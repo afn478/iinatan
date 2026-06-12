@@ -41,6 +41,7 @@ let lookupPopupPauseResumeTimer = null;
 let lookupPopupWatchdogTimer = null;
 let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
+let lookupPopupSessionId = "";
 let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
 let dictionaryManagerInitialized = false;
@@ -3489,6 +3490,31 @@ function scheduleLookupPopupWatchdog() {
   // intentionally does not resume playback when the popup closes.
   clearLookupPopupWatchdog();
 }
+function lookupPopupSessionFromPayload(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return String(payload.popupSessionId || payload.sessionId || payload.session || "");
+}
+function noteLookupPopupSession(sessionId, reason) {
+  const nextSessionId = String(sessionId || "");
+  if (!nextSessionId) return;
+  if (lookupPopupSessionId === nextSessionId) return;
+  debugLog(
+    "lookup popup overlay session changed " +
+    JSON.stringify(lookupPopupSessionId || "none") +
+    " -> " +
+    JSON.stringify(nextSessionId) +
+    " reason=" +
+    String(reason || "unknown")
+  );
+  lookupPopupSessionId = nextSessionId;
+  lookupPopupLastSeq = 0;
+  finishLookupPopupPause(reason || "overlay-session-change");
+}
+function handleLookupPopupOverlayReady(payload) {
+  noteLookupPopupSession(lookupPopupSessionFromPayload(payload), "overlay-ready");
+  lookupPopupLastSeq = 0;
+  finishLookupPopupPause("overlay-ready");
+}
 function lookupPopupPauseEnabled() {
   try {
     return activeProfilePreferenceBool("pauseWhilePopupVisible", true);
@@ -3500,6 +3526,7 @@ function lookupPopupPauseEnabled() {
 function handleLookupPopupVisibility(payload) {
   const visible = (payload === true) || payload === "show" || payload === "visible" || (payload && !!payload.visible);
   const seq = payload && typeof payload === "object" && payload.seq !== undefined ? Number(payload.seq) : null;
+  noteLookupPopupSession(lookupPopupSessionFromPayload(payload), "popup-visibility");
   if (seq !== null && Number.isFinite(seq)) {
     if (seq < lookupPopupLastSeq) {
       debugLog("ignoring stale popup visibility seq=" + seq + " lastSeq=" + lookupPopupLastSeq + " visible=" + String(visible));
@@ -3542,6 +3569,8 @@ function resetLookupPopupPause() {
   lookupPopupPauseActive = false;
   lookupPopupPauseShouldResume = false;
   lookupPopupLastHeartbeatAt = 0;
+  lookupPopupLastSeq = 0;
+  lookupPopupSessionId = "";
 }
 
 function initializeOverlay() {
@@ -3555,6 +3584,7 @@ function initializeOverlay() {
   initialized = true;
   overlay.onMessage("ready", payload => {
     debugLog("overlay ready received payloadType=" + typeof payload);
+    handleLookupPopupOverlayReady(payload);
     postToOverlay("config", overlayConfig());
     postToOverlay("enabled", { enabled });
     replayActiveOverlayTask();

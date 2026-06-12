@@ -9,6 +9,7 @@ function initializeOverlay() {
   initialized = true;
   overlay.onMessage("ready", payload => {
     debugLog("overlay ready received payloadType=" + typeof payload);
+    handleLookupPopupOverlayReady(payload);
     postToOverlay("config", overlayConfig());
     postToOverlay("enabled", { enabled });
     replayActiveOverlayTask();

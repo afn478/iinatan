@@ -98,8 +98,8 @@ context.globalThis = context;
 vm.createContext(context);
 vm.runInContext(files.map(file => fs.readFileSync(path.join(root, file), 'utf8')).join('\n') + '\nenabled = true;', context);
 
-function showPopup(seq) {
-  context.handleLookupPopupVisibility({ visible: true, seq });
+function showPopup(seq, popupSessionId) {
+  context.handleLookupPopupVisibility({ visible: true, seq, popupSessionId: popupSessionId || 'test-session' });
 }
 
 storage['/data/manifest.json'] = manifestWithPopupPause(false);
@@ -122,5 +122,12 @@ pauseWrites.length = 0;
 paused = false;
 showPopup(3);
 assert(pauseWrites.length === 1 && pauseWrites[0] === true, 'Active profile true should allow popup pause even when plugin preference is stale false');
+
+context.handleLookupPopupVisibility({ visible: false, seq: 8, popupSessionId: 'before-resize' });
+pauseWrites.length = 0;
+paused = false;
+context.handleLookupPopupOverlayReady({ ready: true, popupSessionId: 'after-resize' });
+showPopup(1, 'after-resize');
+assert(pauseWrites.length === 1 && pauseWrites[0] === true, 'Fresh overlay sessions should reset popup visibility sequence after resize/reload');
 
 console.log('popup pause preference tests passed');

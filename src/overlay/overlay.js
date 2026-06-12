@@ -42,6 +42,7 @@
     bridgeSocket: null,
     bridgePort: null,
     bridgeReconnectTimer: null,
+    popupSessionId: String(Date.now()) + '-' + Math.random().toString(36).slice(2),
     popupVisibilitySeq: 0,
     lookupRequestSeq: 0,
     pendingLookupTimers: Object.create(null),
@@ -496,7 +497,13 @@
   }
 
   function sendBridgePopupVisibility(visible) {
-    return sendBridgeMessage({ type: 'popup', visible: !!visible, seq: state.popupVisibilitySeq, at: Date.now() });
+    return sendBridgeMessage({
+      type: 'popup',
+      visible: !!visible,
+      seq: state.popupVisibilitySeq,
+      popupSessionId: state.popupSessionId,
+      at: Date.now()
+    });
   }
 
   function cancelPendingLookupRequest(pos) {
@@ -606,7 +613,7 @@
     const bridgeSent = sendBridgePopupVisibility(visible);
     if (!bridgeSent) {
       try { iina.postMessage('lookup-popup-visibility', visible ? 'show' : 'hide'); } catch (_) {}
-      try { iina.postMessage('lookup-popup-visible', { visible: !!visible, seq: state.popupVisibilitySeq }); } catch (_) {}
+      try { iina.postMessage('lookup-popup-visible', { visible: !!visible, seq: state.popupVisibilitySeq, popupSessionId: state.popupSessionId, at: Date.now() }); } catch (_) {}
     }
   }
   function setLookupPopupVisibility(visible) {
@@ -1533,5 +1540,5 @@
   });
 
   // Keep the documented ready message, but v1.3.0 no longer depends on it.
-  try { iina.postMessage('ready', 'ready'); } catch (_) {}
+  try { iina.postMessage('ready', { ready: true, popupSessionId: state.popupSessionId, at: Date.now() }); } catch (_) {}
 })();
