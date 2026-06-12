@@ -27,7 +27,9 @@ const context = {
   prefBool() { return true; },
   prefNumber(_key, fallback) { return fallback; },
   selectedLanguageModule() { return { id: 'fr', label: 'French (experimental)' }; },
+  showOSD() {},
   async ensureBundledBackendInstalled() { calls.push(['ensureBackendInstalled']); },
+  async execChecked(command, args) { calls.push(['exec', command, args]); },
   startOverlayTask(kind) { calls.push(['startTask', kind]); return 'task-1'; },
   updateOverlayTask(id, payload) { calls.push(['updateTask', id, payload.message]); },
   finishOverlayTask(id, success, message) { calls.push(['finishTask', id, success, message]); },
@@ -102,6 +104,60 @@ context.runBackendJson = async function runBackendJson(args) {
   assert(backendArgs[0][0] === 'import', 'dictionary import should call the backend import command');
   assert(!backendArgs.some(args => args[0] === 'lookup' || args[0] === 'client'), 'dictionary import should not perform lookup validation');
   assert(calls.some(call => call[0] === 'stopWorker'), 'successful import should refresh the worker without failing import');
+
+  storage['/data/dictionaries'] = '';
+  storage['/data/dictionaries/Latin Dict/index.json'] = JSON.stringify({ title: 'Latin Dict Title' });
+  storage['/data/manifest.json'] = JSON.stringify({
+    dictionaries: {
+      'Latin Dict': { title: 'Latin Dict Title', termCount: 4 },
+      'Latin Dict Title': { title: 'Latin Dict Title', termCount: 4 },
+      'Keep Dict': { title: 'Keep Dict', termCount: 2 }
+    },
+    disabled: { 'Latin Dict': true, 'Keep Dict': true },
+    dictionaryOrder: ['Latin Dict', 'Keep Dict'],
+    activeProfileId: 'alt',
+    profiles: {
+      default: {
+        id: 'default',
+        name: 'Default',
+        dictionaryOrder: ['Latin Dict', 'Keep Dict'],
+        disabled: { 'Latin Dict': true },
+        preferences: {}
+      },
+      alt: {
+        id: 'alt',
+        name: 'Alt',
+        dictionaryOrder: ['Keep Dict', 'Latin Dict Title', 'Latin Dict'],
+        disabled: { 'Latin Dict Title': true, 'Keep Dict': true },
+        preferences: {}
+      }
+    }
+  });
+  context.file.list = function list(p) {
+    if (p !== '/data/dictionaries') return [];
+    return [
+      { filename: 'Latin Dict', path: '/Latin Dict', isDir: true },
+      { filename: 'Keep Dict', path: '/Keep Dict', isDir: true }
+    ];
+  };
+  calls.length = 0;
+  await context.deleteDictionary('Latin Dict');
+  manifest = JSON.parse(storage['/data/manifest.json']);
+  assert(!manifest.dictionaries['Latin Dict'], 'deleted dictionary manifest key should be removed');
+  assert(!manifest.dictionaries['Latin Dict Title'], 'deleted dictionary title aliases should be removed');
+  assert(manifest.dictionaries['Keep Dict'], 'unrelated dictionary metadata should remain');
+  assert(!manifest.profiles.default.dictionaryOrder.includes('Latin Dict'), 'deleted dictionary should be removed from default profile order');
+  assert(!manifest.profiles.alt.dictionaryOrder.includes('Latin Dict'), 'deleted dictionary folder name should be removed from active profile order');
+  assert(!manifest.profiles.alt.dictionaryOrder.includes('Latin Dict Title'), 'deleted dictionary title should be removed from active profile order');
+  assert(!manifest.profiles.default.disabled['Latin Dict'], 'deleted dictionary should be removed from default profile disabled map');
+  assert(!manifest.profiles.alt.disabled['Latin Dict Title'], 'deleted dictionary title should be removed from active profile disabled map');
+  assert(manifest.profiles.alt.disabled['Keep Dict'], 'unrelated disabled state should remain');
+  assert(calls.some(call => call[0] === 'stopWorker'), 'dictionary delete should stop the worker before removing files');
+  assert(calls.some(call => call[0] === 'exec' && call[1] === '/bin/mkdir' && call[2][1] === '/data/deleted-dictionaries'), 'dictionary delete should create the holding folder');
+  const moveCall = calls.find(call => call[0] === 'exec' && call[1] === '/bin/mv');
+  assert(moveCall && moveCall[2][1] === '/data/dictionaries/Latin Dict', 'dictionary delete should move the installed dictionary out of the active folder');
+  assert(moveCall[2][2].indexOf('/data/deleted-dictionaries/Latin Dict-') === 0, 'dictionary delete should move the dictionary to the holding folder');
+  assert(calls.some(call => call[0] === 'exec' && call[1] === '/bin/rm' && call[2][0] === '-rf' && call[2][2] === moveCall[2][2]), 'dictionary delete should clean up the moved dictionary directory in the background');
   console.log('dictionary import manifest tests passed');
 })().catch(error => {
   console.error(error);

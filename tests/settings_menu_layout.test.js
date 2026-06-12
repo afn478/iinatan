@@ -24,6 +24,8 @@ const managerHtml = fs.readFileSync(path.join(root, 'dictionary-manager.html'), 
 assert(/id="dictionaryList"/.test(managerHtml), 'Dictionary manager should include the installed dictionary list');
 assert(/dictionary-manager-set-enabled/.test(managerHtml), 'Dictionary manager should toggle dictionary enabled state');
 assert(/dictionary-manager-set-order/.test(managerHtml), 'Dictionary manager should save dictionary order');
+assert(/dictionary-manager-delete/.test(managerHtml), 'Dictionary manager should expose per-dictionary deletion');
+assert(/Delete/.test(managerHtml), 'Dictionary manager rows should include a delete button');
 assert(/Download Recommended Dictionaries/.test(managerHtml), 'Dictionary manager should expose recommended dictionary download');
 assert(/Import ZIP/.test(managerHtml), 'Dictionary manager should expose ZIP import');
 assert(/typeof iina !== 'undefined'/.test(managerHtml), 'Dictionary manager should use the IINA webview message bridge');
@@ -53,6 +55,8 @@ assert(
   'Dictionary manager should load its webview before registering message handlers'
 );
 assert(/postDictionaryManagerStatus\("Dictionary selection saved\."/.test(managerBridgeSource), 'Dictionary manager toggles should acknowledge persistence');
+assert(/dictionary-manager-delete/.test(managerBridgeSource), 'Dictionary manager should handle delete commands');
+assert(/deleteDictionary\(String\(name\)\)/.test(managerBridgeSource), 'Dictionary manager delete commands should remove installed dictionaries');
 assert(/function runDictionaryManagerZipImport\(\)/.test(managerBridgeSource), 'Dictionary ZIP import should use a picker-aware action path');
 assert(!/postDictionaryManagerStatus\("Opening ZIP picker\.\.\."/.test(managerBridgeSource), 'ZIP picker opening status should be transient webview state only');
 assert(/Dictionary import cancelled\./.test(managerBridgeSource), 'Dictionary manager should acknowledge cancelled ZIP imports');

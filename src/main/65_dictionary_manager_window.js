@@ -142,6 +142,11 @@ function registerDictionaryManagerHandlers() {
     setDictionaryOrder(order);
     postDictionaryManagerStatus("Dictionary order saved.", "info", false);
   });
+  standaloneWindow.onMessage("dictionary-manager-delete", payload => {
+    const name = payload && payload.name;
+    if (!name) return;
+    runDictionaryManagerAction("Deleting dictionary", () => deleteDictionary(String(name)));
+  });
   standaloneWindow.onMessage("dictionary-manager-download-recommended", () => {
     runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
   });

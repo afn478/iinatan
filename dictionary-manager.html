@@ -13,6 +13,8 @@
       --border: rgba(0, 0, 0, 0.14);
       --accent: #0a84ff;
       --danger: #d3382d;
+      --danger-border: rgba(211, 56, 45, 0.38);
+      --danger-hover: rgba(211, 56, 45, 0.12);
       --row-hover: rgba(10, 132, 255, 0.08);
     }
     @media (prefers-color-scheme: dark) {
@@ -22,6 +24,8 @@
         --text: rgba(245, 245, 247, 0.94);
         --muted: rgba(220, 220, 224, 0.66);
         --border: rgba(255, 255, 255, 0.16);
+        --danger-border: rgba(255, 105, 97, 0.46);
+        --danger-hover: rgba(255, 105, 97, 0.14);
         --row-hover: rgba(10, 132, 255, 0.16);
       }
     }
@@ -159,6 +163,14 @@
       min-width: 32px;
       padding: 4px 7px;
     }
+    .danger {
+      color: var(--danger);
+      border-color: var(--danger-border);
+    }
+    .danger:not(:disabled):hover {
+      border-color: var(--danger);
+      background: var(--danger-hover);
+    }
   </style>
 </head>
 <body>
@@ -249,6 +261,12 @@
         button.disabled = disabled;
       });
       els.profileSelect.disabled = (state.profiles && state.profiles.length ? state.profiles.length : 1) < 2 || disabled;
+      Array.from(els.dictionaryList.querySelectorAll('[data-busy-control]')).forEach(control => {
+        control.disabled = disabled || control.dataset.positionDisabled === 'true';
+      });
+      Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
+        row.draggable = !disabled;
+      });
     }
     function dictionaryMeta(dict) {
       const parts = [];
@@ -284,6 +302,12 @@
       renderDictionaries();
       postOrder();
     }
+    function deleteDictionary(dict) {
+      if (!dict || !dict.name || state.busy) return;
+      const label = dict.title || dict.name;
+      if (!confirm('Delete "' + label + '" from iinatan? This removes the installed dictionary files.')) return;
+      command('dictionary-manager-delete', { name: dict.name }, 'Requesting dictionary deletion...');
+    }
     function renderProfiles() {
       els.profileSelect.innerHTML = '';
       const profiles = state.profiles && state.profiles.length ? state.profiles : [{ id: 'default', name: 'Default', active: true }];
@@ -308,7 +332,7 @@
       state.dictionaries.forEach((dict, index) => {
         const row = document.createElement('div');
         row.className = 'dictionary-row' + (state.draggingName === dict.name ? ' dragging' : '');
-        row.draggable = true;
+        row.draggable = !state.busy;
         row.dataset.name = dict.name;
 
         const handle = document.createElement('button');
@@ -316,11 +340,15 @@
         handle.type = 'button';
         handle.title = 'Drag';
         handle.textContent = '::';
+        handle.dataset.busyControl = 'true';
+        handle.disabled = state.busy;
         row.appendChild(handle);
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = !!dict.enabled;
+        checkbox.dataset.busyControl = 'true';
+        checkbox.disabled = state.busy;
         checkbox.addEventListener('change', () => {
           dict.enabled = checkbox.checked;
           command('dictionary-manager-set-enabled', { name: dict.name, enabled: checkbox.checked }, 'Saving dictionary selection...');
@@ -343,15 +371,27 @@
         const up = document.createElement('button');
         up.type = 'button';
         up.textContent = 'Up';
-        up.disabled = index === 0;
+        up.dataset.busyControl = 'true';
+        up.dataset.positionDisabled = index === 0 ? 'true' : 'false';
+        up.disabled = state.busy || index === 0;
         up.addEventListener('click', () => moveDictionary(dict.name, -1));
         const down = document.createElement('button');
         down.type = 'button';
         down.textContent = 'Down';
-        down.disabled = index === state.dictionaries.length - 1;
+        down.dataset.busyControl = 'true';
+        down.dataset.positionDisabled = index === state.dictionaries.length - 1 ? 'true' : 'false';
+        down.disabled = state.busy || index === state.dictionaries.length - 1;
         down.addEventListener('click', () => moveDictionary(dict.name, 1));
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'danger';
+        del.textContent = 'Delete';
+        del.dataset.busyControl = 'true';
+        del.disabled = state.busy;
+        del.addEventListener('click', () => deleteDictionary(dict));
         actions.appendChild(up);
         actions.appendChild(down);
+        actions.appendChild(del);
         row.appendChild(actions);
 
         row.addEventListener('dragstart', event => {

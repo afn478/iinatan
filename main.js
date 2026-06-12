@@ -1805,19 +1805,33 @@ function dictionaryLanguageFromMetadata(meta, manifestEntry) {
   }
   return "unknown";
 }
+function filenameFromListPath(listPath) {
+  return String(listPath || "").split(/[\\/]/).filter(Boolean).pop() || "";
+}
+function dictionaryListItemName(item) {
+  const name = String((item && item.filename) || filenameFromListPath(item && item.path) || "").trim();
+  if (!name || name === "." || name === ".." || /[\\/]/.test(name)) return "";
+  return name;
+}
+function dictionaryListItemPath(item) {
+  const name = dictionaryListItemName(item);
+  return name ? pathJoin(dictRoot(), name) : "";
+}
 function unorderedDictionaryDirs() {
   try {
     if (!file.exists(dictRoot())) return [];
     const manifest = readManifest();
     return file.list(dictRoot(), { includeSubDir: false })
-      .filter(item => item && item.isDir)
+      .filter(item => item && item.isDir && dictionaryListItemName(item))
       .map(item => {
-        const meta = readDictionaryIndexMetadata(item.path);
-        const manifestEntry = (manifest.dictionaries && (manifest.dictionaries[item.filename] || manifest.dictionaries[meta.title])) || {};
+        const name = dictionaryListItemName(item);
+        const dictPath = dictionaryListItemPath(item);
+        const meta = readDictionaryIndexMetadata(dictPath);
+        const manifestEntry = (manifest.dictionaries && (manifest.dictionaries[name] || manifest.dictionaries[meta.title])) || {};
         return {
-          name: item.filename,
-          path: item.path,
-          title: meta.title || item.filename,
+          name,
+          path: dictPath,
+          title: meta.title || name,
           revision: meta.revision || "",
           format: meta.format || null,
           indexUrl: meta.indexUrl || "",
@@ -1930,6 +1944,91 @@ function setDictionaryOrder(names) {
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
   showOSD("Updated dictionary order.");
+}
+function dictionaryRemovalNameMap(names) {
+  const out = Object.create(null);
+  (Array.isArray(names) ? names : []).forEach(name => {
+    const key = String(name || "").trim();
+    if (key) out[key] = true;
+  });
+  return out;
+}
+function removeDictionaryReferencesFromProfile(profile, removeMap) {
+  if (!profile || typeof profile !== "object") return;
+  profile.dictionaryOrder = normalizeDictionaryOrder(profile.dictionaryOrder).filter(name => !removeMap[name]);
+  profile.disabled = normalizeDisabledMap(profile.disabled);
+  Object.keys(profile.disabled).forEach(name => {
+    if (removeMap[name]) delete profile.disabled[name];
+  });
+}
+function removeDictionaryReferencesFromManifest(manifest, names) {
+  const normalized = normalizeManifestShape(manifest);
+  const removeMap = dictionaryRemovalNameMap(names);
+  Object.keys(normalized.dictionaries || {}).forEach(key => {
+    const entry = normalized.dictionaries[key] || {};
+    if (removeMap[key] || removeMap[entry.title] || removeMap[entry.name]) delete normalized.dictionaries[key];
+  });
+  Object.keys(normalized.profiles || {}).forEach(id => {
+    removeDictionaryReferencesFromProfile(normalized.profiles[id], removeMap);
+  });
+  normalized.dictionaryOrder = normalizeDictionaryOrder(normalized.dictionaryOrder).filter(name => !removeMap[name]);
+  normalized.disabled = normalizeDisabledMap(normalized.disabled);
+  Object.keys(normalized.disabled).forEach(name => {
+    if (removeMap[name]) delete normalized.disabled[name];
+  });
+  return normalizeManifestShape(normalized);
+}
+function installedDictionaryByName(name) {
+  const requested = String(name || "").trim();
+  if (!requested) return null;
+  const dicts = unorderedDictionaryDirs();
+  for (let i = 0; i < dicts.length; i++) {
+    if (dicts[i] && dicts[i].name === requested) return dicts[i];
+  }
+  return null;
+}
+function safeInstalledDictionaryPath(dictPath) {
+  const root = String(dictRoot()).replace(/\/+$/, "");
+  const candidate = String(dictPath || "").replace(/\/+$/, "");
+  const relative = candidate.indexOf(root + "/") === 0 ? candidate.slice(root.length + 1) : "";
+  const hasUnsafePart = relative.split("/").some(part => !part || part === "." || part === "..");
+  if (!candidate || candidate === root || candidate.indexOf(root + "/") !== 0 || hasUnsafePart) {
+    throw new Error("Refusing to delete dictionary outside installed dictionary folder: " + candidate);
+  }
+  return candidate;
+}
+function deletedDictionaryRoot() {
+  return pathJoin(dataRoot(), "deleted-dictionaries");
+}
+function deletedDictionaryPath(name) {
+  const safeName = String(name || "dictionary").replace(/[^A-Za-z0-9._ -]+/g, "-").replace(/^-+|-+$/g, "") || "dictionary";
+  return pathJoin(deletedDictionaryRoot(), safeName + "-" + String(Date.now()));
+}
+function deleteDictionaryPathInBackground(dictPath, name) {
+  execChecked("/bin/rm", ["-rf", "--", dictPath]).catch(error => {
+    debugWarn("background cleanup failed for deleted dictionary " + String(name || "") + ": " + compactError(error));
+  });
+}
+async function deleteDictionary(name) {
+  const dict = installedDictionaryByName(name);
+  if (!dict) throw new Error("Dictionary is not installed: " + String(name || ""));
+  const deletePath = safeInstalledDictionaryPath(dict.path);
+  const removedPath = deletedDictionaryPath(dict.name);
+  const names = [dict.name, dict.title, name].filter(Boolean);
+  lookupCache = Object.create(null);
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  stopBackendWorker().catch(error => {
+    debugWarn("dictionary delete could not stop worker before removing files: " + compactError(error));
+  });
+  await execChecked("/bin/mkdir", ["-p", deletedDictionaryRoot()]);
+  await execChecked("/bin/mv", ["--", deletePath, removedPath]);
+  writeManifest(removeDictionaryReferencesFromManifest(readManifest(), names));
+  rebuildMenu();
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  deleteDictionaryPathInBackground(removedPath, dict.name);
+  showOSD("Deleted dictionary: " + dict.name);
+  return dict;
 }
 function ensureDictionaryInActiveProfileOrder(manifest, name) {
   const dictName = String(name || "").trim();
@@ -3262,6 +3361,11 @@ function registerDictionaryManagerHandlers() {
     const order = payload && Array.isArray(payload.order) ? payload.order : [];
     setDictionaryOrder(order);
     postDictionaryManagerStatus("Dictionary order saved.", "info", false);
+  });
+  standaloneWindow.onMessage("dictionary-manager-delete", payload => {
+    const name = payload && payload.name;
+    if (!name) return;
+    runDictionaryManagerAction("Deleting dictionary", () => deleteDictionary(String(name)));
   });
   standaloneWindow.onMessage("dictionary-manager-download-recommended", () => {
     runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
