@@ -141,6 +141,7 @@
     .dict-inline-example { display: inline; margin-left: 0.45em; color: rgba(190,218,255,0.92); }
     .example-keyword { color: #82c77a; font-weight: 850; }
     .inline-tag-row { display: inline-flex; align-items: center; gap: 4px; margin-right: 0.35em; vertical-align: 0.06em; }
+    .misc-pill.misc-male { background: rgba(178, 45, 59, 0.76); }
     .entry-index { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 0 0 0.55em; color: #80adff; font-size: 13px; line-height: 1.35; }
     .entry-index-item { display: inline-flex; align-items: center; white-space: nowrap; }
     .entry-index-item + .entry-index-item::before { content: "・"; margin-right: 8px; color: rgba(205,215,230,0.56); }
@@ -161,6 +162,9 @@
     .example-ja ruby rt { color: #9ed36d; font-size: 0.55em; }
     .example-en { margin-top: 6px; color: rgba(255,255,255,0.88); font-size: 14px; }
     .example-cite { margin-top: 5px; color: rgba(215,225,236,0.62); font-size: 11px; }
+    .note-card { margin: 8px 0 10px; max-width: 280px; background: rgba(255,255,255,0.055); border-left: 4px solid rgba(232,190,66,0.9); border-radius: 10px; padding: 8px 10px; color: rgba(255,255,255,0.92); }
+    .note-label { color: rgba(235,240,248,0.66); font-style: italic; font-size: 13px; margin-bottom: 3px; }
+    .note-content { font-size: 15px; line-height: 1.35; }
     .xref-card { margin-top: 10px; background: rgba(196, 81, 81, 0.10); border-left: 5px solid rgba(210, 82, 82, 0.88); border-radius: 14px; padding: 10px 12px; }
     .xref-label { color: rgba(255,255,255,0.78); font-size: 12px; font-weight: 700; display: block; margin-bottom: 4px; }
     .xref-link { color: #7ba7ff; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font-weight: 700; }
@@ -178,18 +182,20 @@
     .example-section summary { color: rgba(210,226,255,0.9); }
     .source-row { margin-top: 7px; color: rgba(215,225,236,0.72); font-size: 12px; overflow-wrap: anywhere; }
     .source-label { font-weight: 800; color: rgba(235,240,248,0.84); }
-    .entry-meta-row { display: flex; flex-wrap: nowrap; gap: 5px; margin: 0 0 8px; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: none; }
+    .attribution-row { margin-top: 8px; text-align: right; color: rgba(215,225,236,0.72); font-size: 12px; overflow-wrap: anywhere; }
+    .entry-meta-row { display: flex; flex-wrap: wrap; gap: 5px 6px; margin: 0 0 8px; max-width: 100%; overflow: visible; white-space: normal; scrollbar-width: none; }
     .entry-meta-row::-webkit-scrollbar { display: none; }
-    .freq-chip, .pitch-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 260px; overflow: hidden; text-overflow: ellipsis; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: rgba(255,255,255,0.92); background: rgba(126,172,255,0.18); }
-    .pitch-chip { background: rgba(169,220,118,0.16); }
-    .freq-chip .meta-label, .pitch-chip .meta-label { color: rgba(245,248,255,0.78); }
-    .pitch-chip-visual { align-items: flex-end; gap: 6px; padding-top: 4px; padding-bottom: 3px; }
+    .freq-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: rgba(255,255,255,0.92); background: rgba(126,172,255,0.18); }
+    .freq-chip .meta-label { color: rgba(245,248,255,0.78); }
+    .pitch-group { display: inline-flex; align-items: flex-end; gap: 6px; flex: 0 1 auto; max-width: 100%; min-width: 0; color: rgba(255,255,255,0.92); font-size: 11px; font-weight: 800; line-height: 1.45; }
+    .pitch-source-chip { display: inline-flex; align-items: center; flex: 0 0 auto; border-radius: 7px; padding: 2px 7px; color: rgba(255,255,255,0.94); background: rgba(126,172,255,0.72); }
+    .pitch-patterns { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 6px; min-width: 0; max-width: 100%; padding-bottom: 1px; }
     .pitch-pattern { display: inline-flex; align-items: flex-end; gap: 3px; color: rgba(255,255,255,0.94); }
     .pitch-reading { display: inline-flex; align-items: flex-end; padding-top: 4px; }
     .pitch-mora { position: relative; display: inline-block; min-width: 0.95em; text-align: center; padding: 2px 1px 0; line-height: 1.05; }
     .pitch-mora.pitch-high { border-top: 2px solid rgba(180,235,142,0.95); }
     .pitch-mora.pitch-drop { border-right: 2px solid rgba(180,235,142,0.95); }
-    .pitch-number, .pitch-more { color: rgba(230,238,255,0.78); font-size: 10px; }
+    .pitch-number, .pitch-more, .pitch-text { color: rgba(230,238,255,0.78); font-size: 10px; }
     .forms-block { display: inline-block; margin: 0.55em 0 0.25em; max-width: 100%; overflow-x: auto; vertical-align: top; }
     .forms-label { display: inline-block; margin: 0 0 4px; border-radius: 5px; padding: 1px 6px; color: rgba(255,255,255,0.96); background: rgba(255,255,255,0.18); font-weight: 850; font-size: 12px; }
     .forms-table { border-collapse: collapse; color: rgba(245,248,255,0.96); font-size: 15px; }
@@ -198,8 +204,15 @@
     .form-marker { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; color: #fff; font-size: 15px; line-height: 1; }
     .form-marker.form-pri { background: rgba(39,166,62,0.92); }
     .form-marker.form-rare { background: rgba(157,42,155,0.92); }
+    .form-marker.form-valid { background: rgba(12,12,16,0.92); border: 1px solid rgba(255,255,255,0.52); }
+    .form-marker.form-out { background: rgba(44,77,220,0.95); font-size: 13px; font-weight: 900; }
+    .form-marker.form-invalid { background: transparent; color: #e05270; border: 0; font-size: 22px; }
     .nonlemma-row { margin: 5px 0 6px; color: rgba(235,240,248,0.9); overflow-wrap: anywhere; }
     .nonlemma-row b { color: rgba(255,255,255,0.96); }
+    .nonlemma-list { margin: 4px 0 2px; }
+    .nonlemma-lemma { color: rgba(255,255,255,0.96); font-weight: 800; }
+    .nonlemma-arrow { color: rgba(205,215,230,0.6); margin: 0 2px; }
+    .nonlemma-desc { color: rgba(232,238,247,0.88); }
     .note-row { margin-top: 8px; color: rgba(215,225,236,0.72); font-size: 12px; }
     #status {
       position: absolute;

@@ -113,6 +113,23 @@ assert(/<b>Inflection<\/b>: <span>genitive\/dative\/accusative singular<\/span>/
 assert(/nominative\/genitive\/dative\/accusative plural definite/.test(nonLemmaHtml), 'Non-lemma plural inflection should be readable');
 assert(!/a\/languages/.test(nonLemmaHtml), 'Wiktionary path fragments should not leak into non-lemma display');
 
+const germanTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+  dict: 'wty-de-en',
+  definitionTags: 'non-lemma',
+  glossary: JSON.stringify([['keine', ['nominative singular masculine']], ['keine', ['nominative/accusative singular neuter']]])
+});
+assert(/class="nonlemma-list"/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple non-lemmas should use the targeted tuple renderer');
+assert(/<span class="nonlemma-lemma">keine<\/span>/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple non-lemmas should show the lemma reference');
+assert(/nominative singular masculine/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple grammar should be readable');
+assert(!/keinenominative/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple non-lemmas should not be concatenated');
+
+const englishTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+  dict: 'wty-en-en',
+  definitionTags: 'non-lemma',
+  glossary: JSON.stringify([['poison', ['past participle']]])
+});
+assert(!/class="nonlemma-list"/.test(englishTupleNonLemmaHtml), 'Tuple non-lemma cleanup should stay scoped to German Wiktionary dictionaries');
+
 const wiktionaryExamples = JSON.stringify([{
   type: 'structured-content',
   content: [{
@@ -188,13 +205,28 @@ const jitendexForms = JSON.stringify([{
         data: { content: 'sense-group' },
         content: [
           { tag: 'span', data: { class: 'tag', content: 'part-of-speech-info' }, content: '5-dan' },
+          { tag: 'span', title: 'male term or language', data: { class: 'tag', code: 'male', content: 'misc-info' }, content: 'masculine' },
           {
             tag: 'ol',
             content: [{
               tag: 'li',
               data: { content: 'sense' },
               style: { listStyleType: '"①"' },
-              content: [{ tag: 'ul', data: { content: 'glossary' }, content: [{ tag: 'li', content: 'to wait' }] }]
+              content: [
+                { tag: 'ul', data: { content: 'glossary' }, content: [{ tag: 'li', content: 'to wait' }] },
+                {
+                  tag: 'div',
+                  data: { content: 'extra-info' },
+                  content: [{
+                    tag: 'div',
+                    data: { class: 'extra-box', content: 'sense-note' },
+                    content: [
+                      { tag: 'div', data: { class: 'extra-label', content: 'sense-note-label' }, content: 'Note' },
+                      { tag: 'div', data: { class: 'extra-content', content: 'sense-note-content' }, content: 'rough or arrogant' }
+                    ]
+                  }]
+                }
+              ]
             }]
           }
         ]
@@ -207,17 +239,29 @@ const jitendexForms = JSON.stringify([{
           {
             tag: 'table',
             content: [
-              { tag: 'tr', data: { content: 'forms-header-row' }, content: [{ tag: 'th' }, { tag: 'th', content: '待つ' }, { tag: 'th', content: '俟つ' }] },
+              { tag: 'tr', data: { content: 'forms-header-row' }, content: [{ tag: 'th' }, { tag: 'th', content: '待つ' }, { tag: 'th', content: '俟つ' }, { tag: 'th', content: '待つ旧' }, { tag: 'th', content: '有効' }, { tag: 'th', content: '不可' }] },
               {
                 tag: 'tr',
                 content: [
                   { tag: 'th', content: 'まつ' },
                   { tag: 'td', data: { class: 'form-pri' }, content: { tag: 'span', title: 'high priority form' } },
-                  { tag: 'td', data: { class: 'form-rare' }, content: { tag: 'span', title: 'rarely used form' } }
+                  { tag: 'td', data: { class: 'form-rare' }, content: { tag: 'span', title: 'rarely used form' } },
+                  { tag: 'td', data: { class: 'form-out' }, content: { tag: 'span', title: 'archaic or obsolete reading' } },
+                  { tag: 'td', data: { class: 'form-valid' }, content: { tag: 'span', title: 'valid form/reading combination' } },
+                  { tag: 'td', data: { class: 'form-invalid' }, content: { tag: 'span', title: 'invalid form/reading combination' } }
                 ]
               }
             ]
           }
+        ]
+      },
+      {
+        tag: 'div',
+        data: { content: 'attribution' },
+        content: [
+          { tag: 'a', href: 'https://www.edrdg.org/jmwsgi/entr.py?svc=jmdict&q=123', content: 'JMdict' },
+          ' | ',
+          { tag: 'a', href: 'https://tatoeba.org/en/sentences/show/456', content: 'Tatoeba' }
         ]
       }
     ]
@@ -227,6 +271,14 @@ const formsHtml = overlay.renderGlossaryPayload({ dict: 'Jitendex.org [2026-06-0
 assert(/class="forms-table"/.test(formsHtml), 'Jitendex forms should render as a table');
 assert(/class="form-marker form-pri"/.test(formsHtml) && /high priority form/.test(formsHtml), 'Priority form markers should preserve meaning');
 assert(/class="form-marker form-rare"/.test(formsHtml) && /rarely used form/.test(formsHtml), 'Rare form markers should preserve meaning');
+assert(/class="form-marker form-out"/.test(formsHtml) && /archaic or obsolete reading/.test(formsHtml), 'Obsolete form markers should preserve meaning');
+assert(/class="form-marker form-valid"/.test(formsHtml) && /valid form\/reading combination/.test(formsHtml), 'Valid form markers should preserve meaning');
+assert(/class="form-marker form-invalid"/.test(formsHtml) && /invalid form\/reading combination/.test(formsHtml), 'Invalid form markers should preserve meaning');
+assert(/class="note-card"/.test(formsHtml) && /rough or arrogant/.test(formsHtml), 'Jitendex sense notes should render as note cards');
+assert(/class="pos-pill misc-pill misc-male"/.test(formsHtml), 'Jitendex misc tags should render as compact pills');
+assert(/class="attribution-row"/.test(formsHtml), 'Jitendex attribution links should render at the bottom');
+assert(/data-external-url="https:\/\/www\.edrdg\.org\/jmwsgi\/entr\.py\?svc=jmdict&amp;q=123"/.test(formsHtml), 'JMdict attribution links should be clickable');
+assert(/data-external-url="https:\/\/tatoeba\.org\/en\/sentences\/show\/456"/.test(formsHtml), 'Tatoeba attribution links should be clickable');
 assert(/class="custom-marker"><span class="sense-number">①<\/span>/.test(formsHtml), 'Jitendex custom sense markers should be preserved');
 assert(!/forms待つ俟つまつ/.test(formsHtml), 'Jitendex forms should not collapse into raw plaintext');
 
@@ -253,7 +305,8 @@ const metadataHtml = overlay.renderEntryMetadata({
 assert(/class="freq-chip"/.test(metadataHtml), 'Frequency metadata should render as compact chips');
 assert(/BCCWJ/.test(metadataHtml) && /199,266/.test(metadataHtml), 'Frequency chip should include dictionary and value');
 assert(/JPDBv2/.test(metadataHtml) && /184, 13390/.test(metadataHtml), 'Multiple frequency values should stay compact');
-assert(/class="pitch-chip pitch-chip-visual"/.test(metadataHtml), 'Pitch metadata should render as compact visual chips');
+assert(/class="pitch-group"/.test(metadataHtml), 'Pitch metadata should render as a bound source/pattern group');
+assert(/class="pitch-source-chip">アクセント辞典<\/span><span class="pitch-patterns">/.test(metadataHtml), 'Pitch source should be boxed separately from the pitch pattern');
 assert(/class="pitch-pattern"/.test(metadataHtml), 'Pitch metadata should include a visual pitch pattern');
 assert(/pitch-mora pitch-high pitch-drop/.test(metadataHtml), 'Accent position should create a drop marker over the kana');
 assert(/アクセント辞典/.test(metadataHtml) && /ま/.test(metadataHtml) && /つ/.test(metadataHtml) && /\[1\]/.test(metadataHtml), 'Pitch chip should include source, kana, and accent number');

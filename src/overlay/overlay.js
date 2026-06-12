@@ -916,6 +916,34 @@
 	      return '<div class="nonlemma-row"><b>' + label + '</b>: <span>' + escapeAndLinkifyText(part) + '</span></div>';
 	    }).join('');
 	  }
+	  function isGermanWiktionaryPairNonLemma(glossaryItem, ctx) {
+	    const dict = String(ctx && ctx.dictName || '');
+	    if (!/^wty-(?:en-de|de-en)$/i.test(dict)) return false;
+	    const tags = normalizeWhitespace(String((glossaryItem && glossaryItem.definitionTags) || '') + ' ' + String((glossaryItem && glossaryItem.termTags) || '')).toLowerCase();
+	    return /\bnon-lemma\b/.test(tags);
+	  }
+	  function renderGermanWiktionaryPairNonLemma(parsed, glossaryItem, ctx) {
+	    if (!isGermanWiktionaryPairNonLemma(glossaryItem, ctx) || !Array.isArray(parsed)) return '';
+	    const rows = [];
+	    parsed.forEach(row => {
+	      if (!Array.isArray(row) || row.length < 2) return;
+	      const lemma = normalizeWhitespace(row[0]);
+	      const descriptions = Array.isArray(row[1]) ? row[1] : [row[1]];
+	      descriptions.map(normalizeWhitespace).filter(Boolean).forEach(description => {
+	        if (!lemma && !description) return;
+	        rows.push({ lemma, description });
+	      });
+	    });
+	    if (!rows.length) return '';
+	    overlayDebug("detected German Wiktionary tuple non-lemma dict=" + JSON.stringify(ctx && ctx.dictName || "") + " rows=" + rows.length);
+	    return '<div class="nonlemma-list">' + rows.map(row =>
+	      '<div class="nonlemma-row"><b>Form of</b>: <span>' +
+	      (row.lemma ? '<span class="nonlemma-lemma">' + escapeHtml(row.lemma) + '</span>' : '') +
+	      (row.lemma && row.description ? '<span class="nonlemma-arrow"> - </span>' : '') +
+	      (row.description ? '<span class="nonlemma-desc">' + escapeHtml(row.description) + '</span>' : '') +
+	      '</span></div>'
+	    ).join('') + '</div>';
+	  }
 	  function renderCollapsibleSection(label, bodyHtml, open, className) {
 	    const body = bodyHtml || '';
 	    if (!body) return '';
@@ -951,6 +979,14 @@
 	    if (!body) return '';
 	    overlayDebug("detected source/backlink row source=" + String(ctx && ctx.sourceKind || "generic"));
 	    return '<div class="source-row"><span class="source-label">Source</span> ' + body + '</div>';
+	  }
+	  function renderAttributionRow(node, ctx) {
+	    const linkNodes = findNodes(node, n => n && n.tag === 'a');
+	    const links = linkNodes.map(n => renderInlineNode(n, ctx)).filter(Boolean);
+	    const text = normalizeWhitespace(plainTextFromNode(node.content));
+	    const body = links.length ? links.join(' | ') : escapeAndLinkifyText(text);
+	    if (!body) return '';
+	    return '<div class="attribution-row">' + body + '</div>';
 	  }
 	  function isPriorityTag(label) {
 	    const cleaned = normalizeWhitespace(label).replace(/^[\u2605*]\s*/, '');
@@ -1024,6 +1060,7 @@
 	    if (kind === 'tag') return renderOneTag(text, data.category || 'tag');
 	    if (kind === 'forms-label') return '<span class="forms-label" title="' + escapeHtml(nodeTitle(node) || 'forms') + '">' + escapeHtml(text || 'forms') + '</span>';
 	    if (hasDataFlag(node, 'POS') || hasDataFlag(node, 'pos') || hasDataFlag(node, 'hinshi') || kind === 'part-of-speech-info') return '<span class="pos-pill" title="' + escapeHtml(nodeTitle(node)) + '">' + body + '</span>';
+	    if (kind === 'misc-info') return '<span class="pos-pill misc-pill misc-' + escapeHtml(String(data.code || 'info')) + '" title="' + escapeHtml(nodeTitle(node)) + '">' + body + '</span>';
 	    if (hasDataFlag(node, 'katsuyo')) return '<span class="grammar-inline">' + body + '</span>';
 	    if (hasDataFlag(node, 'num') || hasDataFlag(node, 'bc') || hasDataFlag(node, 'rect') || /(?:^|\s)(?:FM|gaiji)(?:\s|$)/i.test(cls)) return '<span class="sense-number">' + body + '</span>';
 	    if (hasDataFlag(node, 'sup')) return '<span class="usage-marker">' + body + '</span>';
@@ -1042,6 +1079,14 @@
 	    if (!ja && !en && !cite) return '';
 	    const primaryClass = en ? 'example-ja' : 'example-text';
 	    return '<div class="example-card">' + (ja ? '<div class="' + primaryClass + '">' + ja + '</div>' : '') + (en ? '<div class="example-en">' + en + '</div>' : '') + (cite ? '<div class="example-cite">' + cite + '</div>' : '') + '</div>';
+	  }
+	  function renderSenseNoteBox(node, ctx) {
+	    const labelNode = findNodes(node, n => n && n.data && n.data.content === 'sense-note-label')[0];
+	    const contentNode = findNodes(node, n => n && n.data && n.data.content === 'sense-note-content')[0];
+	    const label = labelNode ? renderInlineNode(labelNode.content, ctx) : 'Note';
+	    const content = contentNode ? renderInlineNode(contentNode.content, ctx) : renderInlineNode(node.content, ctx);
+	    if (!content) return '';
+	    return '<div class="note-card"><div class="note-label">' + (label || 'Note') + '</div><div class="note-content">' + content + '</div></div>';
 	  }
 	  function renderXrefBox(node, ctx) {
 	    const labelNode = findNodes(node, n => n && n.data && n.data.content === 'reference-label')[0];
@@ -1082,6 +1127,9 @@
 	    const hay = (cls + ' ' + title).toLowerCase();
 	    if (/form-pri|high priority|priority/.test(hay)) return { className: 'form-pri', label: title || 'high priority form', symbol: '&#9651;' };
 	    if (/form-rare|rare/.test(hay)) return { className: 'form-rare', label: title || 'rarely used form', symbol: '&#9661;' };
+	    if (/form-out|archaic|obsolete|outdated/.test(hay)) return { className: 'form-out', label: title || 'archaic or obsolete form', symbol: '&#21476;' };
+	    if (/form-invalid|invalid|not valid/.test(hay)) return { className: 'form-invalid', label: title || 'invalid form/reading combination', symbol: '&#8709;' };
+	    if (/form-valid|valid form/.test(hay)) return { className: 'form-valid', label: title || 'valid form/reading combination', symbol: '&#9671;' };
 	    return null;
 	  }
 	  function renderTableCell(node, ctx) {
@@ -1135,13 +1183,15 @@
 	    const kind = nodeDataContent(node);
 	    const cls = nodeClassName(node);
 	    if (hasDataFlag(node, 'entry-index')) return renderEntryIndexNode(node, ctx);
-	    if (kind === 'attribution') return '';
+	    if (kind === 'attribution') return renderAttributionRow(node, ctx);
 	    if (tag === 'details' || isGrammarDetails(node) || isEtymologyDetails(node)) return renderDetailsNode(node, ctx);
 	    if (kind === 'backlink') return renderBacklinkRow(node, ctx);
 	    if (kind === 'tags') return '<span class="inline-tag-row">' + renderStructuredNode(node.content, ctx) + '</span>';
 	    if (kind === 'tag') return renderOneTag(plainTextFromNode(node.content), nodeDataMap(node).category || 'tag');
 	    if (kind === 'part-of-speech-info') return '<span class="pos-pill">' + escapeHtml(plainTextFromNode(node.content)) + '</span>';
+	    if (kind === 'misc-info') return renderStructuredSpan(node, ctx);
 	    if ((cls === 'extra-box' && kind === 'example-sentence') || kind === 'example-sentence') return renderExampleBox(node, ctx);
+	    if (cls === 'extra-box' && kind === 'sense-note') return renderSenseNoteBox(node, ctx);
 	    if (cls === 'extra-box' && kind === 'xref') return renderXrefBox(node, ctx);
 	    if (kind === 'sense-groups') return '<div class="sense-groups">' + renderStructuredNode(node.content, ctx) + '</div>';
 	    if (kind === 'sense-group') return '<div class="sense-group">' + renderStructuredNode(node.content, ctx) + '</div>';
@@ -1176,6 +1226,8 @@
 	    if (!parsed) {
 	      return metaRow + renderPlainGlossaryText((glossaryItem && glossaryItem.glossary) || '', ctx);
 	    }
+	    const tupleNonLemma = renderGermanWiktionaryPairNonLemma(parsed, glossaryItem, ctx);
+	    if (tupleNonLemma) return metaRow + tupleNonLemma;
 	    return metaRow + renderStructuredNode(parsed, ctx);
 	  }
 	  function splitJapaneseMoras(text) {
@@ -1225,11 +1277,11 @@
 	      const bits = [];
 	      if (!patterns.length && positions.length) bits.push(positions.map(v => String(v)).join(', '));
 	      if (transcriptions.length) bits.push(transcriptions.map(v => normalizeWhitespace(v)).filter(Boolean).join(', '));
-	      const display = patterns.length ? patterns.join('') + (positions.length > patterns.length ? '<span class="pitch-more">+' + escapeHtml(String(positions.length - patterns.length)) + '</span>' : '') : escapeHtml(bits.filter(Boolean).join(' · '));
+	      const display = patterns.length ? patterns.join('') + (positions.length > patterns.length ? '<span class="pitch-more">+' + escapeHtml(String(positions.length - patterns.length)) + '</span>' : '') : '<span class="pitch-text">' + escapeHtml(bits.filter(Boolean).join(' · ')) + '</span>';
 	      const titleDisplay = positions.length ? positions.map(v => String(v)).join(', ') : bits.filter(Boolean).join(' · ');
 	      if (!dict && !display) return;
 	      overlayDebug("pitch accent metadata detected dict=" + JSON.stringify(dict) + " positions=" + positions.length + " transcriptions=" + transcriptions.length);
-	      chips.push('<span class="pitch-chip pitch-chip-visual" title="' + escapeHtml((dict || 'Pitch') + (titleDisplay ? ' ' + titleDisplay : '')) + '"><span class="meta-label">' + escapeHtml(dict || 'Pitch') + '</span>' + (display ? ' ' + display : '') + '</span>');
+	      chips.push('<span class="pitch-group" title="' + escapeHtml((dict || 'Pitch') + (titleDisplay ? ' ' + titleDisplay : '')) + '"><span class="pitch-source-chip">' + escapeHtml(dict || 'Pitch') + '</span><span class="pitch-patterns">' + display + '</span></span>');
 	    });
 	    return chips.length ? '<div class="entry-meta-row">' + chips.join('') + '</div>' : '';
 	  }
