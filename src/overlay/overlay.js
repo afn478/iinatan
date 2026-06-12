@@ -947,26 +947,38 @@
 	      return '<div class="nonlemma-row"><b>' + label + '</b>: <span>' + escapeAndLinkifyText(part) + '</span></div>';
 	    }).join('');
 	  }
-	  function isGermanWiktionaryPairNonLemma(glossaryItem, ctx) {
-	    const dict = String(ctx && ctx.dictName || '');
-	    if (!/^wty-(?:en-de|de-en)$/i.test(dict)) return false;
+	  function isWiktionaryNonLemmaGlossary(glossaryItem, ctx) {
+	    if (!isWiktionaryLike(ctx)) return false;
 	    const tags = normalizeWhitespace(String((glossaryItem && glossaryItem.definitionTags) || '') + ' ' + String((glossaryItem && glossaryItem.termTags) || '')).toLowerCase();
-	    return /\bnon-lemma\b/.test(tags);
+	    return /\bnon[-\s]?lemma\b/.test(tags);
 	  }
-	  function renderGermanWiktionaryPairNonLemma(parsed, glossaryItem, ctx) {
-	    if (!isGermanWiktionaryPairNonLemma(glossaryItem, ctx) || !Array.isArray(parsed)) return '';
+	  function wiktionaryPairTupleRows(parsed) {
+	    if (!Array.isArray(parsed) || !parsed.length) return [];
+	    function tupleScalar(value) {
+	      return value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+	    }
 	    const rows = [];
-	    parsed.forEach(row => {
-	      if (!Array.isArray(row) || row.length < 2) return;
+	    for (let i = 0; i < parsed.length; i++) {
+	      const row = parsed[i];
+	      if (!Array.isArray(row) || row.length < 2) return [];
+	      if (!tupleScalar(row[0])) return [];
 	      const lemma = normalizeWhitespace(row[0]);
 	      const descriptions = Array.isArray(row[1]) ? row[1] : [row[1]];
-	      descriptions.map(normalizeWhitespace).filter(Boolean).forEach(description => {
-	        if (!lemma && !description) return;
+	      if (descriptions.some(description => !tupleScalar(description))) return [];
+	      if (!lemma && !descriptions.length) return [];
+	      for (let j = 0; j < descriptions.length; j++) {
+	        const description = normalizeWhitespace(descriptions[j]);
+	        if (!lemma && !description) continue;
 	        rows.push({ lemma, description });
-	      });
-	    });
+	      }
+	    }
+	    return rows;
+	  }
+	  function renderWiktionaryPairTupleNonLemma(parsed, glossaryItem, ctx) {
+	    if (!isWiktionaryNonLemmaGlossary(glossaryItem, ctx)) return '';
+	    const rows = wiktionaryPairTupleRows(parsed);
 	    if (!rows.length) return '';
-	    overlayDebug("detected German Wiktionary tuple non-lemma dict=" + JSON.stringify(ctx && ctx.dictName || "") + " rows=" + rows.length);
+	    overlayDebug("detected Wiktionary tuple non-lemma dict=" + JSON.stringify(ctx && ctx.dictName || "") + " rows=" + rows.length);
 	    return '<div class="nonlemma-list">' + rows.map(row =>
 	      '<div class="nonlemma-row"><b>Form of</b>: <span>' +
 	      (row.lemma ? '<span class="nonlemma-lemma">' + escapeHtml(row.lemma) + '</span>' : '') +
@@ -1257,7 +1269,7 @@
 	    if (!parsed) {
 	      return metaRow + renderPlainGlossaryText((glossaryItem && glossaryItem.glossary) || '', ctx);
 	    }
-	    const tupleNonLemma = renderGermanWiktionaryPairNonLemma(parsed, glossaryItem, ctx);
+	    const tupleNonLemma = renderWiktionaryPairTupleNonLemma(parsed, glossaryItem, ctx);
 	    if (tupleNonLemma) return metaRow + tupleNonLemma;
 	    return metaRow + renderStructuredNode(parsed, ctx);
 	  }

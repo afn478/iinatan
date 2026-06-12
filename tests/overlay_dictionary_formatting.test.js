@@ -123,12 +123,39 @@ assert(/<span class="nonlemma-lemma">keine<\/span>/.test(germanTupleNonLemmaHtml
 assert(/nominative singular masculine/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple grammar should be readable');
 assert(!/keinenominative/.test(germanTupleNonLemmaHtml), 'German Wiktionary tuple non-lemmas should not be concatenated');
 
-const englishTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+const frenchGermanTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+  dict: 'wty-fr-de',
+  definitionTags: 'non-lemma',
+  glossary: JSON.stringify([['attendre', ['2. Person Plural Imperativ Prasens Aktiv', '2. Person Plural Indikativ Prasens Aktiv']]])
+});
+assert(/class="nonlemma-list"/.test(frenchGermanTupleNonLemmaHtml), 'French-German Wiktionary tuple non-lemmas should use the targeted tuple renderer');
+assert(/<span class="nonlemma-lemma">attendre<\/span>/.test(frenchGermanTupleNonLemmaHtml), 'French-German Wiktionary tuple non-lemmas should show the lemma reference');
+assert(/2\. Person Plural Imperativ Prasens Aktiv/.test(frenchGermanTupleNonLemmaHtml), 'French-German Wiktionary tuple grammar should be readable');
+assert(!/attendre2\. Person/.test(frenchGermanTupleNonLemmaHtml), 'French-German Wiktionary tuple non-lemmas should not be concatenated');
+
+const frenchEnglishTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+  dict: 'wty-fr-en',
+  definitionTags: 'non-lemma',
+  glossary: JSON.stringify([['attendre', ['second-person plural imperative']], ['attendre', ['second-person plural present indicative']]])
+});
+assert(/class="nonlemma-list"/.test(frenchEnglishTupleNonLemmaHtml), 'French-English Wiktionary tuple non-lemmas should use the tuple renderer');
+assert(/<span class="nonlemma-lemma">attendre<\/span>/.test(frenchEnglishTupleNonLemmaHtml), 'French-English Wiktionary tuple non-lemmas should show the lemma reference');
+assert(/second-person plural present indicative/.test(frenchEnglishTupleNonLemmaHtml), 'French-English Wiktionary tuple grammar should be readable');
+assert(!/attendresecond-person/.test(frenchEnglishTupleNonLemmaHtml), 'French-English Wiktionary tuple non-lemmas should not be concatenated');
+
+const englishEnglishTupleNonLemmaHtml = overlay.renderGlossaryPayload({
   dict: 'wty-en-en',
   definitionTags: 'non-lemma',
   glossary: JSON.stringify([['poison', ['past participle']]])
 });
-assert(!/class="nonlemma-list"/.test(englishTupleNonLemmaHtml), 'Tuple non-lemma cleanup should stay scoped to German Wiktionary dictionaries');
+assert(/class="nonlemma-list"/.test(englishEnglishTupleNonLemmaHtml), 'English Wiktionary tuple non-lemmas should use the same tuple renderer');
+
+const customTupleNonLemmaHtml = overlay.renderGlossaryPayload({
+  dict: 'Custom Dictionary',
+  definitionTags: 'non-lemma',
+  glossary: JSON.stringify([['poison', ['past participle']]])
+});
+assert(!/class="nonlemma-list"/.test(customTupleNonLemmaHtml), 'Tuple non-lemma cleanup should stay scoped to Wiktionary-like dictionaries');
 
 const wiktionaryExamples = JSON.stringify([{
   type: 'structured-content',
