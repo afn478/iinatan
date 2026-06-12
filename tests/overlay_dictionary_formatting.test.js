@@ -326,9 +326,11 @@ assert(/\.dict-details \{[^}]*padding-left: 8px;[^}]*\}/.test(css), 'Collapsed d
 assert(!/\.dict-details \{[^}]*border-left:/s.test(css), 'Collapsed details should not have a base left border');
 assert(/\.dict-details\[open\] \{[^}]*border-left:/s.test(css), 'Expanded details should keep the left border');
 assert(/\.dict-details summary \{[^}]*list-style-position: inside;[^}]*\}/.test(css), 'Collapsed details marker should be inset');
-assert(/\.pitch-group \{[^}]*flex: 0 1 100%;[^}]*\}/.test(css), 'Pitch accent group should start on a new metadata row');
+assert(/\.dict-term \{[^}]*font-size: 30px;[^}]*\}/.test(css), 'Secondary entry headwords should match the main popup headword size');
+assert(/\.pitch-group \{[^}]*flex: 0 0 100%;[^}]*width: 100%;[^}]*\}/.test(css), 'Pitch accent group should start on a new metadata row');
 assert(!/\.pitch-group \{[^}]*flex-direction: column;/s.test(css), 'Pitch source chip and accent pattern should stay side by side');
-assert(/\.pitch-patterns \{[^}]*font-size: 13px;[^}]*\}/.test(css), 'Pitch accent pattern should be slightly larger than the source chip');
+assert(/\.pitch-patterns \{[^}]*font-size: 15px;[^}]*\}/.test(css), 'Pitch accent pattern should be larger than the source chip');
+assert(/\.pitch-number, \.pitch-more, \.pitch-text \{[^}]*font-size: 13px;[^}]*\}/.test(css), 'Pitch accent number/text should scale with the accent display');
 assert(/\.pitch-source-chip \{[^}]*padding: 2px 7px;[^}]*\}/.test(css), 'Pitch source chip sizing should remain compact');
 
 console.log('overlay dictionary formatting tests passed');

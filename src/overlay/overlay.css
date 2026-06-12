@@ -116,8 +116,8 @@
     .dict { color: rgba(205, 215, 230, 0.72); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .trace { margin-top: 6px; color: rgba(205, 215, 230, 0.65); font-size: 12px; }
-    .dict-term { color: rgba(255,255,255,0.9); font-size: 18px; font-weight: 700; margin: 0 0 6px; }
-    .dict-reading { color: #9ec3ff; font-weight: 650; margin-left: 6px; font-size: 14px; }
+    .dict-term { color: rgba(255,255,255,0.95); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
+    .dict-reading { color: #9ec3ff; font-weight: 650; margin-left: 10px; font-size: 16px; }
     .dict-section + .dict-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(120, 140, 165, 0.16); }
     .dict-header { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; margin-bottom: 8px; min-width: 0; }
     .dict-header .dict-name { color: rgba(220,230,242,0.84); font-size: 13px; font-weight: 800; }
@@ -187,15 +187,15 @@
     .entry-meta-row::-webkit-scrollbar { display: none; }
     .freq-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: rgba(255,255,255,0.92); background: rgba(126,172,255,0.18); }
     .freq-chip .meta-label { color: rgba(245,248,255,0.78); }
-    .pitch-group { display: inline-flex; align-items: flex-end; gap: 6px; flex: 0 1 100%; max-width: 100%; min-width: 0; color: rgba(255,255,255,0.92); font-size: 11px; font-weight: 800; line-height: 1.45; }
+    .pitch-group { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; color: rgba(255,255,255,0.92); font-size: 11px; font-weight: 800; line-height: 1.45; }
     .pitch-source-chip { display: inline-flex; align-items: center; flex: 0 0 auto; border-radius: 7px; padding: 2px 7px; color: rgba(255,255,255,0.94); background: rgba(126,172,255,0.72); }
-    .pitch-patterns { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 7px; min-width: 0; max-width: 100%; padding: 1px 0 1px 2px; font-size: 13px; line-height: 1.35; }
+    .pitch-patterns { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 8px; min-width: 0; max-width: 100%; padding: 1px 0 1px 2px; font-size: 15px; line-height: 1.35; }
     .pitch-pattern { display: inline-flex; align-items: flex-end; gap: 3px; color: rgba(255,255,255,0.94); }
     .pitch-reading { display: inline-flex; align-items: flex-end; padding-top: 4px; }
     .pitch-mora { position: relative; display: inline-block; min-width: 0.95em; text-align: center; padding: 2px 1px 0; line-height: 1.05; }
     .pitch-mora.pitch-high { border-top: 2px solid rgba(180,235,142,0.95); }
     .pitch-mora.pitch-drop { border-right: 2px solid rgba(180,235,142,0.95); }
-    .pitch-number, .pitch-more, .pitch-text { color: rgba(230,238,255,0.78); font-size: 11px; }
+    .pitch-number, .pitch-more, .pitch-text { color: rgba(230,238,255,0.78); font-size: 13px; }
     .forms-block { display: inline-block; margin: 0.55em 0 0.25em; max-width: 100%; overflow-x: auto; vertical-align: top; }
     .forms-label { display: inline-block; margin: 0 0 4px; border-radius: 5px; padding: 1px 6px; color: rgba(255,255,255,0.96); background: rgba(255,255,255,0.18); font-weight: 850; font-size: 12px; }
     .forms-table { border-collapse: collapse; color: rgba(245,248,255,0.96); font-size: 15px; }
