@@ -2,12 +2,12 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>iinatan Dictionary Manager</title>
+  <title>iinatan Settings</title>
   <style>
     :root {
       color-scheme: light dark;
-      --bg: rgba(250, 250, 250, 0.92);
-      --panel: rgba(255, 255, 255, 0.82);
+      --bg: rgba(248, 248, 250, 0.96);
+      --panel: rgba(255, 255, 255, 0.86);
       --text: rgba(20, 20, 24, 0.94);
       --muted: rgba(70, 70, 76, 0.72);
       --border: rgba(0, 0, 0, 0.14);
@@ -16,6 +16,7 @@
       --danger-border: rgba(211, 56, 45, 0.38);
       --danger-hover: rgba(211, 56, 45, 0.12);
       --row-hover: rgba(10, 132, 255, 0.08);
+      --control: rgba(255, 255, 255, 0.78);
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -27,12 +28,13 @@
         --danger-border: rgba(255, 105, 97, 0.46);
         --danger-hover: rgba(255, 105, 97, 0.14);
         --row-hover: rgba(10, 132, 255, 0.16);
+        --control: rgba(58, 58, 64, 0.88);
       }
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      min-width: 620px;
+      min-width: 760px;
       background: var(--bg);
       color: var(--text);
       font: 13px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
@@ -45,18 +47,32 @@
       padding: 16px 18px 12px;
       border-bottom: 1px solid var(--border);
     }
-    h1 {
+    h1, h2, h3 {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.2;
       letter-spacing: 0;
     }
-    main { padding: 14px 18px 18px; }
-    button, select {
+    h1 {
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    h2 {
+      font-size: 15px;
+      line-height: 1.25;
+    }
+    h3 {
+      margin: 18px 0 8px;
+      font-size: 13px;
+      line-height: 1.25;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    main { padding: 12px 18px 18px; }
+    button, select, input, textarea {
       appearance: none;
       border: 1px solid var(--border);
       border-radius: 6px;
-      background: var(--panel);
+      background: var(--control);
       color: var(--text);
       font: inherit;
       min-height: 30px;
@@ -66,7 +82,31 @@
       cursor: pointer;
       white-space: nowrap;
     }
-    button:disabled, select:disabled {
+    select {
+      padding: 5px 26px 5px 10px;
+      min-width: 170px;
+    }
+    input[type="number"], input[type="text"] {
+      width: 100%;
+      padding: 5px 7px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 118px;
+      padding: 7px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+    input[type="checkbox"] {
+      appearance: auto;
+      width: 16px;
+      height: 16px;
+      min-height: 16px;
+      margin: 0;
+      cursor: pointer;
+    }
+    button:disabled, select:disabled, input:disabled, textarea:disabled {
       opacity: 0.5;
       cursor: default;
     }
@@ -78,24 +118,35 @@
       background: rgba(10, 132, 255, 0.18);
       transform: translateY(1px);
     }
-    input[type="checkbox"], select {
-      cursor: pointer;
+    .active-profile {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
     }
-    select {
-      padding: 5px 26px 5px 10px;
-      min-width: 170px;
-    }
-    .toolbar {
+    .profile-controls {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       flex-wrap: wrap;
-      margin-bottom: 12px;
+      justify-content: flex-end;
     }
-    .toolbar .spacer { flex: 1 1 auto; }
-    .primary {
-      border-color: rgba(10, 132, 255, 0.45);
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .tab {
+      min-width: 84px;
+      background: transparent;
+    }
+    .tab.active {
+      border-color: rgba(10, 132, 255, 0.48);
       background: rgba(10, 132, 255, 0.14);
+      color: var(--text);
+      font-weight: 600;
     }
     .status {
       min-height: 18px;
@@ -104,7 +155,59 @@
       overflow-wrap: anywhere;
     }
     .status.error { color: var(--danger); }
-    .dictionary-list {
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+    .form-grid.single { grid-template-columns: minmax(0, 1fr); }
+    .field {
+      min-width: 0;
+    }
+    .field label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+    .check-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      font-weight: 600;
+    }
+    .check-field span { min-width: 0; }
+    .field small, .meta, .hint {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 12px;
+    }
+    .toolbar .spacer { flex: 1 1 auto; }
+    .primary {
+      border-color: rgba(10, 132, 255, 0.45);
+      background: rgba(10, 132, 255, 0.14);
+    }
+    .danger {
+      color: var(--danger);
+      border-color: var(--danger-border);
+    }
+    .danger:not(:disabled):hover {
+      border-color: var(--danger);
+      background: var(--danger-hover);
+    }
+    .dictionary-list, .recommended-list {
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
@@ -115,16 +218,21 @@
       color: var(--muted);
       text-align: center;
     }
-    .dictionary-row {
+    .dictionary-row, .recommended-row {
       display: grid;
-      grid-template-columns: 34px 26px minmax(0, 1fr) auto;
       align-items: center;
       gap: 8px;
       min-height: 58px;
       padding: 8px 10px;
       border-bottom: 1px solid var(--border);
     }
-    .dictionary-row:last-child { border-bottom: 0; }
+    .dictionary-row {
+      grid-template-columns: 34px 26px minmax(0, 1fr) auto;
+    }
+    .recommended-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .dictionary-row:last-child, .recommended-row:last-child { border-bottom: 0; }
     .dictionary-row.drag-over { background: var(--row-hover); }
     .dictionary-row.dragging { opacity: 0.46; }
     .drag-handle {
@@ -134,22 +242,9 @@
       color: var(--muted);
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      margin: 0;
-    }
     .title {
       min-width: 0;
       font-weight: 600;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .meta {
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 12px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -163,48 +258,238 @@
       min-width: 32px;
       padding: 4px 7px;
     }
-    .danger {
-      color: var(--danger);
-      border-color: var(--danger-border);
-    }
-    .danger:not(:disabled):hover {
-      border-color: var(--danger);
-      background: var(--danger-hover);
+    @media (max-width: 720px) {
+      body { min-width: 0; }
+      header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .profile-controls { justify-content: flex-start; }
+      .form-grid { grid-template-columns: minmax(0, 1fr); }
+      .tabs { overflow-x: auto; }
+      .dictionary-row {
+        grid-template-columns: 34px 24px minmax(0, 1fr);
+      }
+      .dictionary-row .row-actions {
+        grid-column: 3;
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Dictionaries</h1>
-    <select id="profileSelect" aria-label="Profile"></select>
+    <div>
+      <h1>iinatan Settings</h1>
+      <div id="activeProfileLabel" class="active-profile"></div>
+    </div>
+    <div class="profile-controls">
+      <select id="profileSelect" aria-label="Profile"></select>
+      <button id="newProfile" type="button">New</button>
+      <button id="renameProfile" type="button">Rename</button>
+      <button id="deleteProfile" class="danger" type="button">Delete</button>
+    </div>
   </header>
   <main>
-    <div class="toolbar">
-      <button id="downloadRecommended" class="primary" type="button">Download Recommended Dictionaries...</button>
-      <button id="importZip" type="button">Import ZIP...</button>
-      <span class="spacer"></span>
-      <button id="refresh" type="button">Refresh</button>
-    </div>
+    <nav class="tabs" aria-label="Settings sections">
+      <button class="tab active" type="button" data-tab="profile">Profile</button>
+      <button class="tab" type="button" data-tab="popup">Popup</button>
+      <button class="tab" type="button" data-tab="dictionaries">Dictionaries</button>
+      <button class="tab" type="button" data-tab="advanced">Advanced</button>
+    </nav>
     <div id="status" class="status"></div>
-    <section id="dictionaryList" class="dictionary-list"></section>
+
+    <section class="panel active" data-panel="profile">
+      <h2>Profile Settings</h2>
+      <h3>Language</h3>
+      <div class="form-grid single">
+        <div class="field">
+          <label for="lookupLanguage">Lookup language</label>
+          <select id="lookupLanguage" data-profile-pref="lookupLanguage">
+            <option value="ja">Japanese</option>
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="zh">Chinese</option>
+            <option value="ko">Korean</option>
+          </select>
+          <small>Switching languages reloads the overlay and lookup worker.</small>
+        </div>
+      </div>
+
+      <h3>Playback</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-profile-pref="enabledByDefault" type="checkbox"><span>Turn on automatically for new windows</span></label>
+        <label class="check-field"><input data-profile-pref="hideNativeSubtitles" type="checkbox"><span>Hide IINA subtitles while iinatan is on</span></label>
+        <label class="check-field"><input data-profile-pref="pauseWhilePopupVisible" type="checkbox"><span>Pause while a popup is visible</span></label>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="popup">
+      <h2>Popup Settings</h2>
+      <h3>Lookup And Results</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="scanLength">Characters to scan</label>
+          <input id="scanLength" data-profile-pref="scanLength" type="number" min="1" max="80" step="1">
+        </div>
+        <div class="field">
+          <label for="maxEntries">Maximum entries</label>
+          <input id="maxEntries" data-profile-pref="maxEntries" type="number" min="1" max="12" step="1">
+        </div>
+        <div class="field">
+          <label for="maxGlossesPerEntry">Definitions per entry</label>
+          <input id="maxGlossesPerEntry" data-profile-pref="maxGlossesPerEntry" type="number" min="1" max="20" step="1">
+        </div>
+        <div class="field">
+          <label for="lookupTimeoutMs">Lookup timeout (ms)</label>
+          <input id="lookupTimeoutMs" data-profile-pref="lookupTimeoutMs" type="number" min="1500" max="30000" step="500">
+        </div>
+      </div>
+
+      <h3>Appearance</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="fontScale">Subtitle size</label>
+          <input id="fontScale" data-profile-pref="fontScale" type="number" min="0.5" max="2.0" step="0.05">
+        </div>
+        <div class="field">
+          <label for="popupScale">Popup size</label>
+          <input id="popupScale" data-profile-pref="popupScale" type="number" min="0.6" max="1.4" step="0.05">
+        </div>
+        <div class="field">
+          <label for="popupMaxWidth">Popup maximum width</label>
+          <input id="popupMaxWidth" data-profile-pref="popupMaxWidth" type="number" min="260" max="900" step="10">
+        </div>
+        <div class="field">
+          <label for="popupMaxHeightVh">Popup maximum height (% of window)</label>
+          <input id="popupMaxHeightVh" data-profile-pref="popupMaxHeightVh" type="number" min="20" max="60" step="1">
+        </div>
+        <div class="field">
+          <label for="popupSubtitleGapPx">Gap above subtitles (px)</label>
+          <input id="popupSubtitleGapPx" data-profile-pref="popupSubtitleGapPx" type="number" min="12" max="96" step="1">
+        </div>
+        <div class="field">
+          <label for="subtitlePollMs">Subtitle refresh interval (ms)</label>
+          <input id="subtitlePollMs" data-profile-pref="subtitlePollMs" type="number" min="80" max="1000" step="20">
+        </div>
+      </div>
+
+      <h3>Entry Sections</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="etymologyCollapseDefault">Etymology sections</label>
+          <select id="etymologyCollapseDefault" data-profile-pref="etymologyCollapseDefault">
+            <option value="collapsed">Collapsed by default</option>
+            <option value="expanded">Expanded by default</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="wiktionaryEtymologyCollapseOverride">Wiktionary/Kaikki etymology</label>
+          <select id="wiktionaryEtymologyCollapseOverride" data-profile-pref="wiktionaryEtymologyCollapseOverride">
+            <option value="collapsed">Always collapsed</option>
+            <option value="expanded">Always expanded</option>
+            <option value="inherit">Use global setting</option>
+          </select>
+        </div>
+      </div>
+
+      <h3>Custom CSS</h3>
+      <div class="form-grid single">
+        <div class="field">
+          <label for="customPopupCss">Custom popup CSS</label>
+          <textarea id="customPopupCss" data-profile-pref="customPopupCss" spellcheck="false" placeholder="#popup .gloss { font-size: 16px; }"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="dictionaries">
+      <h2>Dictionaries</h2>
+      <h3>Recommended Downloads</h3>
+      <section id="recommendedList" class="recommended-list"></section>
+
+      <h3>Installed Dictionaries</h3>
+      <div class="toolbar">
+        <button id="importZip" class="primary" type="button">Import ZIP...</button>
+        <span class="spacer"></span>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+      <section id="dictionaryList" class="dictionary-list"></section>
+
+      <h3>Dictionary Import</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-global-setting="lowRamImport" type="checkbox"><span>Use lower-memory dictionary import</span></label>
+        <div class="field">
+          <label for="importTimeoutMs">Dictionary import timeout (ms)</label>
+          <input id="importTimeoutMs" data-global-setting="importTimeoutMs" type="number" min="30000" max="7200000" step="30000">
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="advanced">
+      <h2>Advanced</h2>
+      <h3>Timeouts</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="hoverRequestTimeoutMs">Overlay request timeout (ms)</label>
+          <input id="hoverRequestTimeoutMs" data-profile-pref="hoverRequestTimeoutMs" type="number" min="1500" max="60000" step="500">
+        </div>
+        <div class="field">
+          <label for="backendTimeoutMs">Backend startup timeout (ms)</label>
+          <input id="backendTimeoutMs" data-profile-pref="backendTimeoutMs" type="number" min="5000" max="120000" step="1000">
+        </div>
+      </div>
+
+      <h3>Worker</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-profile-pref="directWorkerIpc" type="checkbox"><span>Use direct worker IPC</span></label>
+        <label class="check-field"><input data-profile-pref="fallbackToClientExec" type="checkbox"><span>Fall back to client executable lookup</span></label>
+        <div class="field">
+          <label for="directIpcPollMs">Direct IPC poll interval (ms)</label>
+          <input id="directIpcPollMs" data-profile-pref="directIpcPollMs" type="number" min="1" max="100" step="1">
+        </div>
+        <div class="field">
+          <label for="workerIdleSleepMs">Worker idle sleep interval (ms)</label>
+          <input id="workerIdleSleepMs" data-profile-pref="workerIdleSleepMs" type="number" min="1" max="100" step="1">
+        </div>
+      </div>
+
+      <h3>Diagnostics</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-profile-pref="debugLogEnabled" type="checkbox"><span>Save diagnostic logs</span></label>
+        <label class="check-field"><input data-profile-pref="debugLogVerbose" type="checkbox"><span>Include detailed diagnostic logs</span></label>
+      </div>
+    </section>
   </main>
   <script>
     const state = {
       dictionaries: [],
       profiles: [],
+      recommendedDictionaries: [],
+      profilePreferences: {},
+      profilePreferenceDefaults: {},
+      globalSettings: {},
+      globalSettingDefaults: {},
       activeProfileId: 'default',
+      activeProfileName: 'Profile 1',
       busy: false,
       draggingName: '',
-      commandSerial: 0
+      commandSerial: 0,
+      activeTab: 'profile',
+      rendering: false
     };
 
     const els = {
+      activeProfileLabel: document.getElementById('activeProfileLabel'),
       profileSelect: document.getElementById('profileSelect'),
-      downloadRecommended: document.getElementById('downloadRecommended'),
+      newProfile: document.getElementById('newProfile'),
+      renameProfile: document.getElementById('renameProfile'),
+      deleteProfile: document.getElementById('deleteProfile'),
       importZip: document.getElementById('importZip'),
       refresh: document.getElementById('refresh'),
       status: document.getElementById('status'),
-      dictionaryList: document.getElementById('dictionaryList')
+      dictionaryList: document.getElementById('dictionaryList'),
+      recommendedList: document.getElementById('recommendedList')
     };
 
     function iinaBridge() {
@@ -236,7 +521,7 @@
         if (shouldDisable) {
           setTimeout(() => {
             if (state.busy && state.commandSerial === serial && els.status.textContent === message) {
-              setStatus('No response from the plugin script yet. Try closing and reopening the manager.', 'error', false);
+              setStatus('No response from the plugin script yet. Try closing and reopening settings.', 'error', false);
             }
           }, 3500);
         } else if (clearAfterMs > 0) {
@@ -255,13 +540,26 @@
       els.status.className = 'status' + (kind === 'error' ? ' error' : '');
       updateBusyState();
     }
+    function activeProfile() {
+      return (state.profiles || []).find(profile => profile.id === state.activeProfileId) || {
+        id: 'default',
+        name: 'Profile 1',
+        active: true,
+        locked: true
+      };
+    }
     function updateBusyState() {
       const disabled = !!state.busy;
-      [els.downloadRecommended, els.importZip, els.refresh].forEach(button => {
+      [els.importZip, els.refresh, els.newProfile, els.renameProfile].forEach(button => {
         button.disabled = disabled;
       });
-      els.profileSelect.disabled = (state.profiles && state.profiles.length ? state.profiles.length : 1) < 2 || disabled;
-      Array.from(els.dictionaryList.querySelectorAll('[data-busy-control]')).forEach(control => {
+      const profile = activeProfile();
+      els.profileSelect.disabled = disabled || (state.profiles && state.profiles.length ? state.profiles.length : 1) < 2;
+      els.deleteProfile.disabled = disabled || !!profile.locked;
+      Array.from(document.querySelectorAll('[data-profile-pref], [data-global-setting]')).forEach(control => {
+        control.disabled = disabled;
+      });
+      Array.from(document.querySelectorAll('[data-busy-control]')).forEach(control => {
         control.disabled = disabled || control.dataset.positionDisabled === 'true';
       });
       Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
@@ -294,8 +592,7 @@
     function moveDictionaryBefore(name, beforeName) {
       if (!name || !beforeName || name === beforeName) return;
       const from = state.dictionaries.findIndex(dict => dict.name === name);
-      const to = state.dictionaries.findIndex(dict => dict.name === beforeName);
-      if (from < 0 || to < 0) return;
+      if (from < 0 || state.dictionaries.findIndex(dict => dict.name === beforeName) < 0) return;
       const item = state.dictionaries.splice(from, 1)[0];
       const target = state.dictionaries.findIndex(dict => dict.name === beforeName);
       state.dictionaries.splice(Math.max(0, target), 0, item);
@@ -308,9 +605,66 @@
       if (!confirm('Delete "' + label + '" from iinatan? This removes the installed dictionary files.')) return;
       command('dictionary-manager-delete', { name: dict.name }, 'Requesting dictionary deletion...');
     }
+    function profileValue(key) {
+      if (Object.prototype.hasOwnProperty.call(state.profilePreferences, key)) return state.profilePreferences[key];
+      return state.profilePreferenceDefaults[key];
+    }
+    function globalValue(key) {
+      if (Object.prototype.hasOwnProperty.call(state.globalSettings, key)) return state.globalSettings[key];
+      return state.globalSettingDefaults[key];
+    }
+    function setControlValue(control, value) {
+      if (control.type === 'checkbox') {
+        control.checked = !!value;
+      } else {
+        control.value = value === undefined || value === null ? '' : String(value);
+      }
+    }
+    function readControlValue(control, fallback) {
+      if (control.type === 'checkbox') return !!control.checked;
+      if (control.type === 'number') {
+        const value = Number(control.value);
+        return Number.isFinite(value) ? value : fallback;
+      }
+      return control.value;
+    }
+    function collectProfilePreferences() {
+      const prefs = {};
+      Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
+        const key = control.dataset.profilePref;
+        prefs[key] = readControlValue(control, state.profilePreferenceDefaults[key]);
+      });
+      return prefs;
+    }
+    function collectGlobalSettings() {
+      const settings = {};
+      Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
+        const key = control.dataset.globalSetting;
+        settings[key] = readControlValue(control, state.globalSettingDefaults[key]);
+      });
+      return settings;
+    }
+    function saveProfilePreferences() {
+      if (state.rendering) return;
+      command(
+        'dictionary-manager-update-profile-preferences',
+        { profileId: state.activeProfileId, preferences: collectProfilePreferences() },
+        'Saving profile settings...',
+        { busy: false, clearAfterMs: 2500 }
+      );
+    }
+    function saveGlobalSettings() {
+      if (state.rendering) return;
+      command(
+        'dictionary-manager-update-global-settings',
+        { settings: collectGlobalSettings() },
+        'Saving dictionary import settings...',
+        { busy: false, clearAfterMs: 2500 }
+      );
+    }
     function renderProfiles() {
       els.profileSelect.innerHTML = '';
-      const profiles = state.profiles && state.profiles.length ? state.profiles : [{ id: 'default', name: 'Default', active: true }];
+      const profiles = state.profiles && state.profiles.length ? state.profiles : [{ id: 'default', name: 'Profile 1', active: true, locked: true }];
       profiles.forEach(profile => {
         const option = document.createElement('option');
         option.value = profile.id;
@@ -318,7 +672,52 @@
         option.selected = profile.id === state.activeProfileId;
         els.profileSelect.appendChild(option);
       });
-      els.profileSelect.disabled = profiles.length < 2 || state.busy;
+      const profile = activeProfile();
+      els.activeProfileLabel.textContent = 'Active profile: ' + (profile.name || profile.id);
+    }
+    function renderSettingsControls() {
+      state.rendering = true;
+      Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
+        setControlValue(control, profileValue(control.dataset.profilePref));
+      });
+      Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
+        setControlValue(control, globalValue(control.dataset.globalSetting));
+      });
+      state.rendering = false;
+    }
+    function renderRecommended() {
+      els.recommendedList.innerHTML = '';
+      if (!state.recommendedDictionaries.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'No recommended downloads are configured.';
+        els.recommendedList.appendChild(empty);
+        return;
+      }
+      state.recommendedDictionaries.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'recommended-row';
+        const body = document.createElement('div');
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = item.title || item.id;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = [item.language, item.description].filter(Boolean).join(' | ');
+        body.appendChild(title);
+        body.appendChild(meta);
+        row.appendChild(body);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = item.installed ? '' : 'primary';
+        button.textContent = item.installed ? 'Reinstall' : 'Download';
+        button.dataset.busyControl = 'true';
+        button.addEventListener('click', () => {
+          command('dictionary-manager-download-recommended', { id: item.id }, 'Starting recommended dictionary download...');
+        });
+        row.appendChild(button);
+        els.recommendedList.appendChild(row);
+      });
     }
     function renderDictionaries() {
       els.dictionaryList.innerHTML = '';
@@ -421,17 +820,56 @@
         els.dictionaryList.appendChild(row);
       });
     }
+    function renderTabs() {
+      Array.from(document.querySelectorAll('.tab')).forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === state.activeTab);
+      });
+      Array.from(document.querySelectorAll('.panel')).forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.panel === state.activeTab);
+      });
+    }
     function render() {
       renderProfiles();
+      renderSettingsControls();
+      renderRecommended();
       renderDictionaries();
+      renderTabs();
       updateBusyState();
     }
 
-    els.downloadRecommended.addEventListener('click', () => command('dictionary-manager-download-recommended', {}, 'Starting recommended dictionary download...'));
+    Array.from(document.querySelectorAll('.tab')).forEach(tab => {
+      tab.addEventListener('click', () => {
+        state.activeTab = tab.dataset.tab;
+        renderTabs();
+      });
+    });
+    Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
+      control.addEventListener('change', saveProfilePreferences);
+    });
+    Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
+      control.addEventListener('change', saveGlobalSettings);
+    });
     els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...', { busy: false, clearAfterMs: 5000 }));
     els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');
+    });
+    els.newProfile.addEventListener('click', () => {
+      const name = prompt('New profile name', '');
+      if (name === null) return;
+      command('dictionary-manager-create-profile', { name, sourceProfileId: state.activeProfileId }, 'Creating profile...');
+    });
+    els.renameProfile.addEventListener('click', () => {
+      const profile = activeProfile();
+      const name = prompt('Rename profile', profile.name || profile.id);
+      if (name === null) return;
+      command('dictionary-manager-rename-profile', { profileId: profile.id, name }, 'Renaming profile...', { busy: false, clearAfterMs: 2500 });
+    });
+    els.deleteProfile.addEventListener('click', () => {
+      const profile = activeProfile();
+      if (!profile || profile.locked) return;
+      if (!confirm('Delete profile "' + (profile.name || profile.id) + '"?')) return;
+      command('dictionary-manager-delete-profile', { profileId: profile.id }, 'Deleting profile...');
     });
 
     const bridge = iinaBridge();
@@ -439,7 +877,13 @@
       bridge.onMessage('dictionary-manager-state', payload => {
         state.dictionaries = Array.isArray(payload && payload.dictionaries) ? payload.dictionaries.slice() : [];
         state.profiles = Array.isArray(payload && payload.profiles) ? payload.profiles.slice() : [];
+        state.recommendedDictionaries = Array.isArray(payload && payload.recommendedDictionaries) ? payload.recommendedDictionaries.slice() : [];
+        state.profilePreferences = (payload && payload.profilePreferences && typeof payload.profilePreferences === 'object') ? Object.assign({}, payload.profilePreferences) : {};
+        state.profilePreferenceDefaults = (payload && payload.profilePreferenceDefaults && typeof payload.profilePreferenceDefaults === 'object') ? Object.assign({}, payload.profilePreferenceDefaults) : {};
+        state.globalSettings = (payload && payload.globalSettings && typeof payload.globalSettings === 'object') ? Object.assign({}, payload.globalSettings) : {};
+        state.globalSettingDefaults = (payload && payload.globalSettingDefaults && typeof payload.globalSettingDefaults === 'object') ? Object.assign({}, payload.globalSettingDefaults) : {};
         state.activeProfileId = String((payload && payload.activeProfileId) || 'default');
+        state.activeProfileName = String((payload && payload.activeProfileName) || 'Profile 1');
         render();
       });
       bridge.onMessage('dictionary-manager-status', payload => {

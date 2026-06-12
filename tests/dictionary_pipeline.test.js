@@ -164,6 +164,10 @@ assert(orderedNames[0] === 'wty-ko-en', 'Profile dictionary order should put sel
 assert(orderedNames[1] === 'Jitendex.org [2026-06-06]', 'Profile dictionary order should preserve explicit order');
 assert(context.disabledDictionaryMap()['wty-ko-en'] === true, 'Profile disabled map should drive active dictionary state');
 assert(context.profileSummaries()[0].id === 'default', 'Profile summaries should expose the default profile');
+assert(context.profileSummaries()[0].locked === true, 'Default profile should be marked locked');
+assert(context.activeDictionaryProfile().preferences.lookupLanguage === 'ko', 'Profile preferences should preserve selected language');
+assert(context.activeDictionaryProfile().preferences.scanLength === 24, 'Profile preferences should fill default scan length');
+assert(!Object.prototype.hasOwnProperty.call(context.activeDictionaryProfile().preferences, 'unknownSetting'), 'Profile preferences should drop unknown settings');
 context.file.read = originalRead;
 
 assert(
@@ -183,8 +187,8 @@ assert(
   'Chinese setup message should be language-specific'
 );
 assert(
-  /Download Recommended Dictionaries/.test(context.dictionarySetupMessage(ja, [])),
-  'Japanese setup message should point to recommended dictionary download'
+  /Settings/.test(context.dictionarySetupMessage(ja, [])),
+  'Japanese setup message should point to iinatan Settings'
 );
 
 console.log('dictionary pipeline tests passed');

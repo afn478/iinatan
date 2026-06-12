@@ -13,20 +13,26 @@ assert(info.preferenceDefaults.wiktionaryEtymologyCollapseOverride === 'collapse
 assert(Object.prototype.hasOwnProperty.call(info.preferenceDefaults, 'customPopupCss'), 'Custom popup CSS preference should exist');
 
 const preferencesHtml = fs.readFileSync(path.join(root, 'preferences.html'), 'utf8');
-assert(/data-pref="etymologyCollapseDefault"/.test(preferencesHtml), 'Preferences should expose global etymology collapse setting');
-assert(/data-pref="wiktionaryEtymologyCollapseOverride"/.test(preferencesHtml), 'Preferences should expose Wiktionary/Kaikki collapse override');
-assert(/data-pref="customPopupCss"/.test(preferencesHtml), 'Preferences should expose custom CSS setting');
-assert(/<option value="zh">Chinese/.test(preferencesHtml), 'Preferences should expose Chinese lookup selection');
+assert(!/data-pref=/.test(preferencesHtml), 'IINA preferences page should not own profile settings');
 assert(!/id="dictionaryList"/.test(preferencesHtml), 'Preferences should not own installed dictionary management');
-assert(/Manage Dictionaries/.test(preferencesHtml), 'Preferences should point users to the dictionary manager');
+assert(/Plugins -&gt; iinatan -&gt; Settings/.test(preferencesHtml) || /Plugins -> iinatan -> Settings/.test(preferencesHtml), 'Preferences should point users to iinatan Settings');
 
 const managerHtml = fs.readFileSync(path.join(root, 'dictionary-manager.html'), 'utf8');
+assert(/iinatan Settings/.test(managerHtml), 'Settings manager should use the plugin settings title');
+assert(/data-profile-pref="lookupLanguage"/.test(managerHtml), 'Settings manager should expose per-profile language');
+assert(/data-profile-pref="pauseWhilePopupVisible"/.test(managerHtml), 'Settings manager should expose per-profile playback settings');
+assert(/data-profile-pref="scanLength"/.test(managerHtml), 'Settings manager should expose per-profile scan length');
+assert(/data-profile-pref="customPopupCss"/.test(managerHtml), 'Settings manager should expose per-profile custom popup CSS');
+assert(/data-global-setting="lowRamImport"/.test(managerHtml), 'Settings manager should expose global dictionary import settings');
 assert(/id="dictionaryList"/.test(managerHtml), 'Dictionary manager should include the installed dictionary list');
 assert(/dictionary-manager-set-enabled/.test(managerHtml), 'Dictionary manager should toggle dictionary enabled state');
 assert(/dictionary-manager-set-order/.test(managerHtml), 'Dictionary manager should save dictionary order');
 assert(/dictionary-manager-delete/.test(managerHtml), 'Dictionary manager should expose per-dictionary deletion');
+assert(/dictionary-manager-create-profile/.test(managerHtml), 'Settings manager should create profiles');
+assert(/dictionary-manager-rename-profile/.test(managerHtml), 'Settings manager should rename profiles');
+assert(/dictionary-manager-delete-profile/.test(managerHtml), 'Settings manager should delete profiles');
 assert(/Delete/.test(managerHtml), 'Dictionary manager rows should include a delete button');
-assert(/Download Recommended Dictionaries/.test(managerHtml), 'Dictionary manager should expose recommended dictionary download');
+assert(/id="recommendedList"/.test(managerHtml), 'Settings manager should expose a recommended downloads list');
 assert(/Import ZIP/.test(managerHtml), 'Dictionary manager should expose ZIP import');
 assert(/typeof iina !== 'undefined'/.test(managerHtml), 'Dictionary manager should use the IINA webview message bridge');
 assert(/id="profileSelect"/.test(managerHtml), 'Dictionary manager should expose profile selection');
@@ -40,9 +46,10 @@ assert(/clearAfterMs/.test(managerHtml), 'Transient dictionary manager statuses 
 
 const menuSource = fs.readFileSync(path.join(root, 'src/main/70_tests_menu.js'), 'utf8');
 const rebuildMenu = menuSource.slice(menuSource.indexOf('function rebuildMenu()'));
-assert(/Manage Dictionaries/.test(rebuildMenu), 'Dictionary menu should open the dictionary manager');
-assert(/Download Recommended Dictionaries/.test(rebuildMenu), 'Dictionary menu should use the recommended dictionaries label');
+assert(/Settings/.test(rebuildMenu), 'iinatan menu should open plugin settings');
 assert(/setActiveDictionaryProfile/.test(rebuildMenu), 'Dictionary menu should be prepared to switch profiles');
+assert(!/menu\.item\("Dictionaries"/.test(rebuildMenu), 'iinatan menu should not nest profile switching under a Dictionaries submenu');
+assert(!/Download Recommended Dictionaries/.test(rebuildMenu), 'Recommended downloads should live in settings, not the top menu');
 assert(!/for\s*\(\s*const\s+d\s+of\s+dicts\s*\)/.test(rebuildMenu), 'Dictionary menu should not list every installed dictionary');
 assert(!/setDictionaryEnabled\(d\.name/.test(rebuildMenu), 'Dictionary menu should not toggle installed dictionaries directly');
 assert(!/Import Yomitan Dictionary ZIP/.test(rebuildMenu), 'Dictionary ZIP import should live in the manager window');
@@ -54,12 +61,19 @@ assert(
   openDictionaryManagerSource.indexOf('standaloneWindow.loadFile("dictionary-manager.html")') < openDictionaryManagerSource.indexOf('registerDictionaryManagerHandlers()'),
   'Dictionary manager should load its webview before registering message handlers'
 );
+assert(/iinatan Settings/.test(openDictionaryManagerSource), 'Settings window should use the plugin settings title');
 assert(/postDictionaryManagerStatus\("Dictionary selection saved\."/.test(managerBridgeSource), 'Dictionary manager toggles should acknowledge persistence');
 assert(/dictionary-manager-delete/.test(managerBridgeSource), 'Dictionary manager should handle delete commands');
+assert(/dictionary-manager-rename-profile/.test(managerBridgeSource), 'Settings manager should handle profile rename commands');
+assert(/dictionary-manager-delete-profile/.test(managerBridgeSource), 'Settings manager should handle profile delete commands');
+assert(/dictionary-manager-update-global-settings/.test(managerBridgeSource), 'Settings manager should handle global import settings');
 assert(/deleteDictionary\(String\(name\)\)/.test(managerBridgeSource), 'Dictionary manager delete commands should remove installed dictionaries');
 assert(/function runDictionaryManagerZipImport\(\)/.test(managerBridgeSource), 'Dictionary ZIP import should use a picker-aware action path');
 assert(!/postDictionaryManagerStatus\("Opening ZIP picker\.\.\."/.test(managerBridgeSource), 'ZIP picker opening status should be transient webview state only');
 assert(/Dictionary import cancelled\./.test(managerBridgeSource), 'Dictionary manager should acknowledge cancelled ZIP imports');
 assert(!/runDictionaryManagerAction\("Importing dictionary"/.test(managerBridgeSource), 'ZIP import should not enter busy state before file selection');
+
+const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
+assert(/function reloadOverlayForProfileChange\(\)/.test(lifecycleSource), 'Profile changes should be able to reload the overlay');
 
 console.log('settings and menu layout tests passed');

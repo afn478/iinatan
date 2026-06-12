@@ -20,6 +20,71 @@ function initializeOverlay() {
 	  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("open-external-url", payload => { openExternalUrlFromOverlay(payload && payload.url !== undefined ? payload.url : payload); });
 	}
+function prepareRuntimeAfterProfileChange() {
+  lookupBackendReadyForNativeHide = false;
+  lookupInFlight = Object.create(null);
+  hoverLookupInFlight = false;
+  pendingHoverLookup = null;
+  hoverLookupActiveKey = "";
+  lastSubtitle = null;
+  resetLookupPopupPause();
+}
+function warmActiveProfileBackend() {
+  if (!enabled) return;
+  const language = selectedLanguageModule();
+  const dicts = activeDictionaryPaths(language);
+  prepareLookupBackendForEnabledOverlay(language, dicts).then(() => {
+    if (!enabled) return;
+    lookupBackendReadyForNativeHide = true;
+    syncNativeSubtitleVisibility();
+    setOverlayStatus("Dictionary lookup ready for " + language.label + ".", "info", 3500);
+  }).catch(error => {
+    lookupBackendReadyForNativeHide = false;
+    debugError("Dictionary lookup startup failed after profile change language=" + language.id + ": " + compactError(error));
+    setOverlayStatus(compactError(error), "error", 14000);
+  });
+}
+function pushOverlayConfigForProfileChange() {
+  prepareRuntimeAfterProfileChange();
+  if (initialized) {
+    postToOverlay("config", overlayConfig());
+    postToOverlay("enabled", { enabled });
+  }
+  if (enabled) {
+    refreshPollingInterval();
+    pollSubtitle();
+    syncNativeSubtitleVisibility();
+    warmActiveProfileBackend();
+  }
+}
+function reloadOverlayForProfileChange() {
+  prepareRuntimeAfterProfileChange();
+  if (!initialized) {
+    initializeOverlay();
+  } else {
+    try {
+      debugLog("reloading overlay for active profile language=" + selectedLanguageModule().id);
+      overlay.loadFile("overlay.html");
+      overlay.setOpacity(1);
+      overlay.setClickable(enabled);
+      if (enabled) overlay.show();
+    } catch (error) {
+      debugWarn("overlay reload failed for profile change: " + compactError(error));
+    }
+  }
+  setTimeout(() => {
+    postToOverlay("config", overlayConfig());
+    postToOverlay("enabled", { enabled });
+    replayActiveOverlayTask();
+    if (enabled) {
+      startPolling();
+      syncNativeSubtitleVisibility();
+      warmActiveProfileBackend();
+    } else {
+      publishSubtitle("");
+    }
+  }, 80);
+}
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
   debugLog("startPolling subtitlePollMs=" + nextMs);

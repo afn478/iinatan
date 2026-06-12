@@ -14,6 +14,12 @@ function dictionaryManagerState() {
   const disabled = disabledDictionaryMap(manifest);
   const dicts = dictionaryDirs();
   const activeProfile = activeDictionaryProfile(manifest);
+  const hasJitendex = dicts.some(dict => {
+    const title = String((dict && dict.title) || "").toLowerCase();
+    const name = String((dict && dict.name) || "").toLowerCase();
+    const url = String((dict && dict.downloadUrl) || "");
+    return title.indexOf("jitendex") >= 0 || name.indexOf("jitendex") >= 0 || url === RECOMMENDED_JITENDEX_URL;
+  });
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -32,10 +38,24 @@ function dictionaryManagerState() {
       order: index
     })),
     activeProfileId: manifest.activeProfileId || DEFAULT_PROFILE_ID,
-    activeProfileName: activeProfile.name || "Default",
+    activeProfileName: activeProfile.name || "Profile 1",
     profiles: profileSummaries(manifest),
     profilePreferenceKeys: PROFILE_PREFERENCE_KEYS.slice(),
-    lookupLanguage: pref("lookupLanguage", "ja")
+    profilePreferenceDefaults: Object.assign({}, PROFILE_PREFERENCE_DEFAULTS),
+    profilePreferences: normalizeProfilePreferences(activeProfile.preferences),
+    globalSettings: readGlobalSettingsSnapshot(),
+    globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
+    lookupLanguage: pref("lookupLanguage", "ja"),
+    recommendedDictionaries: [
+      {
+        id: "jitendex-ja-en",
+        title: "Jitendex",
+        language: "Japanese",
+        description: "JMdict-based Japanese-English dictionary with structured Yomitan data.",
+        downloadUrl: RECOMMENDED_JITENDEX_URL,
+        installed: hasJitendex
+      }
+    ]
   };
 }
 function postDictionaryManagerState() {
@@ -164,15 +184,49 @@ function registerDictionaryManagerHandlers() {
   standaloneWindow.onMessage("dictionary-manager-create-profile", payload => {
     const name = payload && payload.name;
     runDictionaryManagerAction("Creating profile", () => {
-      createDictionaryProfile(name || "Profile", payload && payload.sourceProfileId);
+      const profile = createDictionaryProfile(name || "", payload && payload.sourceProfileId);
+      setActiveDictionaryProfile(profile.id);
+      return Promise.resolve();
+    });
+  });
+  standaloneWindow.onMessage("dictionary-manager-rename-profile", payload => {
+    try {
+      renameDictionaryProfile(payload && payload.profileId, payload && payload.name);
+      postDictionaryManagerStatus("Profile renamed.", "info", false);
+    } catch (error) {
+      const msg = "Renaming profile failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
+  });
+  standaloneWindow.onMessage("dictionary-manager-delete-profile", payload => {
+    runDictionaryManagerAction("Deleting profile", () => {
+      deleteDictionaryProfile(payload && payload.profileId);
       return Promise.resolve();
     });
   });
   standaloneWindow.onMessage("dictionary-manager-update-profile-preferences", payload => {
-    runDictionaryManagerAction("Saving profile preferences", () => {
+    try {
       updateDictionaryProfilePreferences(payload && payload.profileId, payload && payload.preferences);
-      return Promise.resolve();
-    });
+      postDictionaryManagerStatus("Profile settings saved.", "info", false);
+    } catch (error) {
+      const msg = "Saving profile settings failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
+  });
+  standaloneWindow.onMessage("dictionary-manager-update-global-settings", payload => {
+    try {
+      updateGlobalSettings(payload && payload.settings);
+      postDictionaryManagerStatus("Dictionary import settings saved.", "info", false);
+    } catch (error) {
+      const msg = "Saving dictionary import settings failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
   });
 }
 function openDictionaryManager() {
@@ -184,13 +238,13 @@ function openDictionaryManager() {
     standaloneWindow.loadFile("dictionary-manager.html");
     registerDictionaryManagerHandlers();
     try {
-      if (typeof standaloneWindow.setProperty === "function") standaloneWindow.setProperty({ title: "iinatan Dictionary Manager", resizable: true });
+      if (typeof standaloneWindow.setProperty === "function") standaloneWindow.setProperty({ title: "iinatan Settings", resizable: true });
     } catch (_) {}
     if (typeof standaloneWindow.open === "function") standaloneWindow.open();
     else if (typeof standaloneWindow.show === "function") standaloneWindow.show();
     setTimeout(() => postDictionaryManagerState(), 120);
   } catch (error) {
-    const msg = "Could not open Dictionary Manager: " + compactError(error);
+    const msg = "Could not open iinatan Settings: " + compactError(error);
     debugError(msg);
     alert(msg);
   }

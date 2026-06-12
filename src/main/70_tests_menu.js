@@ -254,23 +254,21 @@ function showTaskPanelTest() {
 function rebuildMenu() {
   try { menu.removeAllItems(); } catch (_) {}
   try {
-    addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
-
-    const dictMenu = menu.item("Dictionaries");
-    addSubMenuItemCompat(dictMenu, menu.item("Manage Dictionaries...", () => { openDictionaryManager(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Download Recommended Dictionaries...", () => { getRecommendedDictionaries(); }));
+    addMenuItemSafe(menu.item("Settings...", () => { openDictionaryManager(); }));
+    addMenuItemSafe(menu.separator());
     const profiles = profileSummaries(readManifest());
     if (profiles.length) {
-      addSubMenuItemCompat(dictMenu, menu.separator());
       if (profiles.length === 1) {
-        addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profiles[0].name, null, { selected: true, enabled: false }));
+        addMenuItemSafe(menu.item(profiles[0].name, null, { selected: true, enabled: false }));
       } else {
         profiles.forEach(profile => {
-          addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+          addMenuItemSafe(menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
         });
       }
     }
-    addMenuItemSafe(dictMenu);
+
+    addMenuItemSafe(menu.separator());
+    addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
 
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));

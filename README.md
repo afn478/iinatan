@@ -7,7 +7,7 @@ iinatan is an IINA plugin that shows dictionary popups when you hover subtitle t
 1. Open IINA's plugin manager.
 2. Choose **Install from GitHub**.
 3. Enter `afn478/iinatan`.
-4. Enable the plugin, then run **Plugins -> iinatan -> Dictionaries -> Download Recommended Dictionaries...**, or open **Manage Dictionaries...** to import another Yomitan dictionary ZIP.
+4. Enable the plugin, then open **Plugins -> iinatan -> Settings...** to download the recommended dictionary or import another Yomitan dictionary ZIP.
 5. Toggle iinatan with **Shift+H**.
 
 The repository root is installable because it exposes the runtime files IINA loads directly: `Info.json`, `main.js`, `global.js`, `overlay.html`, `dictionary-manager.html`, `preferences.html`, `README.md`, `package.json`, and the bundled Apple Silicon backend at `bin/iina-hoshi-dicts`.
@@ -22,11 +22,11 @@ When cutting a release, update `Info.json` `version` and increment the integer `
 
 ## Dictionaries
 
-Jitendex is the current recommended Japanese dictionary. Add it from **Plugins -> iinatan -> Dictionaries -> Download Recommended Dictionaries...**.
+Jitendex is the current recommended Japanese dictionary. Add it from **Plugins -> iinatan -> Settings...**.
 
-Open **Plugins -> iinatan -> Dictionaries -> Manage Dictionaries...** to enable, disable, and reorder installed dictionaries. The manager also imports one or more local Yomitan-compatible dictionary ZIP files through IINA's file picker and uses the same task panel as the recommended dictionary installer.
+Open **Plugins -> iinatan -> Settings...** to enable, disable, and reorder installed dictionaries. Settings also imports one or more local Yomitan-compatible dictionary ZIP files through IINA's file picker and uses the same task panel as the recommended dictionary installer.
 
-Installed dictionary state lives in the plugin data manifest. The Dictionary Manager writes the active profile's dictionary order and enable/disable choices, while the top plugin menu stays compact with manager, recommended-download, and profile-switch entries.
+Installed dictionary state lives in the plugin data manifest. The Settings window writes the active profile's dictionary order, enable/disable choices, language, popup, playback, and lookup settings. The top plugin menu exposes **Settings...**, then the available profiles for direct switching.
 
 Japanese dictionaries use HoshiDicts Japanese text processing and deinflection. English lowercases the queried word before exact lookup, so hovering `Running` queries `running`. French and German use a Yomitan-style candidate/deinflection layer before exact backend lookup: French imports Yomitan's French suffix transform table plus local apostrophe and participle patches, while German mirrors Yomitan's German transform families and keeps the local bounded separable-verb scan such as `stehe ... auf` plus `aufstehen`. Chinese uses longest rightward-prefix lookup without Japanese deinflection. Korean performs exact contiguous-Hangul lookup.
 
@@ -36,7 +36,7 @@ Experimental Latin/Korean modes treat whole words/runs as one hover unit; Japane
 
 ## Settings
 
-Open the plugin preferences to choose the lookup language, tune subtitle/popup appearance, set import and lookup timeouts, and adjust advanced worker IPC options. Use the Dictionary Manager for installed dictionaries. Popup settings include collapsed/expanded etymology behavior, a Wiktionary/Kaikki-specific etymology override, and an optional custom popup CSS textarea for advanced tweaks. See `SETTINGS_AUDIT.md` for every setting, its default, implementation path, live-update behavior, and caveats.
+Open **Plugins -> iinatan -> Settings...** to create profiles, switch profiles, choose the lookup language, tune subtitle/popup appearance, set import and lookup timeouts, adjust playback behavior, and manage installed dictionaries. Profile switches reload the overlay so language-specific parsing and deinflection refresh immediately. See `SETTINGS_AUDIT.md` for every setting, its default, implementation path, live-update behavior, and caveats.
 
 ## Development
 

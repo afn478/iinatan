@@ -1592,20 +1592,39 @@ function pollSubtitle() {
 function charsOf(text) { return Array.from(String(text || "")); }
 
 const DEFAULT_PROFILE_ID = "default";
-const PROFILE_PREFERENCE_KEYS = [
-  "lookupLanguage",
-  "fontScale",
-  "popupScale",
-  "popupMaxWidth",
-  "popupMaxHeightVh",
-  "popupSubtitleGapPx",
-  "maxEntries",
-  "maxGlossesPerEntry",
-  "scanLength",
-  "etymologyCollapseDefault",
-  "wiktionaryEtymologyCollapseOverride",
-  "customPopupCss"
-];
+const PROFILE_PREFERENCE_DEFAULTS = {
+  enabledByDefault: true,
+  hideNativeSubtitles: true,
+  pauseWhilePopupVisible: true,
+  lookupLanguage: "ja",
+  scanLength: 24,
+  maxEntries: 3,
+  maxGlossesPerEntry: 4,
+  lookupTimeoutMs: 9000,
+  fontScale: 1.0,
+  popupScale: 0.92,
+  popupMaxWidth: 440,
+  popupMaxHeightVh: 34,
+  popupSubtitleGapPx: 34,
+  subtitlePollMs: 120,
+  etymologyCollapseDefault: "collapsed",
+  wiktionaryEtymologyCollapseOverride: "collapsed",
+  customPopupCss: "",
+  hoverRequestTimeoutMs: 15000,
+  backendTimeoutMs: 30000,
+  debugLogEnabled: true,
+  debugLogVerbose: false,
+  directWorkerIpc: true,
+  fallbackToClientExec: true,
+  directIpcPollMs: 2,
+  workerIdleSleepMs: 2
+};
+const PROFILE_PREFERENCE_KEYS = Object.keys(PROFILE_PREFERENCE_DEFAULTS);
+const GLOBAL_SETTINGS_DEFAULTS = {
+  lowRamImport: true,
+  importTimeoutMs: 1800000
+};
+const GLOBAL_SETTINGS_KEYS = Object.keys(GLOBAL_SETTINGS_DEFAULTS);
 
 function emptyManifest() {
   return { dictionaries: {}, disabled: {}, dictionaryOrder: [], activeProfileId: DEFAULT_PROFILE_ID, profiles: {} };
@@ -1633,6 +1652,7 @@ function normalizeDisabledMap(map) {
 }
 function normalizeProfilePreferences(prefs) {
   const out = {};
+  PROFILE_PREFERENCE_KEYS.forEach(key => { out[key] = PROFILE_PREFERENCE_DEFAULTS[key]; });
   if (!prefs || typeof prefs !== "object") return out;
   PROFILE_PREFERENCE_KEYS.forEach(key => {
     if (Object.prototype.hasOwnProperty.call(prefs, key)) out[key] = prefs[key];
@@ -1641,7 +1661,7 @@ function normalizeProfilePreferences(prefs) {
 }
 function makeDefaultProfile(id, name) {
   const profileId = String(id || DEFAULT_PROFILE_ID);
-  return { id: profileId, name: String(name || "Default"), dictionaryOrder: [], disabled: {}, preferences: {} };
+  return { id: profileId, name: String(name || "Profile 1"), dictionaryOrder: [], disabled: {}, preferences: normalizeProfilePreferences({}) };
 }
 function normalizeManifestProfile(id, profile, manifest, existed) {
   const profileId = String(id || DEFAULT_PROFILE_ID);
@@ -1696,7 +1716,8 @@ function profileSummaries(manifest) {
   }).map(id => ({
     id,
     name: normalized.profiles[id].name || id,
-    active: id === normalized.activeProfileId
+    active: id === normalized.activeProfileId,
+    locked: id === DEFAULT_PROFILE_ID
   }));
 }
 function activeProfileDisabledMap(manifest) {
@@ -1901,7 +1922,7 @@ function dictionarySetupMessage(language, dicts) {
   const lang = language || selectedLanguageModule();
   const label = lang.label || lang.id || "selected language";
   if (dicts && dicts.length) return "";
-  if (lang.id === "ja") return "No dictionaries installed/enabled. Use Plugins -> iinatan -> Dictionaries -> Download Recommended Dictionaries.";
+  if (lang.id === "ja") return "No dictionaries installed/enabled. Use Plugins -> iinatan -> Settings... to download recommended dictionaries.";
   return "No dictionaries installed/enabled for " + label.replace(/\s*\(experimental\)\s*/i, "") + ". Import or enable a Yomitan dictionary ZIP.";
 }
 function dictionaryCompatibilityWarning(language, entries) {
@@ -2039,26 +2060,51 @@ function ensureDictionaryInActiveProfileOrder(manifest, name) {
     profile.dictionaryOrder = order;
   });
 }
+function readPreferenceForSnapshot(key) {
+  const fallback = PROFILE_PREFERENCE_DEFAULTS[key];
+  try {
+    if (preferences && typeof preferences.get === "function") {
+      const value = preferences.get(key);
+      if (value !== undefined && value !== null && value !== "") return value;
+    }
+  } catch (_) {}
+  try {
+    if (typeof pref === "function") return pref(key, fallback);
+  } catch (_) {}
+  return fallback;
+}
 function applyProfilePreferences(profile) {
   if (!profile || !profile.preferences) return;
-  Object.keys(profile.preferences).forEach(key => {
-    if (PROFILE_PREFERENCE_KEYS.indexOf(key) >= 0) preferences.set(key, profile.preferences[key]);
-  });
-  try { if (preferences.sync) preferences.sync(); } catch (_) {}
-}
-function currentProfilePreferenceSnapshot() {
-  const out = {};
-  PROFILE_PREFERENCE_KEYS.forEach(key => {
+  const profilePreferences = normalizeProfilePreferences(profile.preferences);
+  Object.keys(profilePreferences).forEach(key => {
     try {
-      const value = preferences.get(key);
-      if (value !== undefined) out[key] = value;
+      if (PROFILE_PREFERENCE_KEYS.indexOf(key) >= 0 && typeof preferences !== "undefined" && preferences && typeof preferences.set === "function") {
+        preferences.set(key, profilePreferences[key]);
+      }
     } catch (_) {}
   });
-  return out;
+  try { if (typeof preferences !== "undefined" && preferences && preferences.sync) preferences.sync(); } catch (_) {}
+}
+function currentProfilePreferenceSnapshot() {
+  const out = normalizeProfilePreferences({});
+  PROFILE_PREFERENCE_KEYS.forEach(key => {
+    out[key] = readPreferenceForSnapshot(key);
+  });
+  return normalizeProfilePreferences(out);
 }
 function profileIdFromName(name) {
   const base = String(name || "profile").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return base || "profile";
+}
+function nextProfileName(profiles) {
+  const names = Object.create(null);
+  Object.keys(profiles || {}).forEach(id => {
+    const name = String((profiles[id] && profiles[id].name) || "").trim();
+    if (name) names[name] = true;
+  });
+  let index = Object.keys(profiles || {}).length + 1;
+  while (names["Profile " + index]) index++;
+  return "Profile " + index;
 }
 function uniqueProfileId(base, profiles) {
   const root = profileIdFromName(base);
@@ -2069,43 +2115,127 @@ function uniqueProfileId(base, profiles) {
   }
   return id;
 }
+function resetLookupRuntimeForProfileChange() {
+  lookupCache = Object.create(null);
+  lookupInFlight = Object.create(null);
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  lookupBackendReadyForNativeHide = false;
+  try {
+    if (typeof stopBackendWorker === "function") stopBackendWorker().catch(() => {});
+  } catch (_) {}
+}
+function refreshRuntimeAfterProfileChange(reloadOverlay) {
+  resetLookupRuntimeForProfileChange();
+  if (reloadOverlay && typeof reloadOverlayForProfileChange === "function") {
+    reloadOverlayForProfileChange();
+  } else if (typeof pushOverlayConfigForProfileChange === "function") {
+    pushOverlayConfigForProfileChange();
+  }
+}
 function createDictionaryProfile(name, sourceProfileId) {
   const manifest = normalizeManifestShape(readManifest());
   const source = manifest.profiles[String(sourceProfileId || manifest.activeProfileId || DEFAULT_PROFILE_ID)] || activeDictionaryProfile(manifest);
-  const id = uniqueProfileId(name || "Profile", manifest.profiles);
+  const sourcePreferences = source.id === manifest.activeProfileId ? currentProfilePreferenceSnapshot() : source.preferences;
+  const profileName = String(name || nextProfileName(manifest.profiles)).trim() || nextProfileName(manifest.profiles);
+  const id = uniqueProfileId(profileName, manifest.profiles);
   manifest.profiles[id] = {
     id,
-    name: String(name || "Profile"),
+    name: profileName,
     dictionaryOrder: normalizeDictionaryOrder(source.dictionaryOrder),
     disabled: normalizeDisabledMap(source.disabled),
-    preferences: Object.assign({}, source.preferences || {}, currentProfilePreferenceSnapshot())
+    preferences: normalizeProfilePreferences(sourcePreferences)
   };
   writeManifest(manifest);
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
   return manifest.profiles[id];
 }
+function renameDictionaryProfile(profileId, name) {
+  const manifest = normalizeManifestShape(readManifest());
+  const id = String(profileId || manifest.activeProfileId || DEFAULT_PROFILE_ID);
+  if (!manifest.profiles[id]) throw new Error("Unknown dictionary profile: " + id);
+  const nextName = String(name || "").trim();
+  if (!nextName) throw new Error("Profile name cannot be empty.");
+  manifest.profiles[id].name = nextName;
+  writeManifest(manifest);
+  rebuildMenu();
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  return manifest.profiles[id];
+}
+function deleteDictionaryProfile(profileId) {
+  const manifest = normalizeManifestShape(readManifest());
+  const id = String(profileId || "").trim();
+  if (!id || !manifest.profiles[id]) throw new Error("Unknown dictionary profile: " + id);
+  if (id === DEFAULT_PROFILE_ID) throw new Error("The first profile cannot be deleted.");
+  const wasActive = id === manifest.activeProfileId;
+  delete manifest.profiles[id];
+  if (wasActive) manifest.activeProfileId = DEFAULT_PROFILE_ID;
+  const normalized = normalizeManifestShape(manifest);
+  writeManifest(normalized);
+  if (wasActive) {
+    applyProfilePreferences(activeDictionaryProfile(normalized));
+    refreshRuntimeAfterProfileChange(true);
+  } else {
+    rebuildMenu();
+  }
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  return activeDictionaryProfile(normalized);
+}
 function updateDictionaryProfilePreferences(profileId, prefs) {
   const manifest = normalizeManifestShape(readManifest());
   const id = String(profileId || manifest.activeProfileId || DEFAULT_PROFILE_ID);
   if (!manifest.profiles[id]) throw new Error("Unknown dictionary profile: " + id);
-  manifest.profiles[id].preferences = normalizeProfilePreferences(Object.assign({}, manifest.profiles[id].preferences || {}, prefs || {}));
+  const previous = normalizeProfilePreferences(manifest.profiles[id].preferences);
+  manifest.profiles[id].preferences = normalizeProfilePreferences(Object.assign({}, previous, prefs || {}));
   writeManifest(manifest);
+  if (id === manifest.activeProfileId) {
+    applyProfilePreferences(manifest.profiles[id]);
+    refreshRuntimeAfterProfileChange(previous.lookupLanguage !== manifest.profiles[id].preferences.lookupLanguage);
+    rebuildMenu();
+  }
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
   return manifest.profiles[id];
+}
+function readGlobalSettingsSnapshot() {
+  const out = {};
+  GLOBAL_SETTINGS_KEYS.forEach(key => {
+    const fallback = GLOBAL_SETTINGS_DEFAULTS[key];
+    try {
+      const value = typeof preferences !== "undefined" && preferences && typeof preferences.get === "function" ? preferences.get(key) : undefined;
+      out[key] = value === undefined || value === null || value === "" ? fallback : value;
+    } catch (_) {
+      out[key] = fallback;
+    }
+  });
+  return out;
+}
+function updateGlobalSettings(prefs) {
+  const values = prefs && typeof prefs === "object" ? prefs : {};
+  GLOBAL_SETTINGS_KEYS.forEach(key => {
+    try {
+      if (Object.prototype.hasOwnProperty.call(values, key) && typeof preferences !== "undefined" && preferences && typeof preferences.set === "function") {
+        preferences.set(key, values[key]);
+      }
+    } catch (_) {}
+  });
+  try { if (typeof preferences !== "undefined" && preferences && preferences.sync) preferences.sync(); } catch (_) {}
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  return readGlobalSettingsSnapshot();
 }
 function setActiveDictionaryProfile(profileId) {
   const requested = String(profileId || "").trim();
   const manifest = normalizeManifestShape(readManifest());
   if (!requested || !manifest.profiles[requested]) throw new Error("Unknown dictionary profile: " + requested);
+  const currentId = manifest.activeProfileId || DEFAULT_PROFILE_ID;
+  if (manifest.profiles[currentId]) {
+    manifest.profiles[currentId].preferences = currentProfilePreferenceSnapshot();
+  }
   manifest.activeProfileId = requested;
   const normalized = normalizeManifestShape(manifest);
   writeManifest(normalized);
   applyProfilePreferences(activeDictionaryProfile(normalized));
-  lookupCache = Object.create(null);
-  activeWorkerFingerprint = null;
-  activeWorkerReady = null;
-  stopBackendWorker().catch(() => {});
+  refreshRuntimeAfterProfileChange(true);
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
   showOSD("Switched iinatan profile: " + activeDictionaryProfile(normalized).name);
@@ -3176,6 +3306,71 @@ function initializeOverlay() {
 	  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("open-external-url", payload => { openExternalUrlFromOverlay(payload && payload.url !== undefined ? payload.url : payload); });
 	}
+function prepareRuntimeAfterProfileChange() {
+  lookupBackendReadyForNativeHide = false;
+  lookupInFlight = Object.create(null);
+  hoverLookupInFlight = false;
+  pendingHoverLookup = null;
+  hoverLookupActiveKey = "";
+  lastSubtitle = null;
+  resetLookupPopupPause();
+}
+function warmActiveProfileBackend() {
+  if (!enabled) return;
+  const language = selectedLanguageModule();
+  const dicts = activeDictionaryPaths(language);
+  prepareLookupBackendForEnabledOverlay(language, dicts).then(() => {
+    if (!enabled) return;
+    lookupBackendReadyForNativeHide = true;
+    syncNativeSubtitleVisibility();
+    setOverlayStatus("Dictionary lookup ready for " + language.label + ".", "info", 3500);
+  }).catch(error => {
+    lookupBackendReadyForNativeHide = false;
+    debugError("Dictionary lookup startup failed after profile change language=" + language.id + ": " + compactError(error));
+    setOverlayStatus(compactError(error), "error", 14000);
+  });
+}
+function pushOverlayConfigForProfileChange() {
+  prepareRuntimeAfterProfileChange();
+  if (initialized) {
+    postToOverlay("config", overlayConfig());
+    postToOverlay("enabled", { enabled });
+  }
+  if (enabled) {
+    refreshPollingInterval();
+    pollSubtitle();
+    syncNativeSubtitleVisibility();
+    warmActiveProfileBackend();
+  }
+}
+function reloadOverlayForProfileChange() {
+  prepareRuntimeAfterProfileChange();
+  if (!initialized) {
+    initializeOverlay();
+  } else {
+    try {
+      debugLog("reloading overlay for active profile language=" + selectedLanguageModule().id);
+      overlay.loadFile("overlay.html");
+      overlay.setOpacity(1);
+      overlay.setClickable(enabled);
+      if (enabled) overlay.show();
+    } catch (error) {
+      debugWarn("overlay reload failed for profile change: " + compactError(error));
+    }
+  }
+  setTimeout(() => {
+    postToOverlay("config", overlayConfig());
+    postToOverlay("enabled", { enabled });
+    replayActiveOverlayTask();
+    if (enabled) {
+      startPolling();
+      syncNativeSubtitleVisibility();
+      warmActiveProfileBackend();
+    } else {
+      publishSubtitle("");
+    }
+  }, 80);
+}
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
   debugLog("startPolling subtitlePollMs=" + nextMs);
@@ -3304,6 +3499,12 @@ function dictionaryManagerState() {
   const disabled = disabledDictionaryMap(manifest);
   const dicts = dictionaryDirs();
   const activeProfile = activeDictionaryProfile(manifest);
+  const hasJitendex = dicts.some(dict => {
+    const title = String((dict && dict.title) || "").toLowerCase();
+    const name = String((dict && dict.name) || "").toLowerCase();
+    const url = String((dict && dict.downloadUrl) || "");
+    return title.indexOf("jitendex") >= 0 || name.indexOf("jitendex") >= 0 || url === RECOMMENDED_JITENDEX_URL;
+  });
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -3322,10 +3523,24 @@ function dictionaryManagerState() {
       order: index
     })),
     activeProfileId: manifest.activeProfileId || DEFAULT_PROFILE_ID,
-    activeProfileName: activeProfile.name || "Default",
+    activeProfileName: activeProfile.name || "Profile 1",
     profiles: profileSummaries(manifest),
     profilePreferenceKeys: PROFILE_PREFERENCE_KEYS.slice(),
-    lookupLanguage: pref("lookupLanguage", "ja")
+    profilePreferenceDefaults: Object.assign({}, PROFILE_PREFERENCE_DEFAULTS),
+    profilePreferences: normalizeProfilePreferences(activeProfile.preferences),
+    globalSettings: readGlobalSettingsSnapshot(),
+    globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
+    lookupLanguage: pref("lookupLanguage", "ja"),
+    recommendedDictionaries: [
+      {
+        id: "jitendex-ja-en",
+        title: "Jitendex",
+        language: "Japanese",
+        description: "JMdict-based Japanese-English dictionary with structured Yomitan data.",
+        downloadUrl: RECOMMENDED_JITENDEX_URL,
+        installed: hasJitendex
+      }
+    ]
   };
 }
 function postDictionaryManagerState() {
@@ -3454,15 +3669,49 @@ function registerDictionaryManagerHandlers() {
   standaloneWindow.onMessage("dictionary-manager-create-profile", payload => {
     const name = payload && payload.name;
     runDictionaryManagerAction("Creating profile", () => {
-      createDictionaryProfile(name || "Profile", payload && payload.sourceProfileId);
+      const profile = createDictionaryProfile(name || "", payload && payload.sourceProfileId);
+      setActiveDictionaryProfile(profile.id);
+      return Promise.resolve();
+    });
+  });
+  standaloneWindow.onMessage("dictionary-manager-rename-profile", payload => {
+    try {
+      renameDictionaryProfile(payload && payload.profileId, payload && payload.name);
+      postDictionaryManagerStatus("Profile renamed.", "info", false);
+    } catch (error) {
+      const msg = "Renaming profile failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
+  });
+  standaloneWindow.onMessage("dictionary-manager-delete-profile", payload => {
+    runDictionaryManagerAction("Deleting profile", () => {
+      deleteDictionaryProfile(payload && payload.profileId);
       return Promise.resolve();
     });
   });
   standaloneWindow.onMessage("dictionary-manager-update-profile-preferences", payload => {
-    runDictionaryManagerAction("Saving profile preferences", () => {
+    try {
       updateDictionaryProfilePreferences(payload && payload.profileId, payload && payload.preferences);
-      return Promise.resolve();
-    });
+      postDictionaryManagerStatus("Profile settings saved.", "info", false);
+    } catch (error) {
+      const msg = "Saving profile settings failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
+  });
+  standaloneWindow.onMessage("dictionary-manager-update-global-settings", payload => {
+    try {
+      updateGlobalSettings(payload && payload.settings);
+      postDictionaryManagerStatus("Dictionary import settings saved.", "info", false);
+    } catch (error) {
+      const msg = "Saving dictionary import settings failed: " + compactError(error);
+      debugError(msg);
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    }
   });
 }
 function openDictionaryManager() {
@@ -3474,13 +3723,13 @@ function openDictionaryManager() {
     standaloneWindow.loadFile("dictionary-manager.html");
     registerDictionaryManagerHandlers();
     try {
-      if (typeof standaloneWindow.setProperty === "function") standaloneWindow.setProperty({ title: "iinatan Dictionary Manager", resizable: true });
+      if (typeof standaloneWindow.setProperty === "function") standaloneWindow.setProperty({ title: "iinatan Settings", resizable: true });
     } catch (_) {}
     if (typeof standaloneWindow.open === "function") standaloneWindow.open();
     else if (typeof standaloneWindow.show === "function") standaloneWindow.show();
     setTimeout(() => postDictionaryManagerState(), 120);
   } catch (error) {
-    const msg = "Could not open Dictionary Manager: " + compactError(error);
+    const msg = "Could not open iinatan Settings: " + compactError(error);
     debugError(msg);
     alert(msg);
   }
@@ -3742,23 +3991,21 @@ function showTaskPanelTest() {
 function rebuildMenu() {
   try { menu.removeAllItems(); } catch (_) {}
   try {
-    addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
-
-    const dictMenu = menu.item("Dictionaries");
-    addSubMenuItemCompat(dictMenu, menu.item("Manage Dictionaries...", () => { openDictionaryManager(); }));
-    addSubMenuItemCompat(dictMenu, menu.item("Download Recommended Dictionaries...", () => { getRecommendedDictionaries(); }));
+    addMenuItemSafe(menu.item("Settings...", () => { openDictionaryManager(); }));
+    addMenuItemSafe(menu.separator());
     const profiles = profileSummaries(readManifest());
     if (profiles.length) {
-      addSubMenuItemCompat(dictMenu, menu.separator());
       if (profiles.length === 1) {
-        addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profiles[0].name, null, { selected: true, enabled: false }));
+        addMenuItemSafe(menu.item(profiles[0].name, null, { selected: true, enabled: false }));
       } else {
         profiles.forEach(profile => {
-          addSubMenuItemCompat(dictMenu, menu.item("Profile: " + profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+          addMenuItemSafe(menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
         });
       }
     }
-    addMenuItemSafe(dictMenu);
+
+    addMenuItemSafe(menu.separator());
+    addMenuItemSafe(menu.item("Toggle iinatan (Shift+H)", () => setEnabled(!enabled), { selected: enabled }));
 
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
