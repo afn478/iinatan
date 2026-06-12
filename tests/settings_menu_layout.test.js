@@ -75,5 +75,11 @@ assert(!/runDictionaryManagerAction\("Importing dictionary"/.test(managerBridgeS
 
 const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
 assert(/function reloadOverlayForProfileChange\(\)/.test(lifecycleSource), 'Profile changes should be able to reload the overlay');
+assert(/function videoWindowAvailableForOverlayLoad\(\)/.test(lifecycleSource), 'Profile overlay reload should have a video-window availability guard');
+assert(/core\.window\.loaded/.test(lifecycleSource), 'Profile overlay reload should check IINA window availability before overlay.loadFile');
+assert(
+  lifecycleSource.indexOf('if (!videoWindowAvailableForOverlayLoad())') < lifecycleSource.indexOf('initializeOverlay();'),
+  'Profile overlay reload should skip initializeOverlay before iina.window-loaded'
+);
 
 console.log('settings and menu layout tests passed');

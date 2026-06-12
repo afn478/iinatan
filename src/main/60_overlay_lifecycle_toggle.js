@@ -57,8 +57,16 @@ function pushOverlayConfigForProfileChange() {
     warmActiveProfileBackend();
   }
 }
+function videoWindowAvailableForOverlayLoad() {
+  try { return !!(core && core.window && core.window.loaded); }
+  catch (_) { return false; }
+}
 function reloadOverlayForProfileChange() {
   prepareRuntimeAfterProfileChange();
+  if (!videoWindowAvailableForOverlayLoad()) {
+    debugLog("deferring overlay reload for profile change until iina.window-loaded");
+    return;
+  }
   if (!initialized) {
     initializeOverlay();
   } else {
