@@ -215,15 +215,18 @@
       setStatus('IINA message bridge is unavailable in this window.', 'error', false);
       return false;
     }
-    function command(name, payload, message) {
+    function command(name, payload, message, options) {
       const serial = ++state.commandSerial;
+      const shouldDisable = !(options && options.busy === false);
       if (message) {
-        setStatus(message, 'info', true);
-        setTimeout(() => {
-          if (state.busy && state.commandSerial === serial && els.status.textContent === message) {
-            setStatus('No response from the plugin script yet. Try closing and reopening the manager.', 'error', false);
-          }
-        }, 3500);
+        setStatus(message, 'info', shouldDisable);
+        if (shouldDisable) {
+          setTimeout(() => {
+            if (state.busy && state.commandSerial === serial && els.status.textContent === message) {
+              setStatus('No response from the plugin script yet. Try closing and reopening the manager.', 'error', false);
+            }
+          }, 3500);
+        }
       }
       return send(name, payload);
     }
@@ -378,7 +381,7 @@
     }
 
     els.downloadRecommended.addEventListener('click', () => command('dictionary-manager-download-recommended', {}, 'Starting recommended dictionary download...'));
-    els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...'));
+    els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...', { busy: false }));
     els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');

@@ -3167,15 +3167,47 @@ function runDictionaryManagerAction(label, action) {
     }
   })();
 }
-function chooseAndImportDictionaryFromManager() {
-  return (async () => {
-    const zipPaths = await chooseDictionaryZipPaths();
+function runDictionaryManagerZipImport() {
+  (async () => {
+    if (dictionaryManagerActionInFlight) {
+      postDictionaryManagerStatus("Another dictionary action is already running.", "info", true);
+      return;
+    }
+    postDictionaryManagerStatus("Opening ZIP picker...", "info", false);
+    let zipPaths = [];
+    try {
+      zipPaths = await chooseDictionaryZipPaths();
+    } catch (error) {
+      const msg = "Could not open dictionary ZIP picker: " + compactError(error);
+      debugError("dictionary manager file picker failed: " + compactError(error));
+      postDictionaryManagerState();
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+      return;
+    }
     if (!zipPaths.length) {
       notify("Dictionary import cancelled.", "info", 3500);
-      return { cancelled: true, message: "Dictionary import cancelled." };
+      postDictionaryManagerState();
+      postDictionaryManagerStatus("Dictionary import cancelled.", "info", false);
+      return;
     }
-    await validateAndImportDictionaryZips(zipPaths, "dictionary-manager-picker");
-    return { imported: zipPaths.length };
+
+    const countLabel = zipPaths.length === 1 ? "dictionary" : String(zipPaths.length) + " dictionaries";
+    dictionaryManagerActionInFlight = true;
+    postDictionaryManagerStatus("Importing " + countLabel + "...", "info", true);
+    try {
+      await validateAndImportDictionaryZips(zipPaths, "dictionary-manager-picker");
+      postDictionaryManagerState();
+      postDictionaryManagerStatus("Imported " + countLabel + ".", "info", false);
+    } catch (error) {
+      const msg = "Importing dictionary failed: " + compactError(error);
+      debugError("dictionary manager import failed: " + compactError(error));
+      postDictionaryManagerState();
+      postDictionaryManagerStatus(msg, "error", false);
+      alert(msg);
+    } finally {
+      dictionaryManagerActionInFlight = false;
+    }
   })();
 }
 function registerDictionaryManagerHandlers() {
@@ -3204,7 +3236,7 @@ function registerDictionaryManagerHandlers() {
     runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
   });
   standaloneWindow.onMessage("dictionary-manager-import-zip", () => {
-    runDictionaryManagerAction("Importing dictionary", () => chooseAndImportDictionaryFromManager());
+    runDictionaryManagerZipImport();
   });
   standaloneWindow.onMessage("dictionary-manager-switch-profile", payload => {
     const profileId = payload && payload.profileId;
