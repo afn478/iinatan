@@ -23,6 +23,6 @@ assert(/git submodule update --init --recursive/.test(buildScript), 'Submodule v
 
 const gitmodules = fs.readFileSync(path.join(root, '.gitmodules'), 'utf8');
 assert(/path = vendor\/hoshidicts/.test(gitmodules), '.gitmodules should define vendor/hoshidicts');
-assert(/github\.com\/Manhhao\/hoshidicts\.git/.test(gitmodules), '.gitmodules should point at Manhhao/hoshidicts');
+assert(/github\.com\/afn478\/hoshidicts\.git/.test(gitmodules), '.gitmodules should point at afn478/hoshidicts');
 
 console.log('native backend schema and submodule validation tests passed');

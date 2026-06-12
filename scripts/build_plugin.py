@@ -134,8 +134,8 @@ def validate_hoshidicts_submodule() -> None:
     if not gitmodules.is_file():
         raise SystemExit("Missing .gitmodules; vendor/hoshidicts must be tracked as a submodule")
     text = gitmodules.read_text()
-    if "path = vendor/hoshidicts" not in text or "github.com/Manhhao/hoshidicts" not in text:
-        raise SystemExit(".gitmodules must configure vendor/hoshidicts from Manhhao/hoshidicts")
+    if "path = vendor/hoshidicts" not in text or "github.com/afn478/hoshidicts" not in text:
+        raise SystemExit(".gitmodules must configure vendor/hoshidicts from afn478/hoshidicts")
     required = [
         "vendor/hoshidicts/CMakeLists.txt",
         "vendor/hoshidicts/LICENSE",
