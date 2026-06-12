@@ -218,6 +218,7 @@
     function command(name, payload, message, options) {
       const serial = ++state.commandSerial;
       const shouldDisable = !(options && options.busy === false);
+      const clearAfterMs = options && Number(options.clearAfterMs || 0);
       if (message) {
         setStatus(message, 'info', shouldDisable);
         if (shouldDisable) {
@@ -226,6 +227,12 @@
               setStatus('No response from the plugin script yet. Try closing and reopening the manager.', 'error', false);
             }
           }, 3500);
+        } else if (clearAfterMs > 0) {
+          setTimeout(() => {
+            if (!state.busy && state.commandSerial === serial && els.status.textContent === message) {
+              setStatus('', 'info', false);
+            }
+          }, clearAfterMs);
         }
       }
       return send(name, payload);
@@ -381,7 +388,7 @@
     }
 
     els.downloadRecommended.addEventListener('click', () => command('dictionary-manager-download-recommended', {}, 'Starting recommended dictionary download...'));
-    els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...', { busy: false }));
+    els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...', { busy: false, clearAfterMs: 5000 }));
     els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');

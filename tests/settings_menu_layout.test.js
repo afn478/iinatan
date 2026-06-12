@@ -31,9 +31,10 @@ assert(/id="profileSelect"/.test(managerHtml), 'Dictionary manager should expose
 assert(!/Import from Folder/.test(managerHtml), 'Dictionary manager should not expose manual folder import');
 assert(!/Reveal Folder/.test(managerHtml), 'Dictionary manager should not expose manual folder reveal');
 assert(
-  /dictionary-manager-import-zip', \{\}, 'Opening ZIP picker\.\.\.', \{ busy: false \}/.test(managerHtml),
+  /dictionary-manager-import-zip', \{\}, 'Opening ZIP picker\.\.\.', \{ busy: false, clearAfterMs: 5000 \}/.test(managerHtml),
   'Dictionary manager should not lock the UI while the ZIP picker is open'
 );
+assert(/clearAfterMs/.test(managerHtml), 'Transient dictionary manager statuses should be able to clear themselves');
 
 const menuSource = fs.readFileSync(path.join(root, 'src/main/70_tests_menu.js'), 'utf8');
 const rebuildMenu = menuSource.slice(menuSource.indexOf('function rebuildMenu()'));
@@ -53,7 +54,7 @@ assert(
 );
 assert(/postDictionaryManagerStatus\("Dictionary selection saved\."/.test(managerBridgeSource), 'Dictionary manager toggles should acknowledge persistence');
 assert(/function runDictionaryManagerZipImport\(\)/.test(managerBridgeSource), 'Dictionary ZIP import should use a picker-aware action path');
-assert(/postDictionaryManagerStatus\("Opening ZIP picker\.\.\.", "info", false\)/.test(managerBridgeSource), 'ZIP picker status should keep the manager unlocked');
+assert(!/postDictionaryManagerStatus\("Opening ZIP picker\.\.\."/.test(managerBridgeSource), 'ZIP picker opening status should be transient webview state only');
 assert(/Dictionary import cancelled\./.test(managerBridgeSource), 'Dictionary manager should acknowledge cancelled ZIP imports');
 assert(!/runDictionaryManagerAction\("Importing dictionary"/.test(managerBridgeSource), 'ZIP import should not enter busy state before file selection');
 

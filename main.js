@@ -3173,7 +3173,6 @@ function runDictionaryManagerZipImport() {
       postDictionaryManagerStatus("Another dictionary action is already running.", "info", true);
       return;
     }
-    postDictionaryManagerStatus("Opening ZIP picker...", "info", false);
     let zipPaths = [];
     try {
       zipPaths = await chooseDictionaryZipPaths();
