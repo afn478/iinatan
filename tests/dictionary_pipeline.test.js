@@ -7,6 +7,7 @@ const files = [
   'src/languages/common.js',
   'src/languages/deinflection.js',
   'src/languages/japanese.js',
+  'src/languages/english_yomitan_rules.js',
   'src/languages/english.js',
   'src/languages/french_yomitan_rules.js',
   'src/languages/french.js',

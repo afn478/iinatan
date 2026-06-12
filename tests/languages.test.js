@@ -7,6 +7,7 @@ const files = [
   'src/languages/common.js',
   'src/languages/deinflection.js',
   'src/languages/japanese.js',
+  'src/languages/english_yomitan_rules.js',
   'src/languages/english.js',
   'src/languages/french_yomitan_rules.js',
   'src/languages/french.js',
@@ -78,7 +79,7 @@ assert(enReq.lookupText === 'running', 'English hover inside running should quer
 assert(enReq.suffix !== 'nning', 'English hover must not query the partial rightward suffix');
 assert(enReq.lookupStart === 5, 'English word lookup should start at the word boundary');
 assert(enReq.backendMode === 'exact', 'English should use exact no-deinflection lookup');
-assert(enReq.cacheStrategy === 'word-span', 'English lookup should use word-span cache semantics');
+assert(enReq.cacheStrategy === 'word-candidates', 'English lookup should use word-candidates cache semantics');
 
 [
   ['Running', 'running'],
@@ -99,6 +100,18 @@ for (let i = runningStart; i < runningEnd; i++) {
   assert(req.lookupStart === runningStart && req.lookupEnd === runningEnd, 'English char ' + i + ' should resolve the running span');
   assert(req.cacheKey === firstRunningKey, 'English char ' + i + ' should share the same word cache key');
 }
+
+const said = candidateTexts(en.lookupRequest('said', 1, 24));
+assertIncludes(said, 'say', 'English should include Yomitan said -> say past-tense rule');
+
+const walked = candidateTexts(en.lookupRequest('walked', 2, 24));
+assertIncludes(walked, 'walk', 'English should include Yomitan regular past-tense rules');
+
+const running = candidateTexts(en.lookupRequest('running', 2, 24));
+assertIncludes(running, 'run', 'English should include Yomitan doubled-consonant -ing rules');
+
+const cats = candidateTexts(en.lookupRequest('cats', 2, 24));
+assertIncludes(cats, 'cat', 'English should include Yomitan plural noun rules');
 
 const jaText = '魔法使い';
 const jaReq = ja.lookupRequest(jaText, 1, 24);

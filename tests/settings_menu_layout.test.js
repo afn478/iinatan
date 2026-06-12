@@ -68,6 +68,12 @@ assert(!/for\s*\(\s*const\s+d\s+of\s+dicts\s*\)/.test(rebuildMenu), 'Dictionary 
 assert(!/setDictionaryEnabled\(d\.name/.test(rebuildMenu), 'Dictionary menu should not toggle installed dictionaries directly');
 assert(!/Import Yomitan Dictionary ZIP/.test(rebuildMenu), 'Dictionary ZIP import should live in the manager window');
 assert(!/Import ZIP from Manual Import Folder/.test(rebuildMenu), 'Manual folder import should not be in the menu');
+assert(/function runMenuAction\(label, action\)/.test(menuSource), 'Top menu actions should go through the guarded menu wrapper');
+assert(/isPromiseLike\(result\)/.test(menuSource), 'Menu wrapper should catch async action failures');
+assert(/addDebugMenuItem\(debugMenu, "Test File Picker API"/.test(rebuildMenu), 'Debug menu entries should use the guarded debug item helper');
+assert(/function revealPathInFinder\(path, label\)/.test(menuSource), 'Debug reveal actions should share one reveal helper');
+assert(/utils\.open\(p\)/.test(menuSource), 'Debug reveal actions should prefer the documented utils.open path');
+assert(!/file\.showInFinder\(dataRoot\(\)\)/.test(rebuildMenu), 'Plugin data folder reveal should not rely on the older direct Finder call');
 
 const managerBridgeSource = fs.readFileSync(path.join(root, 'src/main/65_dictionary_manager_window.js'), 'utf8');
 const openDictionaryManagerSource = managerBridgeSource.slice(managerBridgeSource.indexOf('function openDictionaryManager()'));

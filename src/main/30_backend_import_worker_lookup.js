@@ -326,27 +326,18 @@ async function validateAndImportDictionaryZips(zipPaths, source) {
   return imported;
 }
 
-function testFilePickerApiFromMenu() {
-  (async () => {
-    debugLog("debug file picker test clicked");
-    try {
-      const selected = await chooseDictionaryZipPaths();
-      if (!selected.length) {
-        notify("File picker test cancelled.", "info", 4500);
-        debugLog("debug file picker test cancelled");
-        return;
-      }
-      const invalid = selected.map(p => dictionaryZipValidation(p, candidate => file.exists(candidate))).filter(result => !result.ok);
-      debugLog("debug file picker test selected=" + JSON.stringify(selected.slice(0, 12)) + " invalid=" + JSON.stringify(invalid));
-      if (!invalid.length) notify("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".", "info", 9000);
-      else notify("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "), "error", 12000);
-    } catch (error) {
-      const msg = "File picker test failed: " + compactError(error);
-      debugError(msg);
-      notify(msg, "error", 12000);
-      alert(msg);
-    }
-  })();
+async function testFilePickerApiFromMenu() {
+  debugLog("debug file picker test clicked");
+  const selected = await chooseDictionaryZipPaths();
+  if (!selected.length) {
+    debugLog("debug file picker test cancelled");
+    alert("File picker test cancelled.");
+    return;
+  }
+  const invalid = selected.map(p => dictionaryZipValidation(p, candidate => file.exists(candidate))).filter(result => !result.ok);
+  debugLog("debug file picker test selected=" + JSON.stringify(selected.slice(0, 12)) + " invalid=" + JSON.stringify(invalid));
+  if (!invalid.length) alert("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".");
+  else alert("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "));
 }
 async function getRecommendedDictionaries() {
   let taskId = null;

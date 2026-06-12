@@ -95,27 +95,20 @@ function runSettingsAuditChecks() {
   if (failures.length) alert("Settings audit checks failed:\n" + failures.join("\n"));
   else alert("Settings audit checks passed.");
 }
-function testBackendLookup() {
-  (async () => {
-    try {
-      const result = await lookupAtPosition("魔法をかけられるのは魔法使いだけだ", 0);
-      const count = result && result.results ? result.results.length : 0;
-      alert("Lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
-    } catch (error) { alert("Lookup test failed: " + compactError(error)); }
-  })();
+async function testBackendLookup() {
+  const result = await lookupAtPosition("魔法をかけられるのは魔法使いだけだ", 0);
+  const count = result && result.results ? result.results.length : 0;
+  alert("Lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
 }
-function restartBackendWorkerFromMenu() {
-  (async () => {
-    try {
-      const language = selectedLanguageModule();
-      await stopBackendWorker();
-      await ensureBackendWorker(activeDictionaryPaths(language), language);
-      alert("Dictionary lookup restarted for " + language.label + ".");
-    } catch (error) { alert("Could not restart dictionary lookup: " + compactError(error)); }
-  })();
+async function restartBackendWorkerFromMenu() {
+  const language = selectedLanguageModule();
+  await stopBackendWorker();
+  await ensureBackendWorker(activeDictionaryPaths(language), language);
+  alert("Dictionary lookup restarted for " + language.label + ".");
 }
-function stopBackendWorkerFromMenu() {
-  (async () => { await stopBackendWorker(); alert("Dictionary lookup stopped."); })();
+async function stopBackendWorkerFromMenu() {
+  await stopBackendWorker();
+  alert("Dictionary lookup stopped.");
 }
 function showInstalledDictionaries() {
   const dicts = dictionaryDirs();
@@ -127,16 +120,48 @@ function emitDebugLogTestMessage() {
   debugLog("DEBUG TEST: plugin main log path works; enabled=" + String(enabled) + " lineId=" + currentSubtitleLineId + " bridgePort=" + overlayBridgePort);
   debugWarn("DEBUG TEST: warning level message");
   debugError("DEBUG TEST: error level message");
-  showOSD("iinatan debug test emitted");
+  flushDebugLogBuffer();
+  alert("Debug log test messages were emitted. Use Reveal Debug Log File to inspect debug.log.");
+}
+function revealPathInFinder(path, label) {
+  const p = String(path || "");
+  if (!p) throw new Error("No path provided.");
+  try {
+    if (utils && typeof utils.open === "function" && utils.open(p)) {
+      debugLog("revealed " + String(label || "path") + " via utils.open path=" + JSON.stringify(p));
+      return;
+    }
+  } catch (error) {
+    debugWarn("utils.open failed for " + String(label || "path") + ": " + compactError(error));
+  }
+  try {
+    if (file && typeof file.showInFinder === "function") {
+      const shown = file.showInFinder(p);
+      if (shown !== false) {
+        debugLog("revealed " + String(label || "path") + " via file.showInFinder path=" + JSON.stringify(p));
+        return;
+      }
+    }
+  } catch (error) {
+    debugWarn("file.showInFinder failed for " + String(label || "path") + ": " + compactError(error));
+  }
+  throw new Error("Could not reveal " + String(label || "path") + ": " + p);
 }
 function revealDebugLogFile() {
   try {
     const p = dataPath("debug.log");
     flushDebugLogBuffer();
     if (!file.exists(p)) file.write(p, "");
-    file.showInFinder(p);
+    revealPathInFinder(p, "debug log file");
   } catch (error) {
-    notify("Could not reveal debug.log: " + compactError(error), "error", 8000);
+    alert("Could not reveal debug.log: " + compactError(error));
+  }
+}
+function revealPluginDataFolder() {
+  try {
+    revealPathInFinder(dataRoot(), "plugin data folder");
+  } catch (error) {
+    alert("Could not reveal plugin data folder: " + compactError(error));
   }
 }
 
@@ -249,19 +274,44 @@ function showTaskPanelTest() {
   const id = startOverlayTask("debug-task", "Task panel test", "This is where dictionary progress appears.");
   updateOverlayTask(id, { title: "Task panel test", message: "Visible at top-center of the video overlay.", detail: "If you can see this panel, dictionary downloads and imports can show progress here." });
   setTimeout(() => finishOverlayTask(id, true, "Task panel test complete.", "The task panel will auto-hide shortly."), 4500);
+  alert("Task panel test started. If a player window is loaded, the panel should be visible on the video overlay.");
+}
+
+function reportMenuActionError(label, error) {
+  const msg = String(label || "Menu action") + " failed: " + compactError(error);
+  debugError(msg);
+  alert(msg);
+}
+function runMenuAction(label, action) {
+  return () => {
+    const actionLabel = String(label || "Menu action");
+    debugLog("menu action clicked: " + actionLabel);
+    try {
+      const result = action();
+      if (isPromiseLike(result)) result.catch(error => reportMenuActionError(actionLabel, error));
+    } catch (error) {
+      reportMenuActionError(actionLabel, error);
+    }
+  };
+}
+function addMenuCommand(parent, title, action, options) {
+  addSubMenuItemCompat(parent, menu.item(title, runMenuAction(title, action), options));
+}
+function addDebugMenuItem(parent, title, action, options) {
+  addMenuCommand(parent, title, action, options);
 }
 
 function rebuildMenu() {
   try { menu.removeAllItems(); } catch (_) {}
   try {
     const rootMenu = menu.item("iinatan");
-    addSubMenuItemCompat(rootMenu, menu.item("Settings...", () => { openDictionaryManager(); }));
+    addMenuCommand(rootMenu, "Settings...", () => { openDictionaryManager(); });
     addSubMenuItemCompat(rootMenu, menu.separator());
     addSubMenuItemCompat(rootMenu, menu.item("Profiles", null, { enabled: false }));
     const profiles = profileSummaries(readManifest());
     const inlineProfileLimit = 5;
     const addProfileMenuItem = (parent, profile) => {
-      addSubMenuItemCompat(parent, menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+      addMenuCommand(parent, profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active });
     };
     profiles.slice(0, inlineProfileLimit).forEach(profile => {
       addProfileMenuItem(rootMenu, profile);
@@ -276,18 +326,18 @@ function rebuildMenu() {
 
     addSubMenuItemCompat(rootMenu, menu.separator());
     const debugMenu = menu.item("Debug");
-    addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Language Unit Tests", () => runLanguageUnitTests()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Settings Audit Checks", () => runSettingsAuditChecks()));
-    addSubMenuItemCompat(debugMenu, menu.item("Test File Picker API", () => testFilePickerApiFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
-    addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Show Task Panel Test", () => showTaskPanelTest()));
-    addSubMenuItemCompat(debugMenu, menu.item("Emit Debug Log Test Message", () => emitDebugLogTestMessage()));
-    addSubMenuItemCompat(debugMenu, menu.item("Reveal Debug Log File", () => revealDebugLogFile()));
-    addSubMenuItemCompat(debugMenu, menu.item("Reveal Plugin Data Folder", () => { try { file.showInFinder(dataRoot()); } catch (_) { utils.open(dataRoot()); } }));
+    addDebugMenuItem(debugMenu, "Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark());
+    addDebugMenuItem(debugMenu, "Run Lookup Parser Unit Tests", () => runLookupParserUnitTests());
+    addDebugMenuItem(debugMenu, "Run Language Unit Tests", () => runLanguageUnitTests());
+    addDebugMenuItem(debugMenu, "Run Settings Audit Checks", () => runSettingsAuditChecks());
+    addDebugMenuItem(debugMenu, "Test File Picker API", () => testFilePickerApiFromMenu());
+    addDebugMenuItem(debugMenu, "Test Dictionary Lookup", () => testBackendLookup());
+    addDebugMenuItem(debugMenu, "Restart Dictionary Lookup", () => restartBackendWorkerFromMenu());
+    addDebugMenuItem(debugMenu, "Stop Dictionary Lookup", () => stopBackendWorkerFromMenu());
+    addDebugMenuItem(debugMenu, "Show Task Panel Test", () => showTaskPanelTest());
+    addDebugMenuItem(debugMenu, "Emit Debug Log Test Message", () => emitDebugLogTestMessage());
+    addDebugMenuItem(debugMenu, "Reveal Debug Log File", () => revealDebugLogFile());
+    addDebugMenuItem(debugMenu, "Reveal Plugin Data Folder", () => revealPluginDataFolder());
     addSubMenuItemCompat(rootMenu, debugMenu);
     addMenuItemSafe(rootMenu);
   } catch (error) {

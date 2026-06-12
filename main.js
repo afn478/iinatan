@@ -648,8 +648,110 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
   };
 })();
 
+/*
+ * Derived from Yomitan ext/js/language/en/english-transforms.js
+ * Upstream source: https://github.com/yomidevs/yomitan/blob/master/ext/js/language/en/english-transforms.js
+ * Copyright (C) 2024-2026 Yomitan Authors
+ * License: GPL-3.0-or-later. See DEINFLECTION_NOTES.md for attribution notes.
+ */
+const IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES = [
+  ["s", "", ["np"], ["ns"], "plural"],
+  ["es", "", ["np"], ["ns"], "plural"],
+  ["ies", "y", ["np"], ["ns"], "plural"],
+  ["ves", "fe", ["np"], ["ns"], "plural"],
+  ["ves", "f", ["np"], ["ns"], "plural"],
+  ["'s", "", ["n"], ["n"], "possessive"],
+  ["s'", "s", ["n"], ["n"], "possessive"],
+  ["ed", "", ["v"], ["v"], "past"],
+  ["ed", "e", ["v"], ["v"], "past"],
+  ["ied", "y", ["v"], ["v"], "past"],
+  ["cked", "c", ["v"], ["v"], "past"],
+  ["laid", "lay", ["v"], ["v"], "past"],
+  ["paid", "pay", ["v"], ["v"], "past"],
+  ["said", "say", ["v"], ["v"], "past"],
+  ["ing", "", ["v"], ["v"], "ing"],
+  ["ing", "e", ["v"], ["v"], "ing"],
+  ["ying", "ie", ["v"], ["v"], "ing"],
+  ["cking", "c", ["v"], ["v"], "ing"],
+  ["s", "", ["v"], ["v"], "3rd pers. sing. pres"],
+  ["es", "", ["v"], ["v"], "3rd pers. sing. pres"],
+  ["ies", "y", ["v"], ["v"], "3rd pers. sing. pres"],
+  ["'d", "ed", ["v"], ["v"], "archaic"],
+  ["ly", "", ["adv"], ["adj"], "adverb"],
+  ["ily", "y", ["adv"], ["adj"], "adverb"],
+  ["ly", "le", ["adv"], ["adj"], "adverb"],
+  ["er", "", ["adj"], ["adj"], "comparative"],
+  ["er", "e", ["adj"], ["adj"], "comparative"],
+  ["ier", "y", ["adj"], ["adj"], "comparative"],
+  ["est", "", ["adj"], ["adj"], "superlative"],
+  ["est", "e", ["adj"], ["adj"], "superlative"],
+  ["iest", "y", ["adj"], ["adj"], "superlative"],
+  ["in'", "ing", ["v"], ["v"], "dropped g"],
+  ["y", "", ["adj"], ["n", "v"], "-y"],
+  ["y", "e", ["adj"], ["n", "v"], "-y"],
+  ["able", "", ["v"], ["adj"], "-able"],
+  ["able", "e", ["v"], ["adj"], "-able"],
+  ["iable", "y", ["v"], ["adj"], "-able"]
+];
+const IINATAN_ENGLISH_YOMITAN_PREFIX_RULES = [
+  ["un", "", ["adj", "adv", "v"], ["adj", "adv", "v"], "un-"],
+  ["going to ", "", ["v"], ["v"], "going-to future"],
+  ["will ", "", ["v"], ["v"], "will future"],
+  ["don't ", "", ["v"], ["v"], "imperative negative"],
+  ["do not ", "", ["v"], ["v"], "imperative negative"]
+];
+const IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES = [
+  ["bdgklmnprstz", "ed", ["v"], ["v"], "past"],
+  ["bdgklmnprstz", "ing", ["v"], ["v"], "ing"],
+  ["bdgmnt", "er", ["adj"], ["adj"], "comparative"],
+  ["bdgmnt", "est", ["adj"], ["adj"], "superlative"],
+  ["glmnprst", "y", [], ["n", "v"], "-y"],
+  ["bdgklmnprstz", "able", ["v"], ["adj"], "-able"]
+];
+
 const IINATAN_ENGLISH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const deinflect = IINATAN_DEINFLECTION;
+  const YOMITAN_SUFFIX_RULES = typeof IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES !== "undefined" ? IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES : [];
+  const YOMITAN_PREFIX_RULES = typeof IINATAN_ENGLISH_YOMITAN_PREFIX_RULES !== "undefined" ? IINATAN_ENGLISH_YOMITAN_PREFIX_RULES : [];
+  const YOMITAN_DOUBLED_SUFFIX_RULES = typeof IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES !== "undefined" ? IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES : [];
+
+  function yomitanEnglishRules() {
+    const rules = [];
+    YOMITAN_SUFFIX_RULES.forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], "Yomitan " + rule[4]));
+    });
+    YOMITAN_PREFIX_RULES.forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      rules.push(deinflect.prefixInflection(rule[0], rule[1], rule[2], rule[3], "Yomitan " + rule[4]));
+    });
+    YOMITAN_DOUBLED_SUFFIX_RULES.forEach(rule => {
+      if (!rule || rule.length < 5) return;
+      const consonants = String(rule[0] || "");
+      const suffix = String(rule[1] || "");
+      for (let i = 0; i < consonants.length; i++) {
+        const consonant = consonants[i];
+        rules.push(deinflect.suffixInflection(consonant + consonant + suffix, consonant, rule[2], rule[3], "Yomitan " + rule[4]));
+      }
+    });
+    return rules;
+  }
+
+  const transformer = deinflect.createTransformer({
+    maxDepth: 3,
+    maxResults: 128,
+    conditions: [
+      { name: "v", isDefault: true },
+      { name: "v_phr", isDefault: true },
+      { name: "n", isDefault: true },
+      { name: "np", isDefault: true },
+      { name: "ns", isDefault: true },
+      { name: "adj", isDefault: true },
+      { name: "adv", isDefault: true }
+    ],
+    rules: yomitanEnglishRules()
+  });
 
   function isHoverableChar(ch) {
     return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
@@ -672,6 +774,33 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
       /(^|[^a-z])eng[-_/]/.test(primary);
   }
 
+  function addCandidate(list, seen, text, displayText, range, source, reason) {
+    const candidateText = common.trimLookupPunctuation(text);
+    if (!candidateText) return;
+    common.pushUniqueCandidate(list, seen, {
+      text: candidateText,
+      normalizedText: candidateText,
+      source,
+      reason,
+      language: "en",
+      displayText,
+      range
+    });
+  }
+
+  function generateCandidates(displayText, range) {
+    const lookupText = common.normalizeLatinLookup(displayText);
+    const list = [];
+    const seen = Object.create(null);
+    const candidateRange = range || null;
+    addCandidate(list, seen, lookupText, displayText, candidateRange, "surface", "surface form");
+    const baseCount = list.length;
+    for (let i = 0; i < baseCount; i++) {
+      deinflect.appendTransforms(list, seen, list[i], transformer, "en", 48);
+    }
+    return list;
+  }
+
   function lookupRequest(text, position) {
     const normalized = common.normalizeBasic(text);
     const chars = common.chars(normalized);
@@ -679,7 +808,8 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     const run = common.findRun(chars, pos, isHoverableChar);
     if (!run) return null;
     const displayText = common.slice(chars, run.start, run.end);
-    const lookupText = common.normalizeLatinLookup(displayText);
+    const candidates = generateCandidates(displayText, { start: run.start, end: run.end });
+    const lookupText = candidates.length ? candidates[0].text : "";
     if (!lookupText) return null;
     return {
       lookupText,
@@ -690,8 +820,9 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
       matchStart: run.start,
       backendMode: "exact",
       scanLength: common.chars(lookupText).length,
-      cacheStrategy: "word-span",
-      cacheKey: "word:" + run.start + ":" + run.end + ":" + lookupText
+      cacheStrategy: "word-candidates",
+      cacheKey: "word:" + run.start + ":" + run.end + ":" + candidates.map(c => c.text).join("|"),
+      candidates
     };
   }
 
@@ -702,13 +833,14 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
-    deinflection: "none",
-    deinflectionMode: "none",
-    dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact whole-word lookup only.",
+    deinflection: "yomitan-style-english",
+    deinflectionMode: "yomitan-style-english",
+    dictionaryCompatibility: "Yomitan-compatible term dictionaries; exact whole-word lookup with English deinflection candidates.",
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
     normalizeText: common.normalizeBasic,
+    generateCandidates,
     lookupRequest
   };
 })();
@@ -2640,27 +2772,18 @@ async function validateAndImportDictionaryZips(zipPaths, source) {
   return imported;
 }
 
-function testFilePickerApiFromMenu() {
-  (async () => {
-    debugLog("debug file picker test clicked");
-    try {
-      const selected = await chooseDictionaryZipPaths();
-      if (!selected.length) {
-        notify("File picker test cancelled.", "info", 4500);
-        debugLog("debug file picker test cancelled");
-        return;
-      }
-      const invalid = selected.map(p => dictionaryZipValidation(p, candidate => file.exists(candidate))).filter(result => !result.ok);
-      debugLog("debug file picker test selected=" + JSON.stringify(selected.slice(0, 12)) + " invalid=" + JSON.stringify(invalid));
-      if (!invalid.length) notify("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".", "info", 9000);
-      else notify("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "), "error", 12000);
-    } catch (error) {
-      const msg = "File picker test failed: " + compactError(error);
-      debugError(msg);
-      notify(msg, "error", 12000);
-      alert(msg);
-    }
-  })();
+async function testFilePickerApiFromMenu() {
+  debugLog("debug file picker test clicked");
+  const selected = await chooseDictionaryZipPaths();
+  if (!selected.length) {
+    debugLog("debug file picker test cancelled");
+    alert("File picker test cancelled.");
+    return;
+  }
+  const invalid = selected.map(p => dictionaryZipValidation(p, candidate => file.exists(candidate))).filter(result => !result.ok);
+  debugLog("debug file picker test selected=" + JSON.stringify(selected.slice(0, 12)) + " invalid=" + JSON.stringify(invalid));
+  if (!invalid.length) alert("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".");
+  else alert("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "));
 }
 async function getRecommendedDictionaries() {
   let taskId = null;
@@ -3939,27 +4062,20 @@ function runSettingsAuditChecks() {
   if (failures.length) alert("Settings audit checks failed:\n" + failures.join("\n"));
   else alert("Settings audit checks passed.");
 }
-function testBackendLookup() {
-  (async () => {
-    try {
-      const result = await lookupAtPosition("魔法をかけられるのは魔法使いだけだ", 0);
-      const count = result && result.results ? result.results.length : 0;
-      alert("Lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
-    } catch (error) { alert("Lookup test failed: " + compactError(error)); }
-  })();
+async function testBackendLookup() {
+  const result = await lookupAtPosition("魔法をかけられるのは魔法使いだけだ", 0);
+  const count = result && result.results ? result.results.length : 0;
+  alert("Lookup test returned " + count + " result(s). Top match: " + (count ? result.results[0].matched : "none"));
 }
-function restartBackendWorkerFromMenu() {
-  (async () => {
-    try {
-      const language = selectedLanguageModule();
-      await stopBackendWorker();
-      await ensureBackendWorker(activeDictionaryPaths(language), language);
-      alert("Dictionary lookup restarted for " + language.label + ".");
-    } catch (error) { alert("Could not restart dictionary lookup: " + compactError(error)); }
-  })();
+async function restartBackendWorkerFromMenu() {
+  const language = selectedLanguageModule();
+  await stopBackendWorker();
+  await ensureBackendWorker(activeDictionaryPaths(language), language);
+  alert("Dictionary lookup restarted for " + language.label + ".");
 }
-function stopBackendWorkerFromMenu() {
-  (async () => { await stopBackendWorker(); alert("Dictionary lookup stopped."); })();
+async function stopBackendWorkerFromMenu() {
+  await stopBackendWorker();
+  alert("Dictionary lookup stopped.");
 }
 function showInstalledDictionaries() {
   const dicts = dictionaryDirs();
@@ -3971,16 +4087,48 @@ function emitDebugLogTestMessage() {
   debugLog("DEBUG TEST: plugin main log path works; enabled=" + String(enabled) + " lineId=" + currentSubtitleLineId + " bridgePort=" + overlayBridgePort);
   debugWarn("DEBUG TEST: warning level message");
   debugError("DEBUG TEST: error level message");
-  showOSD("iinatan debug test emitted");
+  flushDebugLogBuffer();
+  alert("Debug log test messages were emitted. Use Reveal Debug Log File to inspect debug.log.");
+}
+function revealPathInFinder(path, label) {
+  const p = String(path || "");
+  if (!p) throw new Error("No path provided.");
+  try {
+    if (utils && typeof utils.open === "function" && utils.open(p)) {
+      debugLog("revealed " + String(label || "path") + " via utils.open path=" + JSON.stringify(p));
+      return;
+    }
+  } catch (error) {
+    debugWarn("utils.open failed for " + String(label || "path") + ": " + compactError(error));
+  }
+  try {
+    if (file && typeof file.showInFinder === "function") {
+      const shown = file.showInFinder(p);
+      if (shown !== false) {
+        debugLog("revealed " + String(label || "path") + " via file.showInFinder path=" + JSON.stringify(p));
+        return;
+      }
+    }
+  } catch (error) {
+    debugWarn("file.showInFinder failed for " + String(label || "path") + ": " + compactError(error));
+  }
+  throw new Error("Could not reveal " + String(label || "path") + ": " + p);
 }
 function revealDebugLogFile() {
   try {
     const p = dataPath("debug.log");
     flushDebugLogBuffer();
     if (!file.exists(p)) file.write(p, "");
-    file.showInFinder(p);
+    revealPathInFinder(p, "debug log file");
   } catch (error) {
-    notify("Could not reveal debug.log: " + compactError(error), "error", 8000);
+    alert("Could not reveal debug.log: " + compactError(error));
+  }
+}
+function revealPluginDataFolder() {
+  try {
+    revealPathInFinder(dataRoot(), "plugin data folder");
+  } catch (error) {
+    alert("Could not reveal plugin data folder: " + compactError(error));
   }
 }
 
@@ -4093,19 +4241,44 @@ function showTaskPanelTest() {
   const id = startOverlayTask("debug-task", "Task panel test", "This is where dictionary progress appears.");
   updateOverlayTask(id, { title: "Task panel test", message: "Visible at top-center of the video overlay.", detail: "If you can see this panel, dictionary downloads and imports can show progress here." });
   setTimeout(() => finishOverlayTask(id, true, "Task panel test complete.", "The task panel will auto-hide shortly."), 4500);
+  alert("Task panel test started. If a player window is loaded, the panel should be visible on the video overlay.");
+}
+
+function reportMenuActionError(label, error) {
+  const msg = String(label || "Menu action") + " failed: " + compactError(error);
+  debugError(msg);
+  alert(msg);
+}
+function runMenuAction(label, action) {
+  return () => {
+    const actionLabel = String(label || "Menu action");
+    debugLog("menu action clicked: " + actionLabel);
+    try {
+      const result = action();
+      if (isPromiseLike(result)) result.catch(error => reportMenuActionError(actionLabel, error));
+    } catch (error) {
+      reportMenuActionError(actionLabel, error);
+    }
+  };
+}
+function addMenuCommand(parent, title, action, options) {
+  addSubMenuItemCompat(parent, menu.item(title, runMenuAction(title, action), options));
+}
+function addDebugMenuItem(parent, title, action, options) {
+  addMenuCommand(parent, title, action, options);
 }
 
 function rebuildMenu() {
   try { menu.removeAllItems(); } catch (_) {}
   try {
     const rootMenu = menu.item("iinatan");
-    addSubMenuItemCompat(rootMenu, menu.item("Settings...", () => { openDictionaryManager(); }));
+    addMenuCommand(rootMenu, "Settings...", () => { openDictionaryManager(); });
     addSubMenuItemCompat(rootMenu, menu.separator());
     addSubMenuItemCompat(rootMenu, menu.item("Profiles", null, { enabled: false }));
     const profiles = profileSummaries(readManifest());
     const inlineProfileLimit = 5;
     const addProfileMenuItem = (parent, profile) => {
-      addSubMenuItemCompat(parent, menu.item(profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active }));
+      addMenuCommand(parent, profile.name, () => { setActiveDictionaryProfile(profile.id); }, { selected: !!profile.active });
     };
     profiles.slice(0, inlineProfileLimit).forEach(profile => {
       addProfileMenuItem(rootMenu, profile);
@@ -4120,18 +4293,18 @@ function rebuildMenu() {
 
     addSubMenuItemCompat(rootMenu, menu.separator());
     const debugMenu = menu.item("Debug");
-    addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Language Unit Tests", () => runLanguageUnitTests()));
-    addSubMenuItemCompat(debugMenu, menu.item("Run Settings Audit Checks", () => runSettingsAuditChecks()));
-    addSubMenuItemCompat(debugMenu, menu.item("Test File Picker API", () => testFilePickerApiFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Test Dictionary Lookup", () => testBackendLookup()));
-    addSubMenuItemCompat(debugMenu, menu.item("Restart Dictionary Lookup", () => restartBackendWorkerFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Stop Dictionary Lookup", () => stopBackendWorkerFromMenu()));
-    addSubMenuItemCompat(debugMenu, menu.item("Show Task Panel Test", () => showTaskPanelTest()));
-    addSubMenuItemCompat(debugMenu, menu.item("Emit Debug Log Test Message", () => emitDebugLogTestMessage()));
-    addSubMenuItemCompat(debugMenu, menu.item("Reveal Debug Log File", () => revealDebugLogFile()));
-    addSubMenuItemCompat(debugMenu, menu.item("Reveal Plugin Data Folder", () => { try { file.showInFinder(dataRoot()); } catch (_) { utils.open(dataRoot()); } }));
+    addDebugMenuItem(debugMenu, "Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark());
+    addDebugMenuItem(debugMenu, "Run Lookup Parser Unit Tests", () => runLookupParserUnitTests());
+    addDebugMenuItem(debugMenu, "Run Language Unit Tests", () => runLanguageUnitTests());
+    addDebugMenuItem(debugMenu, "Run Settings Audit Checks", () => runSettingsAuditChecks());
+    addDebugMenuItem(debugMenu, "Test File Picker API", () => testFilePickerApiFromMenu());
+    addDebugMenuItem(debugMenu, "Test Dictionary Lookup", () => testBackendLookup());
+    addDebugMenuItem(debugMenu, "Restart Dictionary Lookup", () => restartBackendWorkerFromMenu());
+    addDebugMenuItem(debugMenu, "Stop Dictionary Lookup", () => stopBackendWorkerFromMenu());
+    addDebugMenuItem(debugMenu, "Show Task Panel Test", () => showTaskPanelTest());
+    addDebugMenuItem(debugMenu, "Emit Debug Log Test Message", () => emitDebugLogTestMessage());
+    addDebugMenuItem(debugMenu, "Reveal Debug Log File", () => revealDebugLogFile());
+    addDebugMenuItem(debugMenu, "Reveal Plugin Data Folder", () => revealPluginDataFolder());
     addSubMenuItemCompat(rootMenu, debugMenu);
     addMenuItemSafe(rootMenu);
   } catch (error) {

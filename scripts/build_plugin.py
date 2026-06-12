@@ -28,6 +28,7 @@ LANGUAGE_PARTS = [
     "common.js",
     "deinflection.js",
     "japanese.js",
+    "english_yomitan_rules.js",
     "english.js",
     "french_yomitan_rules.js",
     "french.js",
