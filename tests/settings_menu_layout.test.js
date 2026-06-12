@@ -49,13 +49,17 @@ const rebuildMenu = menuSource.slice(menuSource.indexOf('function rebuildMenu()'
 assert(/Settings/.test(rebuildMenu), 'iinatan menu should open plugin settings');
 assert(/setActiveDictionaryProfile/.test(rebuildMenu), 'Dictionary menu should be prepared to switch profiles');
 assert(/const rootMenu = menu\.item\("iinatan"\)/.test(rebuildMenu), 'iinatan menu should be a submenu root');
-assert(/menu\.item\("Profiles", null, \{ enabled: false \}\)/.test(rebuildMenu), 'iinatan submenu should label the profile section');
+assert(/menu\.item\("profiles", null, \{ enabled: false \}\)/.test(rebuildMenu), 'iinatan submenu should label the profile section with a small lowercase native label');
 assert(/const inlineProfileLimit = 5/.test(rebuildMenu), 'iinatan submenu should keep up to five profiles inline');
 assert(/profiles\.length > inlineProfileLimit/.test(rebuildMenu), 'iinatan submenu should only add More after the inline profile limit is exceeded');
 assert(/const moreMenu = menu\.item\("More"\)/.test(rebuildMenu), 'iinatan submenu should add a More submenu for overflow profiles');
 assert(
-  rebuildMenu.indexOf('menu.item("Profiles", null') < rebuildMenu.indexOf('const debugMenu = menu.item("Debug")'),
+  rebuildMenu.indexOf('menu.item("profiles", null') < rebuildMenu.indexOf('const debugMenu = menu.item("Debug")'),
   'Debug should appear after the profile section'
+);
+assert(
+  rebuildMenu.indexOf('addSubMenuItemCompat(rootMenu, menu.separator());\n    const debugMenu = menu.item("Debug")') > 0,
+  'Debug should be separated from profiles by a native separator'
 );
 assert(!/menu\.item\("Dictionaries"/.test(rebuildMenu), 'iinatan menu should not nest profile switching under a Dictionaries submenu');
 assert(!/Download Recommended Dictionaries/.test(rebuildMenu), 'Recommended downloads should live in settings, not the top menu');

@@ -257,7 +257,7 @@ function rebuildMenu() {
     const rootMenu = menu.item("iinatan");
     addSubMenuItemCompat(rootMenu, menu.item("Settings...", () => { openDictionaryManager(); }));
     addSubMenuItemCompat(rootMenu, menu.separator());
-    addSubMenuItemCompat(rootMenu, menu.item("Profiles", null, { enabled: false }));
+    addSubMenuItemCompat(rootMenu, menu.item("profiles", null, { enabled: false }));
     const profiles = profileSummaries(readManifest());
     const inlineProfileLimit = 5;
     const addProfileMenuItem = (parent, profile) => {
@@ -274,6 +274,7 @@ function rebuildMenu() {
       addSubMenuItemCompat(rootMenu, moreMenu);
     }
 
+    addSubMenuItemCompat(rootMenu, menu.separator());
     const debugMenu = menu.item("Debug");
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Performance Benchmark", () => runLookupPerformanceBenchmark()));
     addSubMenuItemCompat(debugMenu, menu.item("Run Lookup Parser Unit Tests", () => runLookupParserUnitTests()));
