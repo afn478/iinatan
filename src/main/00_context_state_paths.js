@@ -49,6 +49,9 @@ let dictionaryManagerActionInFlight = false;
 let debugLogSnapshot = null;
 let debugLogPending = "";
 let debugLogFlushTimer = null;
+let iinaAppearanceHint = "";
+let iinaAppearanceHintRefreshInFlight = false;
+let iinaAppearanceHintLastRefreshAt = 0;
 const DEBUG_LOG_MAX_BYTES = 1000000;
 const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 

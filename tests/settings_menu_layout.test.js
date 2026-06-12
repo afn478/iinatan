@@ -10,6 +10,7 @@ function assert(condition, message) {
 const info = JSON.parse(fs.readFileSync(path.join(root, 'Info.json'), 'utf8'));
 assert(info.preferenceDefaults.etymologyCollapseDefault === 'collapsed', 'Etymology should default collapsed globally');
 assert(info.preferenceDefaults.wiktionaryEtymologyCollapseOverride === 'collapsed', 'Wiktionary/Kaikki override should default collapsed');
+assert(info.preferenceDefaults.popupTheme === 'inherit', 'Popup theme should default to inheriting IINA appearance');
 assert(Object.prototype.hasOwnProperty.call(info.preferenceDefaults, 'customPopupCss'), 'Custom popup CSS preference should exist');
 
 const preferencesHtml = fs.readFileSync(path.join(root, 'preferences.html'), 'utf8');
@@ -22,6 +23,7 @@ assert(/iinatan Settings/.test(managerHtml), 'Settings manager should use the pl
 assert(/data-profile-pref="lookupLanguage"/.test(managerHtml), 'Settings manager should expose per-profile language');
 assert(/data-profile-pref="pauseWhilePopupVisible"/.test(managerHtml), 'Settings manager should expose per-profile playback settings');
 assert(/data-profile-pref="scanLength"/.test(managerHtml), 'Settings manager should expose per-profile scan length');
+assert(/data-profile-pref="popupTheme"/.test(managerHtml), 'Settings manager should expose per-profile popup color mode');
 assert(/data-profile-pref="customPopupCss"/.test(managerHtml), 'Settings manager should expose per-profile custom popup CSS');
 assert(/data-global-setting="lowRamImport"/.test(managerHtml), 'Settings manager should expose global dictionary import settings');
 assert(/id="dictionaryList"/.test(managerHtml), 'Dictionary manager should include the installed dictionary list');

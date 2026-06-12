@@ -22,6 +22,17 @@ overlay.applyConfig({
 assert(context.__head.children.length === 1, 'Custom CSS should create a style element');
 assert(/font-size: 16px/.test(context.__head.children[0].textContent), 'Custom CSS should be applied');
 
+overlay.applyConfig({ popupTheme: 'light' });
+assert(/\btheme-light\b/.test(context.document.documentElement.className), 'Forced light mode should apply the light theme class');
+assert(!/\btheme-inherit\b/.test(context.document.documentElement.className), 'Forced light mode should not leave an inherit theme class');
+overlay.applyConfig({ popupTheme: 'dark' });
+assert(/\btheme-dark\b/.test(context.document.documentElement.className), 'Forced dark mode should apply the dark theme class');
+overlay.applyConfig({ popupTheme: 'inherit', popupThemeHint: 'light' });
+assert(/\btheme-light\b/.test(context.document.documentElement.className), 'Inherited light hint should resolve to the concrete light theme');
+assert(!/\btheme-inherit\b/.test(context.document.documentElement.className), 'Inherited mode should resolve without its own theme class');
+overlay.applyConfig({ popupTheme: 'inherit', popupThemeHint: 'dark' });
+assert(/\btheme-dark\b/.test(context.document.documentElement.className), 'Inherited dark hint should resolve to the concrete dark theme');
+
 const header = overlay.displayHeaderForResult({
   text: 'I was juster',
   lookupStart: 6,
@@ -348,6 +359,8 @@ assert(unsafeHtml === '<span class="xref-link">bad</span>', 'Unsafe link text sh
 assert(overlay.safeExternalUrl('ftp://example.test/file') === '', 'Unsafe URL schemes should be rejected');
 
 const css = fs.readFileSync(path.join(root, 'src/overlay/overlay.css'), 'utf8');
+assert(/:root\.theme-light/.test(css), 'Popup CSS should define a concrete light theme');
+assert(!/theme-inherit/.test(css), 'Popup CSS should not define a separate inherit theme');
 assert(/#popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css), 'Popup header should keep its spacing');
 assert(!/#popup \.head \{[^}]*border-bottom:/s.test(css), 'Popup header should not draw a horizontal rule below the headword');
 assert(/\.entry \+ \.entry \{[^}]*border-top:/s.test(css), 'Entry separators should remain between dictionary entries');

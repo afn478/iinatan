@@ -49,6 +49,9 @@ let dictionaryManagerActionInFlight = false;
 let debugLogSnapshot = null;
 let debugLogPending = "";
 let debugLogFlushTimer = null;
+let iinaAppearanceHint = "";
+let iinaAppearanceHintRefreshInFlight = false;
+let iinaAppearanceHintLastRefreshAt = 0;
 const DEBUG_LOG_MAX_BYTES = 1000000;
 const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 
@@ -1693,8 +1696,64 @@ function readSubtitleStyleConfig() {
     subtitleShadowBlur: String(shadowBlur) + "px"
   };
 }
+function normalizePopupThemePreference(value) {
+  const theme = String(value || "").trim().toLowerCase();
+  if (theme === "dark" || theme === "light" || theme === "inherit") return theme;
+  return "inherit";
+}
+function normalizeAppearanceHint(value) {
+  const theme = String(value || "").trim().toLowerCase();
+  if (theme === "dark" || theme === "light") return theme;
+  return "";
+}
+function appearanceHintFromThemeMaterial(value, systemHint) {
+  const themeMaterial = Number(String(value || "").trim());
+  if (themeMaterial === 0) return "dark";
+  if (themeMaterial === 2) return "light";
+  if (themeMaterial === 4) return normalizeAppearanceHint(systemHint);
+  return "";
+}
+async function readMacOSAppearanceHint() {
+  try {
+    const result = await utils.exec("/usr/bin/defaults", ["read", "-g", "AppleInterfaceStyle"], dataRoot());
+    const text = String((result && result.stdout) || "").trim().toLowerCase();
+    return text === "dark" ? "dark" : "light";
+  } catch (_) {
+    return "";
+  }
+}
+async function readIINAAppearanceHint() {
+  try {
+    const result = await utils.exec("/usr/bin/defaults", ["read", "com.colliderli.iina", "themeMaterial"], dataRoot());
+    const raw = String((result && result.stdout) || "").trim();
+    if (!raw) return "";
+    const systemHint = Number(raw) === 4 ? await readMacOSAppearanceHint() : "";
+    return appearanceHintFromThemeMaterial(raw, systemHint);
+  } catch (_) {
+    return "";
+  }
+}
+function scheduleIINAAppearanceHintRefresh(force) {
+  const now = Date.now();
+  if (iinaAppearanceHintRefreshInFlight) return;
+  if (!force && now - iinaAppearanceHintLastRefreshAt < 5000) return;
+  iinaAppearanceHintRefreshInFlight = true;
+  iinaAppearanceHintLastRefreshAt = now;
+  readIINAAppearanceHint().then(hint => {
+    const next = normalizeAppearanceHint(hint);
+    if (next && next !== iinaAppearanceHint) {
+      iinaAppearanceHint = next;
+      if (typeof pushOverlayConfigForProfileChange === "function") pushOverlayConfigForProfileChange();
+    }
+  }).catch(error => {
+    debugVerbose("Could not read IINA appearance preference: " + compactError(error));
+  }).finally(() => {
+    iinaAppearanceHintRefreshInFlight = false;
+  });
+}
 function overlayConfig() {
   const language = selectedLanguageModule();
+  scheduleIINAAppearanceHintRefresh(false);
   return {
     language: selectedLanguageOverlayConfig(),
     lookupLanguage: language.id,
@@ -1703,6 +1762,8 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
+    popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
     ...readSubtitleStyleConfig(),
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
@@ -1783,6 +1844,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  popupTheme: "inherit",
   subtitlePollMs: 120,
   etymologyCollapseDefault: "collapsed",
   wiktionaryEtymologyCollapseOverride: "collapsed",
@@ -4129,6 +4191,8 @@ function runSettingsAuditChecks() {
   check(Number.isFinite(Number(cfg.maxGlossesPerEntry)) && cfg.maxGlossesPerEntry >= 1, "maxGlossesPerEntry should be numeric");
   check(Number.isFinite(Number(cfg.popupMaxHeightVh)) && cfg.popupMaxHeightVh >= 20, "popupMaxHeightVh should be sent to overlay");
   check(Number.isFinite(Number(cfg.popupSubtitleGapPx)) && cfg.popupSubtitleGapPx >= 12, "popupSubtitleGapPx should be sent to overlay");
+  check(["dark", "light", "inherit"].indexOf(cfg.popupTheme) >= 0, "popupTheme should be sent to overlay");
+  check(["dark", "light", ""].indexOf(cfg.popupThemeHint || "") >= 0, "popupThemeHint should resolve to a concrete hint when present");
   check(cfg.etymologyCollapseDefault === "collapsed" || cfg.etymologyCollapseDefault === "expanded", "etymologyCollapseDefault should be sent to overlay");
   check(["collapsed", "expanded", "inherit"].indexOf(cfg.wiktionaryEtymologyCollapseOverride) >= 0, "wiktionaryEtymologyCollapseOverride should be sent to overlay");
   check(typeof cfg.customPopupCss === "string", "customPopupCss should be sent to overlay as a string");
@@ -4392,6 +4456,7 @@ function rebuildMenu() {
 
 registerShortcut();
 rebuildMenu();
+scheduleIINAAppearanceHintRefresh(true);
 ensureBundledBackendInstalled().catch(error => {
   debugWarn("lookup engine install check failed: " + compactError(error));
 });

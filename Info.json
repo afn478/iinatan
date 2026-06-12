@@ -1,7 +1,7 @@
 {
   "name": "iinatan",
   "identifier": "com.afn478.iinatan",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "author": {
     "name": "afn478"
   },
@@ -11,7 +11,7 @@
   "preferencesPage": "preferences.html",
   "helpPage": "README.md",
   "ghRepo": "afn478/iinatan",
-  "ghVersion": 170,
+  "ghVersion": 180,
   "preferenceDefaults": {
     "enabledByDefault": true,
     "hideNativeSubtitles": true,
@@ -19,6 +19,7 @@
     "fontScale": 1.0,
     "popupScale": 0.92,
     "popupMaxWidth": 440,
+    "popupTheme": "inherit",
     "maxEntries": 3,
     "maxGlossesPerEntry": 4,
     "scanLength": 24,

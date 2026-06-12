@@ -18,6 +18,7 @@
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
+      popupTheme: 'inherit',
 	      maxEntries: 3,
 	      maxGlossesPerEntry: 4,
 	      scanLength: 24,
@@ -54,6 +55,8 @@
   const LOOKUP_RETRY_INTERVAL_MS = 60;
 	  let customPopupStyleEl = null;
 	  let lastCustomPopupCss = null;
+	  let popupThemeHintQuery = null;
+	  let popupThemeHintListenerRegistered = false;
 
 	  function escapeHtml(s) {
 	    return String(s || '')
@@ -147,6 +150,66 @@
 	      overlayDebug("custom popup CSS apply failed " + String(error && error.message ? error.message : error));
 	    }
 	  }
+  function normalizePopupTheme(value) {
+    const theme = String(value || '').trim().toLowerCase();
+    if (theme === 'dark' || theme === 'light' || theme === 'inherit') return theme;
+    return 'inherit';
+  }
+  function inheritedPopupThemeHint() {
+    const configuredHint = String((state.config && state.config.popupThemeHint) || '').trim().toLowerCase();
+    if (configuredHint === 'light' || configuredHint === 'dark') return configuredHint;
+    try {
+      if (window && typeof window.matchMedia === 'function') {
+        const lightQuery = window.matchMedia('(prefers-color-scheme: light)');
+        if (lightQuery && lightQuery.matches) return 'light';
+        const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        if (darkQuery && darkQuery.matches) return 'dark';
+      }
+    } catch (_) {}
+    return 'dark';
+  }
+  function resolvePopupTheme(value) {
+    const theme = normalizePopupTheme(value);
+    return theme === 'inherit' ? inheritedPopupThemeHint() : theme;
+  }
+  function applyPopupTheme(value) {
+    const requestedTheme = normalizePopupTheme(value);
+    const theme = resolvePopupTheme(requestedTheme);
+    const root = document.documentElement;
+    if (!root) return;
+    try {
+      if (root.classList) {
+        root.classList.remove('theme-dark', 'theme-light');
+        root.classList.add('theme-' + theme);
+      } else {
+        const next = String(root.className || '')
+          .replace(/\btheme-(?:dark|light)\b/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        root.className = (next ? next + ' ' : '') + 'theme-' + theme;
+      }
+      if (typeof root.setAttribute === 'function') {
+        root.setAttribute('data-popup-theme', theme);
+        root.setAttribute('data-popup-theme-requested', requestedTheme);
+      } else {
+        root.dataset = Object.assign(root.dataset || {}, { popupTheme: theme, popupThemeRequested: requestedTheme });
+      }
+    } catch (_) {}
+  }
+  function ensurePopupThemeHintListener() {
+    if (popupThemeHintListenerRegistered) return;
+    popupThemeHintListenerRegistered = true;
+    try {
+      if (!window || typeof window.matchMedia !== 'function') return;
+      popupThemeHintQuery = window.matchMedia('(prefers-color-scheme: light)');
+      if (!popupThemeHintQuery) return;
+      const handler = function () {
+        if (normalizePopupTheme(state.config && state.config.popupTheme) === 'inherit') applyPopupTheme('inherit');
+      };
+      if (typeof popupThemeHintQuery.addEventListener === 'function') popupThemeHintQuery.addEventListener('change', handler);
+      else if (typeof popupThemeHintQuery.addListener === 'function') popupThemeHintQuery.addListener(handler);
+    } catch (_) {}
+  }
   function overlayDebug(message) {
     try {
       if (!state.config || state.config.debugLogVerbose === false) return;
@@ -215,6 +278,9 @@
 
   function applyConfig(config) {
     state.config = Object.assign({}, state.config, config || {});
+    state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    ensurePopupThemeHintListener();
+    applyPopupTheme(state.config.popupTheme);
     document.documentElement.style.setProperty('--subtitle-scale', String(state.config.fontScale || 1));
     document.documentElement.style.setProperty('--popup-scale', String(state.config.popupScale || 0.92));
     document.documentElement.style.setProperty('--popup-max-width', String(state.config.popupMaxWidth || 440) + 'px');
@@ -233,7 +299,7 @@
 	      state.bridgePort = Number(state.config.overlayBridgePort);
 	      ensureBridgeSocket();
 	    }
-	    overlayDebug("config applied bridgePort=" + String(state.bridgePort) + " popupScale=" + String(state.config.popupScale) + " etymologyCollapseDefault=" + String(state.config.etymologyCollapseDefault || "collapsed") + " wiktionaryOverride=" + String(state.config.wiktionaryEtymologyCollapseOverride || "inherit"));
+	    overlayDebug("config applied bridgePort=" + String(state.bridgePort) + " popupScale=" + String(state.config.popupScale) + " popupTheme=" + String(state.config.popupTheme || "inherit") + " etymologyCollapseDefault=" + String(state.config.etymologyCollapseDefault || "collapsed") + " wiktionaryOverride=" + String(state.config.wiktionaryEtymologyCollapseOverride || "inherit"));
 	  }
 
   function renderSubtitle(text, lineId) {

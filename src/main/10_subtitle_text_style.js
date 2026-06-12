@@ -124,8 +124,64 @@ function readSubtitleStyleConfig() {
     subtitleShadowBlur: String(shadowBlur) + "px"
   };
 }
+function normalizePopupThemePreference(value) {
+  const theme = String(value || "").trim().toLowerCase();
+  if (theme === "dark" || theme === "light" || theme === "inherit") return theme;
+  return "inherit";
+}
+function normalizeAppearanceHint(value) {
+  const theme = String(value || "").trim().toLowerCase();
+  if (theme === "dark" || theme === "light") return theme;
+  return "";
+}
+function appearanceHintFromThemeMaterial(value, systemHint) {
+  const themeMaterial = Number(String(value || "").trim());
+  if (themeMaterial === 0) return "dark";
+  if (themeMaterial === 2) return "light";
+  if (themeMaterial === 4) return normalizeAppearanceHint(systemHint);
+  return "";
+}
+async function readMacOSAppearanceHint() {
+  try {
+    const result = await utils.exec("/usr/bin/defaults", ["read", "-g", "AppleInterfaceStyle"], dataRoot());
+    const text = String((result && result.stdout) || "").trim().toLowerCase();
+    return text === "dark" ? "dark" : "light";
+  } catch (_) {
+    return "";
+  }
+}
+async function readIINAAppearanceHint() {
+  try {
+    const result = await utils.exec("/usr/bin/defaults", ["read", "com.colliderli.iina", "themeMaterial"], dataRoot());
+    const raw = String((result && result.stdout) || "").trim();
+    if (!raw) return "";
+    const systemHint = Number(raw) === 4 ? await readMacOSAppearanceHint() : "";
+    return appearanceHintFromThemeMaterial(raw, systemHint);
+  } catch (_) {
+    return "";
+  }
+}
+function scheduleIINAAppearanceHintRefresh(force) {
+  const now = Date.now();
+  if (iinaAppearanceHintRefreshInFlight) return;
+  if (!force && now - iinaAppearanceHintLastRefreshAt < 5000) return;
+  iinaAppearanceHintRefreshInFlight = true;
+  iinaAppearanceHintLastRefreshAt = now;
+  readIINAAppearanceHint().then(hint => {
+    const next = normalizeAppearanceHint(hint);
+    if (next && next !== iinaAppearanceHint) {
+      iinaAppearanceHint = next;
+      if (typeof pushOverlayConfigForProfileChange === "function") pushOverlayConfigForProfileChange();
+    }
+  }).catch(error => {
+    debugVerbose("Could not read IINA appearance preference: " + compactError(error));
+  }).finally(() => {
+    iinaAppearanceHintRefreshInFlight = false;
+  });
+}
 function overlayConfig() {
   const language = selectedLanguageModule();
+  scheduleIINAAppearanceHintRefresh(false);
   return {
     language: selectedLanguageOverlayConfig(),
     lookupLanguage: language.id,
@@ -134,6 +190,8 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
+    popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
     ...readSubtitleStyleConfig(),
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
