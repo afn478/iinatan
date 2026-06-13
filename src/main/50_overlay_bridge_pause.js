@@ -155,8 +155,9 @@ function pauseState() {
   return false;
 }
 function setPauseState(paused) {
-  try { mpv.set("pause", !!paused); return; } catch (_) {}
-  try { if (paused) core.pause(); else core.resume(); } catch (_) {}
+  try { mpv.set("pause", !!paused); return true; } catch (_) {}
+  try { if (paused) core.pause(); else core.resume(); return true; } catch (_) {}
+  return false;
 }
 function clearLookupPopupWatchdog() {
   if (lookupPopupWatchdogTimer !== null) {
@@ -164,16 +165,57 @@ function clearLookupPopupWatchdog() {
     lookupPopupWatchdogTimer = null;
   }
 }
-function finishLookupPopupPause(reason) {
+function cancelLookupPopupResumeTimer() {
+  lookupPopupPauseResumeToken++;
+  if (lookupPopupPauseResumeTimer !== null) {
+    clearTimeout(lookupPopupPauseResumeTimer);
+    lookupPopupPauseResumeTimer = null;
+  }
+}
+function scheduleLookupPopupResume(reason) {
+  cancelLookupPopupResumeTimer();
+  const token = ++lookupPopupPauseResumeToken;
+  lookupPopupPauseResumeTimer = setTimeout(() => {
+    if (token !== lookupPopupPauseResumeToken) return;
+    lookupPopupPauseResumeTimer = null;
+    if (!lookupPopupPauseShouldResume) return;
+    if (lookupPopupPauseActive) {
+      debugVerbose("lookup popup resume skipped reason=" + String(reason || "unknown") + "; popup visible again");
+      return;
+    }
+    lookupPopupPauseShouldResume = false;
+    if (!enabled) {
+      debugVerbose("lookup popup resume skipped reason=" + String(reason || "unknown") + "; plugin disabled");
+      return;
+    }
+    if (!pauseState()) {
+      debugVerbose("lookup popup resume skipped reason=" + String(reason || "unknown") + "; playback already running");
+      return;
+    }
+    if (setPauseState(false)) {
+      debugLog("lookup popup hidden reason=" + String(reason || "unknown") + "; resuming playback");
+    } else {
+      debugWarn("lookup popup hidden reason=" + String(reason || "unknown") + "; could not resume playback");
+    }
+  }, LOOKUP_POPUP_RESUME_DELAY_MS);
+  debugVerbose("lookup popup hidden reason=" + String(reason || "unknown") + "; resume scheduled");
+}
+function finishLookupPopupPause(reason, options) {
   clearLookupPopupWatchdog();
-  if (!lookupPopupPauseActive) return;
+  const resume = !!(options && options.resume);
+  if (!lookupPopupPauseActive && !lookupPopupPauseShouldResume && lookupPopupPauseResumeTimer === null) return;
   lookupPopupPauseActive = false;
+  if (resume && lookupPopupPauseShouldResume) {
+    scheduleLookupPopupResume(reason);
+    return;
+  }
+  cancelLookupPopupResumeTimer();
   lookupPopupPauseShouldResume = false;
-  debugLog("lookup popup pause ended reason=" + String(reason || "unknown") + "; not resuming by design");
+  debugVerbose("lookup popup pause ended reason=" + String(reason || "unknown") + "; resume not owned");
 }
 function scheduleLookupPopupWatchdog() {
-  // v1.5.4 pause-only mode: no heartbeat watchdog is needed because the plugin
-  // intentionally does not resume playback when the popup closes.
+  // Resume is driven by explicit overlay hide events. A heartbeat watchdog would
+  // risk resuming during transient bridge delays, so keep this path inactive.
   clearLookupPopupWatchdog();
 }
 function lookupPopupSessionFromPayload(payload) {
@@ -221,36 +263,48 @@ function handleLookupPopupVisibility(payload) {
     lookupPopupLastSeq = seq;
   }
   if (!lookupPopupPauseEnabled()) {
-    if (lookupPopupPauseActive) finishLookupPopupPause("preference-disabled");
+    finishLookupPopupPause("preference-disabled");
     debugVerbose("popup visibility ignored because pauseWhilePopupVisible is disabled visible=" + String(visible) + " seq=" + String(seq));
     return;
-  }
-  if (lookupPopupPauseResumeTimer !== null) {
-    clearTimeout(lookupPopupPauseResumeTimer);
-    lookupPopupPauseResumeTimer = null;
   }
   debugVerbose("popup visibility event visible=" + String(visible) + " seq=" + String(seq) + " active=" + String(lookupPopupPauseActive) + " enabled=" + String(enabled));
   if (visible) {
     if (!enabled) return;
+    cancelLookupPopupResumeTimer();
     lookupPopupLastHeartbeatAt = Date.now();
+    if (lookupPopupPauseActive) {
+      if (lookupPopupPauseShouldResume && !pauseState()) {
+        lookupPopupPauseShouldResume = setPauseState(true);
+        debugLog("lookup popup visible seq=" + String(seq) + "; playback was running again, pausing");
+      } else {
+        debugVerbose("lookup popup visible seq=" + String(seq) + "; preserving active pause ownership=" + String(lookupPopupPauseShouldResume));
+      }
+      return;
+    }
     lookupPopupPauseActive = true;
-    lookupPopupPauseShouldResume = false;
+    if (lookupPopupPauseShouldResume) {
+      if (!pauseState()) {
+        lookupPopupPauseShouldResume = setPauseState(true);
+        debugLog("lookup popup visible seq=" + String(seq) + "; pausing playback after cancelled resume");
+      } else {
+        debugVerbose("lookup popup visible seq=" + String(seq) + "; cancelled pending resume");
+      }
+      return;
+    }
     if (!pauseState()) {
-      debugLog("lookup popup visible seq=" + String(seq) + "; pausing playback and not scheduling resume");
-      setPauseState(true);
+      lookupPopupPauseShouldResume = setPauseState(true);
+      debugLog("lookup popup visible seq=" + String(seq) + "; pausing playback resumeOwned=" + String(lookupPopupPauseShouldResume));
     } else {
+      lookupPopupPauseShouldResume = false;
       debugVerbose("lookup popup visible seq=" + String(seq) + "; playback already paused");
     }
     return;
   }
   debugVerbose("popup hidden received seq=" + String(seq));
-  finishLookupPopupPause("hidden-seq-" + String(seq));
+  finishLookupPopupPause("hidden-seq-" + String(seq), { resume: true });
 }
 function resetLookupPopupPause() {
-  if (lookupPopupPauseResumeTimer !== null) {
-    clearTimeout(lookupPopupPauseResumeTimer);
-    lookupPopupPauseResumeTimer = null;
-  }
+  cancelLookupPopupResumeTimer();
   clearLookupPopupWatchdog();
   lookupPopupPauseActive = false;
   lookupPopupPauseShouldResume = false;

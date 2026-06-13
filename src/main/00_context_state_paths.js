@@ -38,6 +38,7 @@ let shortcutRegistered = false;
 let lookupPopupPauseActive = false;
 let lookupPopupPauseShouldResume = false;
 let lookupPopupPauseResumeTimer = null;
+let lookupPopupPauseResumeToken = 0;
 let lookupPopupWatchdogTimer = null;
 let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
@@ -54,6 +55,7 @@ let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
 const DEBUG_LOG_MAX_BYTES = 1000000;
 const DEBUG_LOG_FLUSH_DELAY_MS = 750;
+const LOOKUP_POPUP_RESUME_DELAY_MS = 90;
 
 function pref(key, fallback) {
   const value = preferences.get(key);

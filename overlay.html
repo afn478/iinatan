@@ -1140,9 +1140,8 @@
       clearInterval(state.lookupPopupNotifyTimer);
       state.lookupPopupNotifyTimer = null;
     }
-    // v1.5.4 pause-only mode: send only the transition event. Heartbeats and
-    // repeated hide packets were only needed for resume tracking and created
-    // bridge traffic that could compete with lookup messages.
+    // Send only transition events. The plugin side resumes from the explicit
+    // hide transition and uses sequence/session guards to reject stale packets.
   }
 
   function hidePopup() {
