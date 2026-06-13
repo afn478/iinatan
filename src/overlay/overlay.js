@@ -22,6 +22,8 @@
 	      maxEntries: 3,
 	      maxGlossesPerEntry: 4,
 	      scanLength: 24,
+	      audioAutoPlay: false,
+	      audioSources: [],
 	      etymologyCollapseDefault: 'collapsed',
 	      wiktionaryEtymologyCollapseOverride: 'collapsed',
 	      customPopupCss: '',
@@ -46,6 +48,9 @@
     popupSessionId: String(Date.now()) + '-' + Math.random().toString(36).slice(2),
     popupVisibilitySeq: 0,
     lookupRequestSeq: 0,
+    audioPlaying: null,
+    audioCache: Object.create(null),
+    audioAutoPlayed: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -93,6 +98,248 @@
 	    } catch (_) {}
 	    overlayDebug("source URL rejected invalid=" + JSON.stringify(value.slice(0, 160)));
 	    return '';
+	  }
+	  function safeAudioUrl(raw, baseUrl) {
+	    const value = String(raw || '').trim();
+	    if (!value) return '';
+	    try {
+	      const url = typeof URL === 'function' ? new URL(value, baseUrl || undefined) : null;
+	      if (url && (url.protocol === 'http:' || url.protocol === 'https:')) return url.href;
+	    } catch (_) {}
+	    if (!baseUrl && /^https?:\/\/[^\s<>"']+$/i.test(value)) return value;
+	    return '';
+	  }
+	  function normalizeAudioSourceUrl(value) {
+	    return safeAudioUrl(value, '');
+	  }
+	  function normalizeAudioSourceItem(source) {
+	    const raw = typeof source === 'string' ? { url: source } : (source && typeof source === 'object' ? source : {});
+	    const url = normalizeAudioSourceUrl(raw.url);
+	    if (!url) return null;
+	    const name = normalizeWhitespace(raw.name || '');
+	    return name ? { name, url } : { url };
+	  }
+	  function normalizeAudioSources(value) {
+	    let raw = value;
+	    if (typeof raw === 'string') {
+	      const text = raw.trim();
+	      if (!text) return [];
+	      try { raw = JSON.parse(text); } catch (_) { raw = text; }
+	    }
+	    if (raw && typeof raw === 'object' && Array.isArray(raw.audioSources)) raw = raw.audioSources;
+	    const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+	    const seen = Object.create(null);
+	    const out = [];
+	    values.forEach(item => {
+	      const normalized = normalizeAudioSourceItem(item);
+	      if (!normalized || seen[normalized.url]) return;
+	      seen[normalized.url] = true;
+	      out.push(normalized);
+	    });
+	    return out;
+	  }
+	  function activeAudioSources() {
+	    return normalizeAudioSources(state.config && state.config.audioSources);
+	  }
+	  function audioSourcesSignature(sources) {
+	    return JSON.stringify((sources || []).map(source => ({ name: source.name || '', url: source.url || '' })));
+	  }
+	  function audioLanguageCode() {
+	    const lang = activeLanguage();
+	    return String((lang && lang.id) || (state.config && state.config.lookupLanguage) || 'ja');
+	  }
+	  function audioTermReadingKey(term, reading) {
+	    return JSON.stringify([String(term || ''), String(reading || '')]);
+	  }
+	  function audioCacheKey(term, reading, sources) {
+	    return JSON.stringify([String(term || ''), String(reading || ''), audioLanguageCode(), audioSourcesSignature(sources || activeAudioSources())]);
+	  }
+	  function audioUrlFromTemplate(template, term, reading) {
+	    const values = {
+	      term: String(term || ''),
+	      reading: String(reading || ''),
+	      language: audioLanguageCode()
+	    };
+	    return String(template || '').replace(/\{([^}]*)\}/g, (match, key) => {
+	      if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+	      try { return encodeURIComponent(values[key]); } catch (_) { return values[key]; }
+	    });
+	  }
+	  function parseAudioSourceListJson(value, sourceUrl) {
+	    const data = value && typeof value === 'object' ? value : null;
+	    if (!data || data.type !== 'audioSourceList' || !Array.isArray(data.audioSources)) return null;
+	    const urls = [];
+	    data.audioSources.forEach(item => {
+	      const audioUrl = safeAudioUrl(item && item.url, sourceUrl);
+	      if (audioUrl) urls.push({ url: audioUrl, name: normalizeWhitespace(item && item.name || '') });
+	    });
+	    return urls;
+	  }
+	  function fetchTextWithTimeout(url, timeoutMs) {
+	    if (typeof fetch !== 'function') return Promise.reject(new Error('fetch unavailable'));
+	    let timer = null;
+	    let controller = null;
+	    const init = { method: 'GET', cache: 'default', credentials: 'omit', redirect: 'follow' };
+	    try {
+	      if (typeof AbortController === 'function') {
+	        controller = new AbortController();
+	        init.signal = controller.signal;
+	      }
+	    } catch (_) {}
+	    return Promise.race([
+	      fetch(url, init).then(response => {
+	        if (!response || !response.ok) throw new Error('audio source returned ' + String(response && response.status));
+	        return response.text();
+	      }),
+	      new Promise((_, reject) => {
+	        timer = setTimeout(() => {
+	          try { if (controller) controller.abort(); } catch (_) {}
+	          reject(new Error('audio source timed out'));
+	        }, Math.max(1000, Number(timeoutMs) || 5000));
+	      })
+	    ]).finally(() => {
+	      if (timer !== null) clearTimeout(timer);
+	    });
+	  }
+	  function urlLooksLikeAudioFile(url) {
+	    return /\.(?:mp3|m4a|aac|ogg|oga|opus|wav|webm)(?:[?#]|$)/i.test(String(url || ''));
+	  }
+	  async function resolveAudioCandidateUrls(source, term, reading) {
+	    const sourceUrl = safeAudioUrl(audioUrlFromTemplate(source && source.url, term, reading), '');
+	    if (!sourceUrl) return [];
+	    if (urlLooksLikeAudioFile(sourceUrl)) return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	    try {
+	      const text = await fetchTextWithTimeout(sourceUrl, Math.min(8000, Math.max(2500, Number(state.config.hoverRequestTimeoutMs || 5000))));
+	      let parsed = null;
+	      try { parsed = JSON.parse(text); } catch (_) {}
+	      const jsonUrls = parseAudioSourceListJson(parsed, sourceUrl);
+	      if (jsonUrls) {
+	        overlayDebug("audio source JSON resolved url=" + JSON.stringify(sourceUrl) + " candidates=" + jsonUrls.length);
+	        return jsonUrls;
+	      }
+	    } catch (error) {
+	      overlayDebug("audio source JSON fetch failed url=" + JSON.stringify(sourceUrl) + " error=" + String(error && error.message ? error.message : error));
+	    }
+	    return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	  }
+	  function waitForAudioData(audio, timeoutMs) {
+	    return new Promise((resolve, reject) => {
+	      let done = false;
+	      let timer = null;
+	      const cleanup = () => {
+	        if (timer !== null) clearTimeout(timer);
+	        try { audio.removeEventListener('loadeddata', onLoaded); } catch (_) {}
+	        try { audio.removeEventListener('canplaythrough', onLoaded); } catch (_) {}
+	        try { audio.removeEventListener('error', onError); } catch (_) {}
+	        try { audio.removeEventListener('stalled', onError); } catch (_) {}
+	      };
+	      const finish = (ok, error) => {
+	        if (done) return;
+	        done = true;
+	        cleanup();
+	        if (ok) resolve();
+	        else reject(error || new Error('audio unavailable'));
+	      };
+	      const onLoaded = () => finish(true);
+	      const onError = () => finish(false, audio && audio.error ? audio.error : new Error('audio unavailable'));
+	      timer = setTimeout(() => finish(false, new Error('audio timed out')), Math.max(1000, Number(timeoutMs) || 5000));
+	      try { audio.addEventListener('loadeddata', onLoaded); } catch (_) {}
+	      try { audio.addEventListener('canplaythrough', onLoaded); } catch (_) {}
+	      try { audio.addEventListener('error', onError); } catch (_) {}
+	      try { audio.addEventListener('stalled', onError); } catch (_) {}
+	      try {
+	        if (Number.isFinite(Number(audio.readyState)) && Number(audio.readyState) >= 2) finish(true);
+	        else if (typeof audio.load === 'function') audio.load();
+	      } catch (error) {
+	        finish(false, error);
+	      }
+	    });
+	  }
+	  async function createPlayableAudio(url) {
+	    if (typeof Audio !== 'function') throw new Error('Audio playback unavailable');
+	    const audio = new Audio(url);
+	    try { audio.preload = 'auto'; } catch (_) {}
+	    await waitForAudioData(audio, Math.min(9000, Math.max(2500, Number(state.config.hoverRequestTimeoutMs || 5000))));
+	    return audio;
+	  }
+	  function stopCurrentAudio() {
+	    const audio = state.audioPlaying;
+	    if (!audio) return;
+	    try { audio.pause(); } catch (_) {}
+	    state.audioPlaying = null;
+	  }
+	  function setAudioButtonsStateForKey(key, status, title) {
+	    try {
+	      popupEl.querySelectorAll('.audio-button').forEach(button => {
+	        if (button.dataset.audioKey !== key) return;
+	        if (status) button.dataset.audioState = status;
+	        else delete button.dataset.audioState;
+	        if (title) button.title = title;
+	      });
+	    } catch (_) {}
+	  }
+	  async function findPlayableAudio(term, reading, sources) {
+	    const configuredSources = sources || activeAudioSources();
+	    const cacheKey = audioCacheKey(term, reading, configuredSources);
+	    const cached = state.audioCache[cacheKey];
+	    if (cached && cached.url) {
+	      const audio = await createPlayableAudio(cached.url);
+	      return Object.assign({}, cached, { audio });
+	    }
+	    for (let sourceIndex = 0; sourceIndex < configuredSources.length; sourceIndex++) {
+	      const source = configuredSources[sourceIndex];
+	      const candidates = await resolveAudioCandidateUrls(source, term, reading);
+	      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+	        const candidate = candidates[candidateIndex];
+	        try {
+	          const audio = await createPlayableAudio(candidate.url);
+	          const sourceName = candidate.name || source.name || ('Source ' + String(sourceIndex + 1));
+	          const result = { url: candidate.url, sourceIndex, candidateIndex, sourceName };
+	          state.audioCache[cacheKey] = result;
+	          return Object.assign({}, result, { audio });
+	        } catch (error) {
+	          overlayDebug("audio candidate failed url=" + JSON.stringify(candidate.url) + " error=" + String(error && error.message ? error.message : error));
+	        }
+	      }
+	    }
+	    return null;
+	  }
+	  async function playAudioForTerm(term, reading, button, options) {
+	    term = String(term || '').trim();
+	    reading = String(reading || '').trim();
+	    const sources = activeAudioSources();
+	    if (!term || !sources.length) return false;
+	    const key = audioTermReadingKey(term, reading);
+	    if (button) button.dataset.audioKey = key;
+	    setAudioButtonsStateForKey(key, 'loading', 'Finding audio...');
+	    try {
+	      const result = await findPlayableAudio(term, reading, sources);
+	      if (!result || !result.audio) {
+	        setAudioButtonsStateForKey(key, 'missing', 'Could not find audio');
+	        return false;
+	      }
+	      stopCurrentAudio();
+	      const audio = result.audio;
+	      try { audio.currentTime = 0; } catch (_) {}
+	      try { audio.volume = 1; } catch (_) {}
+	      state.audioPlaying = audio;
+	      setAudioButtonsStateForKey(key, 'ready', 'Play audio\nFrom ' + String(result.sourceName || 'audio source'));
+	      const playPromise = audio.play();
+	      if (playPromise && typeof playPromise.then === 'function') {
+	        await playPromise.catch(error => {
+	          overlayDebug("audio play promise rejected " + String(error && error.message ? error.message : error));
+	        });
+	      }
+	      return true;
+	    } catch (error) {
+	      overlayDebug("audio playback failed term=" + JSON.stringify(term) + " reading=" + JSON.stringify(reading) + " error=" + String(error && error.message ? error.message : error));
+	      setAudioButtonsStateForKey(key, 'missing', 'Could not find audio');
+	      return false;
+	    } finally {
+	      try {
+	        if (button && button.dataset.audioState === 'loading') delete button.dataset.audioState;
+	      } catch (_) {}
+	    }
 	  }
 	  function nodeHref(node) {
 	    if (!node || typeof node !== 'object') return '';
@@ -277,8 +524,13 @@
   }
 
   function applyConfig(config) {
+    const previousAudioSignature = audioSourcesSignature(activeAudioSources());
     state.config = Object.assign({}, state.config, config || {});
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    state.config.audioSources = normalizeAudioSources(state.config.audioSources);
+    if (previousAudioSignature !== audioSourcesSignature(state.config.audioSources)) {
+      state.audioCache = Object.create(null);
+    }
     ensurePopupThemeHintListener();
     applyPopupTheme(state.config.popupTheme);
     document.documentElement.style.setProperty('--subtitle-scale', String(state.config.fontScale || 1));
@@ -313,6 +565,7 @@
     state.pendingLookupRequests = Object.create(null);
     state.charByPos = Object.create(null);
     state.lookupByPos = Object.create(null);
+    state.audioAutoPlayed = Object.create(null);
     state.progress = null;
     state.currentPos = null;
     state.activeMatchStart = null;
@@ -709,27 +962,49 @@
     clearActiveMatch();
   }
 
-	  function renderPopupHead(heading, reading, secondaryText) {
-	    return '<span class="term">' + escapeHtml(heading || '') + '</span>' +
-	      (reading ? '<span class="reading">' + escapeHtml(reading) + '</span>' : '') +
+	  function renderAudioButtonHtml(term, reading) {
+	    const audioTerm = String(term || '').trim();
+	    if (!audioTerm || !activeAudioSources().length) return '';
+	    const audioReading = String(reading || '').trim();
+	    const key = audioTermReadingKey(audioTerm, audioReading);
+	    return '<button type="button" class="audio-button" data-audio-key="' + escapeHtml(key) + '" data-audio-term="' + escapeHtml(audioTerm) + '" data-audio-reading="' + escapeHtml(audioReading) + '" title="Play audio" aria-label="Play audio"><span class="audio-icon" aria-hidden="true"></span></button>';
+	  }
+	  function bindPopupAudioButtons() {
+	    try {
+	      popupEl.querySelectorAll('.audio-button').forEach(button => {
+	        if (button.dataset.audioBound === 'true') return;
+	        button.dataset.audioBound = 'true';
+	        button.addEventListener('click', event => {
+	          try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+	          playAudioForTerm(button.dataset.audioTerm || '', button.dataset.audioReading || '', button, { userGesture: true }).catch(() => {});
+	        });
+	      });
+	    } catch (_) {}
+	  }
+	  function renderPopupHead(heading, reading, secondaryText, audioData) {
+	    const audioHtml = audioData ? renderAudioButtonHtml(audioData.term, audioData.reading) : '';
+	    return '<div class="head-main"><div class="head-title"><span class="term">' + escapeHtml(heading || '') + '</span>' +
+	      (reading ? '<span class="reading">' + escapeHtml(reading) + '</span>' : '') + '</div>' +
+	      audioHtml + '</div>' +
 	      (secondaryText ? '<div class="lookup-source">' + escapeHtml(secondaryText) + '</div>' : '');
 	  }
 	  function showPopup(anchor, heading, bodyHtml) {
 	    state.currentAnchor = anchor || null;
-	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '') + '</div><div class="body">' + bodyHtml + '</div>';
+	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '', null) + '</div><div class="body">' + bodyHtml + '</div>';
 	    markPopupClickable();
 	    popupEl.classList.remove('hidden');
 	    setLookupPopupVisibility(true);
 	    placePopup(anchor);
 	  }
-	  function setPopupBody(bodyHtml, heading, reading, secondaryText) {
+	  function setPopupBody(bodyHtml, heading, reading, secondaryText, audioData) {
 	    const head = popupEl.querySelector('.head');
 	    const body = popupEl.querySelector('.body');
 	    if (head && heading !== undefined) {
-	      head.innerHTML = renderPopupHead(heading || '', reading || '', secondaryText || '');
+	      head.innerHTML = renderPopupHead(heading || '', reading || '', secondaryText || '', audioData || null);
 	    }
     if (body) body.innerHTML = bodyHtml;
     markPopupClickable();
+    bindPopupAudioButtons();
     if (state.currentAnchor && !popupEl.classList.contains('hidden')) placePopup(state.currentAnchor);
   }
   function markPopupClickable() {
@@ -1431,6 +1706,22 @@
 	    overlayDebug("display headword selected heading=" + JSON.stringify(heading) + " surface=" + JSON.stringify(surface) + " secondary=" + JSON.stringify(secondary));
 	    return { heading, reading, secondary };
 	  }
+	  function audioDataForEntry(entry) {
+	    if (!entry) return null;
+	    const term = entry.term || {};
+	    const expression = displayHeadwordForEntry(entry);
+	    if (!expression) return null;
+	    return { term: expression, reading: String(term.reading || '') };
+	  }
+	  function maybeAutoPlayEntryAudio(stored, entry) {
+	    if (!state.config || !state.config.audioAutoPlay) return;
+	    const data = audioDataForEntry(entry);
+	    if (!data || !activeAudioSources().length) return;
+	    const key = String(state.lineId) + ':' + String(stored && stored.position !== undefined ? stored.position : state.currentPos) + ':' + audioTermReadingKey(data.term, data.reading);
+	    if (state.audioAutoPlayed[key]) return;
+	    state.audioAutoPlayed[key] = true;
+	    playAudioForTerm(data.term, data.reading, null, { auto: true }).catch(() => {});
+	  }
 	  function renderStoredLookup(stored) {
     if (!stored || !stored.ok) {
       setPopupBody('<div class="error">' + escapeHtml((stored && stored.error) || 'Lookup failed') + '</div>');
@@ -1448,6 +1739,7 @@
     }
 	    const first = entries[0];
 	    const header = displayHeaderForResult(result, first);
+	    const headerAudio = audioDataForEntry(first);
 	    if (state.currentPos !== null && state.currentPos !== undefined) {
 	      activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
 	    }
@@ -1463,7 +1755,8 @@
 	          compareTextKey(entryHeadword) === compareTextKey(header.heading) &&
 	          compareTextKey(term.reading || '') === compareTextKey(header.reading || '');
 	        if (!repeatsHeader) {
-	          html += '<div class="dict-term">' + escapeHtml(entryHeadword) + (term.reading ? '<span class="dict-reading">' + escapeHtml(term.reading) + '</span>' : '') + '</div>';
+	          const entryAudio = audioDataForEntry(entry);
+	          html += '<div class="dict-term"><span class="dict-term-text">' + escapeHtml(entryHeadword) + (term.reading ? '<span class="dict-reading">' + escapeHtml(term.reading) + '</span>' : '') + '</span>' + (entryAudio ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading) : '') + '</div>';
 	        }
 	      }
 	      html += renderEntryMetadata(term);
@@ -1479,7 +1772,8 @@
       if (Array.isArray(entry.trace) && entry.trace.length) html += '<div class="trace">' + escapeHtml(entry.trace.map(t => t.name || '').filter(Boolean).join(' → ')) + '</div>';
       html += '</div>';
     });
-	    setPopupBody(html, header.heading, header.reading, header.secondary);
+	    setPopupBody(html, header.heading, header.reading, header.secondary, headerAudio);
+	    maybeAutoPlayEntryAudio(stored, first);
 	  }
 
   function updateCharReady(pos) {
@@ -1564,7 +1858,7 @@
     renderSubtitle(payload && payload.text ? payload.text : '', payload && payload.lineId ? payload.lineId : 0);
   });
   iina.onMessage('line-lookup-reset', payload => {
-    if (!payload || Number(payload.lineId || 0) === state.lineId) { state.lookupByPos = Object.create(null); state.progress = null; }
+    if (!payload || Number(payload.lineId || 0) === state.lineId) { state.lookupByPos = Object.create(null); state.progress = null; state.audioAutoPlayed = Object.create(null); }
   });
   iina.onMessage('line-lookup-progress', payload => {
     if (!payload || Number(payload.lineId || 0) !== state.lineId) return;

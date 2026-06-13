@@ -86,7 +86,7 @@
       padding: 5px 26px 5px 10px;
       min-width: 170px;
     }
-    input[type="number"], input[type="text"] {
+    input[type="number"], input[type="text"], input[type="url"] {
       width: 100%;
       padding: 5px 7px;
     }
@@ -207,7 +207,7 @@
       border-color: var(--danger);
       background: var(--danger-hover);
     }
-    .dictionary-list, .recommended-list {
+    .dictionary-list, .recommended-list, .audio-source-list {
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
@@ -218,7 +218,7 @@
       color: var(--muted);
       text-align: center;
     }
-    .dictionary-row, .recommended-row {
+    .dictionary-row, .recommended-row, .audio-source-row {
       display: grid;
       align-items: center;
       gap: 8px;
@@ -229,12 +229,15 @@
     .dictionary-row {
       grid-template-columns: 34px 26px minmax(0, 1fr) auto;
     }
+    .audio-source-row {
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+    }
     .recommended-row {
       grid-template-columns: minmax(0, 1fr) auto;
     }
-    .dictionary-row:last-child, .recommended-row:last-child { border-bottom: 0; }
-    .dictionary-row.drag-over { background: var(--row-hover); }
-    .dictionary-row.dragging { opacity: 0.46; }
+    .dictionary-row:last-child, .recommended-row:last-child, .audio-source-row:last-child { border-bottom: 0; }
+    .dictionary-row.drag-over, .audio-source-row.drag-over { background: var(--row-hover); }
+    .dictionary-row.dragging, .audio-source-row.dragging { opacity: 0.46; }
     .drag-handle {
       width: 28px;
       min-height: 28px;
@@ -270,8 +273,15 @@
       .dictionary-row {
         grid-template-columns: 34px 24px minmax(0, 1fr);
       }
+      .audio-source-row {
+        grid-template-columns: 34px minmax(0, 1fr);
+      }
       .dictionary-row .row-actions {
         grid-column: 3;
+        justify-content: flex-start;
+      }
+      .audio-source-row .row-actions {
+        grid-column: 2;
         justify-content: flex-start;
       }
     }
@@ -323,6 +333,16 @@
         <label class="check-field"><input data-profile-pref="hideNativeSubtitles" type="checkbox"><span>Hide IINA subtitles while iinatan is on</span></label>
         <label class="check-field"><input data-profile-pref="pauseWhilePopupVisible" type="checkbox"><span>Pause while a popup is visible</span></label>
       </div>
+
+      <h3>Word Audio</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-profile-pref="audioAutoPlay" type="checkbox"><span>Play first result audio automatically</span></label>
+      </div>
+      <div class="toolbar">
+        <span class="spacer"></span>
+        <button id="addAudioSource" type="button">Add source</button>
+      </div>
+      <section id="audioSourceList" class="audio-source-list"></section>
     </section>
 
     <section class="panel" data-panel="popup">
@@ -470,10 +490,13 @@
     </section>
   </main>
   <script>
+    const DEFAULT_AUDIO_SOURCE_URL = 'http://127.0.0.1:5050/?term={term}&reading={reading}';
+
     const state = {
       dictionaries: [],
       profiles: [],
       recommendedDictionaries: [],
+      audioSources: [],
       profilePreferences: {},
       profilePreferenceDefaults: {},
       globalSettings: {},
@@ -482,9 +505,11 @@
       activeProfileName: 'Profile 1',
       busy: false,
       draggingName: '',
+      draggingAudioSourceId: '',
       commandSerial: 0,
       activeTab: 'profile',
-      rendering: false
+      rendering: false,
+      audioSourceSerial: 0
     };
 
     const els = {
@@ -495,8 +520,10 @@
       deleteProfile: document.getElementById('deleteProfile'),
       importZip: document.getElementById('importZip'),
       refresh: document.getElementById('refresh'),
+      addAudioSource: document.getElementById('addAudioSource'),
       status: document.getElementById('status'),
       dictionaryList: document.getElementById('dictionaryList'),
+      audioSourceList: document.getElementById('audioSourceList'),
       recommendedList: document.getElementById('recommendedList')
     };
 
@@ -558,7 +585,7 @@
     }
     function updateBusyState() {
       const disabled = !!state.busy;
-      [els.importZip, els.refresh, els.newProfile, els.renameProfile].forEach(button => {
+      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource].forEach(button => {
         button.disabled = disabled;
       });
       const profile = activeProfile();
@@ -571,6 +598,9 @@
         control.disabled = disabled || control.dataset.positionDisabled === 'true';
       });
       Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
+        row.draggable = !disabled;
+      });
+      Array.from(els.audioSourceList.querySelectorAll('.audio-source-row')).forEach(row => {
         row.draggable = !disabled;
       });
     }
@@ -587,6 +617,96 @@
     }
     function postOrder() {
       command('dictionary-manager-set-order', { order: currentOrder() }, 'Saving dictionary order...');
+    }
+    function normalizeAudioSourceUrl(value) {
+      const url = String(value || '').trim();
+      if (!url || !/^https?:\/\//i.test(url)) return '';
+      return url;
+    }
+    function normalizeAudioSourceItem(source) {
+      const raw = typeof source === 'string' ? { url: source } : (source && typeof source === 'object' ? source : {});
+      const url = normalizeAudioSourceUrl(raw.url);
+      if (!url) return null;
+      const id = raw.id ? String(raw.id) : 'audio-source-' + String(++state.audioSourceSerial);
+      const name = String(raw.name || '').trim();
+      return name ? { id, name, url } : { id, url };
+    }
+    function normalizeAudioSources(value) {
+      let raw = value;
+      if (typeof raw === 'string') {
+        const text = raw.trim();
+        if (!text) return [];
+        try { raw = JSON.parse(text); } catch (_) { raw = text; }
+      }
+      if (raw && typeof raw === 'object' && Array.isArray(raw.audioSources)) raw = raw.audioSources;
+      const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+      const seen = Object.create(null);
+      const out = [];
+      values.forEach(item => {
+        const normalized = normalizeAudioSourceItem(item);
+        if (!normalized || seen[normalized.url]) return;
+        seen[normalized.url] = true;
+        out.push(normalized);
+      });
+      return out;
+    }
+    function serializeAudioSources(sources) {
+      const clean = [];
+      const seen = Object.create(null);
+      (Array.isArray(sources) ? sources : []).forEach(source => {
+        const url = normalizeAudioSourceUrl(source && source.url);
+        if (!url || seen[url]) return;
+        seen[url] = true;
+        const name = String((source && source.name) || '').trim();
+        clean.push(name ? { name, url } : { url });
+      });
+      return JSON.stringify(clean);
+    }
+    function syncAudioSourcesFromProfile() {
+      state.audioSources = normalizeAudioSources(profileValue('audioSourcesJson'));
+    }
+    function saveAudioSources() {
+      saveProfilePreferences();
+    }
+    function moveAudioSource(id, delta) {
+      const index = state.audioSources.findIndex(source => source.id === id);
+      const next = index + delta;
+      if (index < 0 || next < 0 || next >= state.audioSources.length) return;
+      const item = state.audioSources.splice(index, 1)[0];
+      state.audioSources.splice(next, 0, item);
+      renderAudioSources();
+      saveAudioSources();
+    }
+    function moveAudioSourceBefore(id, beforeId) {
+      if (!id || !beforeId || id === beforeId) return;
+      const from = state.audioSources.findIndex(source => source.id === id);
+      if (from < 0 || state.audioSources.findIndex(source => source.id === beforeId) < 0) return;
+      const item = state.audioSources.splice(from, 1)[0];
+      const target = state.audioSources.findIndex(source => source.id === beforeId);
+      state.audioSources.splice(Math.max(0, target), 0, item);
+      renderAudioSources();
+      saveAudioSources();
+    }
+    function deleteAudioSource(id) {
+      const before = state.audioSources.length;
+      state.audioSources = state.audioSources.filter(source => source.id !== id);
+      if (state.audioSources.length === before) return;
+      renderAudioSources();
+      saveAudioSources();
+    }
+    function addAudioSource() {
+      state.audioSources.push({
+        id: 'audio-source-' + String(++state.audioSourceSerial),
+        url: DEFAULT_AUDIO_SOURCE_URL
+      });
+      renderAudioSources();
+      saveAudioSources();
+    }
+    function updateAudioSourceUrl(id, value) {
+      const source = state.audioSources.find(item => item.id === id);
+      if (!source) return;
+      source.url = String(value || '').trim();
+      saveAudioSources();
     }
     function moveDictionary(name, delta) {
       const index = state.dictionaries.findIndex(dict => dict.name === name);
@@ -642,6 +762,7 @@
         const key = control.dataset.profilePref;
         prefs[key] = readControlValue(control, state.profilePreferenceDefaults[key]);
       });
+      prefs.audioSourcesJson = serializeAudioSources(state.audioSources);
       return prefs;
     }
     function collectGlobalSettings() {
@@ -691,6 +812,7 @@
       Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
         setControlValue(control, globalValue(control.dataset.globalSetting));
       });
+      syncAudioSourcesFromProfile();
       state.rendering = false;
     }
     function renderRecommended() {
@@ -828,6 +950,95 @@
         els.dictionaryList.appendChild(row);
       });
     }
+    function renderAudioSources() {
+      els.audioSourceList.innerHTML = '';
+      if (!state.audioSources.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'No audio sources configured.';
+        els.audioSourceList.appendChild(empty);
+        return;
+      }
+      state.audioSources.forEach((source, index) => {
+        const row = document.createElement('div');
+        row.className = 'audio-source-row' + (state.draggingAudioSourceId === source.id ? ' dragging' : '');
+        row.draggable = !state.busy;
+        row.dataset.id = source.id;
+
+        const handle = document.createElement('button');
+        handle.className = 'drag-handle';
+        handle.type = 'button';
+        handle.title = 'Drag';
+        handle.textContent = '::';
+        handle.dataset.busyControl = 'true';
+        handle.disabled = state.busy;
+        row.appendChild(handle);
+
+        const input = document.createElement('input');
+        input.type = 'url';
+        input.value = source.url || '';
+        input.placeholder = DEFAULT_AUDIO_SOURCE_URL;
+        input.setAttribute('aria-label', 'Audio source URL');
+        input.dataset.busyControl = 'true';
+        input.disabled = state.busy;
+        input.addEventListener('change', () => updateAudioSourceUrl(source.id, input.value));
+        row.appendChild(input);
+
+        const actions = document.createElement('div');
+        actions.className = 'row-actions';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.textContent = 'Up';
+        up.dataset.busyControl = 'true';
+        up.dataset.positionDisabled = index === 0 ? 'true' : 'false';
+        up.disabled = state.busy || index === 0;
+        up.addEventListener('click', () => moveAudioSource(source.id, -1));
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.textContent = 'Down';
+        down.dataset.busyControl = 'true';
+        down.dataset.positionDisabled = index === state.audioSources.length - 1 ? 'true' : 'false';
+        down.disabled = state.busy || index === state.audioSources.length - 1;
+        down.addEventListener('click', () => moveAudioSource(source.id, 1));
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'danger';
+        del.textContent = 'Delete';
+        del.dataset.busyControl = 'true';
+        del.disabled = state.busy;
+        del.addEventListener('click', () => deleteAudioSource(source.id));
+        actions.appendChild(up);
+        actions.appendChild(down);
+        actions.appendChild(del);
+        row.appendChild(actions);
+
+        row.addEventListener('dragstart', event => {
+          state.draggingAudioSourceId = source.id;
+          row.classList.add('dragging');
+          try { event.dataTransfer.setData('text/plain', source.id); } catch (_) {}
+          try { event.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+        });
+        row.addEventListener('dragend', () => {
+          state.draggingAudioSourceId = '';
+          Array.from(document.querySelectorAll('.audio-source-row')).forEach(el => el.classList.remove('drag-over', 'dragging'));
+        });
+        row.addEventListener('dragover', event => {
+          event.preventDefault();
+          row.classList.add('drag-over');
+          try { event.dataTransfer.dropEffect = 'move'; } catch (_) {}
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', event => {
+          event.preventDefault();
+          row.classList.remove('drag-over');
+          const id = state.draggingAudioSourceId || (event.dataTransfer && event.dataTransfer.getData('text/plain'));
+          state.draggingAudioSourceId = '';
+          moveAudioSourceBefore(id, source.id);
+        });
+
+        els.audioSourceList.appendChild(row);
+      });
+    }
     function renderTabs() {
       Array.from(document.querySelectorAll('.tab')).forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === state.activeTab);
@@ -841,6 +1052,7 @@
       renderSettingsControls();
       renderRecommended();
       renderDictionaries();
+      renderAudioSources();
       renderTabs();
       updateBusyState();
     }
@@ -851,6 +1063,7 @@
         renderTabs();
       });
     });
+    els.addAudioSource.addEventListener('click', addAudioSource);
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
       control.addEventListener('change', saveProfilePreferences);
     });

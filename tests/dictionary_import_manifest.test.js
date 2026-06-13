@@ -69,6 +69,15 @@ assert(manifest.dictionaries['Latin Dict'].freqCount === 0, 'missing freq_count 
 assert(manifest.dictionaries['Latin Dict'].language === 'unknown', 'missing language metadata should remain importable as unknown');
 assert(manifest.profiles.default.dictionaryOrder.includes('Latin Dict'), 'imported dictionary should be appended to the active profile order');
 assert(manifest.dictionaryOrder.includes('Latin Dict'), 'legacy dictionaryOrder mirror should stay in sync');
+assert(manifest.profiles.default.preferences.audioAutoPlay === false, 'word audio auto-play should default off per profile');
+assert(JSON.parse(manifest.profiles.default.preferences.audioSourcesJson)[0].url === 'http://127.0.0.1:5050/?term={term}&reading={reading}', 'word audio sources should default to the local Anki audio server');
+
+assert(JSON.parse(context.normalizeAudioSourcesJsonPreference('', true))[0].url === 'http://127.0.0.1:5050/?term={term}&reading={reading}', 'missing audio source settings should receive the default source');
+assert(context.normalizeAudioSourcesJsonPreference('[]', false) === '[]', 'explicitly empty audio source lists should stay empty');
+assert(
+  JSON.parse(context.normalizeAudioSourcesJsonPreference([{ url: 'ftp://example.invalid/audio' }, { url: 'http://127.0.0.1:5050/?term={term}' }], false)).length === 1,
+  'audio source normalization should keep only http/https URLs'
+);
 
 context.updateManifestAfterImport({ ok: true, term_count: 3, meta_count: 2 }, '/tmp/latin.zip');
 manifest = JSON.parse(storage['/data/manifest.json']);

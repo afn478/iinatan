@@ -12,6 +12,8 @@ assert(info.preferenceDefaults.etymologyCollapseDefault === 'collapsed', 'Etymol
 assert(info.preferenceDefaults.wiktionaryEtymologyCollapseOverride === 'collapsed', 'Wiktionary/Kaikki override should default collapsed');
 assert(info.preferenceDefaults.popupTheme === 'inherit', 'Popup theme should default to inheriting IINA appearance');
 assert(Object.prototype.hasOwnProperty.call(info.preferenceDefaults, 'customPopupCss'), 'Custom popup CSS preference should exist');
+assert(info.preferenceDefaults.audioAutoPlay === false, 'Word audio auto-play should default off');
+assert(/127\.0\.0\.1:5050/.test(info.preferenceDefaults.audioSourcesJson), 'Word audio should default to the local Anki audio server');
 
 const preferencesHtml = fs.readFileSync(path.join(root, 'preferences.html'), 'utf8');
 assert(!/data-pref=/.test(preferencesHtml), 'IINA preferences page should not own profile settings');
@@ -22,6 +24,10 @@ const managerHtml = fs.readFileSync(path.join(root, 'dictionary-manager.html'), 
 assert(/iinatan Settings/.test(managerHtml), 'Settings manager should use the plugin settings title');
 assert(/data-profile-pref="lookupLanguage"/.test(managerHtml), 'Settings manager should expose per-profile language');
 assert(/data-profile-pref="pauseWhilePopupVisible"/.test(managerHtml), 'Settings manager should expose per-profile playback settings');
+assert(/data-profile-pref="audioAutoPlay"/.test(managerHtml), 'Settings manager should expose per-profile word audio auto-play');
+assert(/id="audioSourceList"/.test(managerHtml), 'Settings manager should expose the word audio source list');
+assert(/moveAudioSourceBefore/.test(managerHtml), 'Audio source priorities should support drag reordering');
+assert(/audioSourcesJson/.test(managerHtml), 'Audio source priorities should be saved with profile preferences');
 assert(/data-profile-pref="scanLength"/.test(managerHtml), 'Settings manager should expose per-profile scan length');
 assert(/data-profile-pref="popupTheme"/.test(managerHtml), 'Settings manager should expose per-profile popup color mode');
 assert(/data-profile-pref="customPopupCss"/.test(managerHtml), 'Settings manager should expose per-profile custom popup CSS');

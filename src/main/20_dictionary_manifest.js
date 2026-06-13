@@ -1,8 +1,12 @@
 const DEFAULT_PROFILE_ID = "default";
+const DEFAULT_AUDIO_SOURCE_URL = "http://127.0.0.1:5050/?term={term}&reading={reading}";
+const DEFAULT_AUDIO_SOURCES_JSON = JSON.stringify([{ url: DEFAULT_AUDIO_SOURCE_URL }]);
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
   pauseWhilePopupVisible: true,
+  audioAutoPlay: false,
+  audioSourcesJson: DEFAULT_AUDIO_SOURCES_JSON,
   lookupLanguage: "ja",
   scanLength: 24,
   maxEntries: 3,
@@ -34,6 +38,55 @@ const GLOBAL_SETTINGS_DEFAULTS = {
 };
 const GLOBAL_SETTINGS_KEYS = Object.keys(GLOBAL_SETTINGS_DEFAULTS);
 
+function normalizeAudioSourceUrl(value) {
+  const url = String(value || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) return "";
+  return url;
+}
+function normalizeAudioSourceItem(source) {
+  const raw = typeof source === "string" ? { url: source } : (source && typeof source === "object" ? source : {});
+  const url = normalizeAudioSourceUrl(raw.url);
+  if (!url) return null;
+  const name = String(raw.name || "").trim();
+  return name ? { name, url } : { url };
+}
+function normalizeAudioSources(value) {
+  let raw = value;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) return [];
+    try { raw = JSON.parse(text); } catch (_) { raw = text; }
+  }
+  if (raw && typeof raw === "object" && Array.isArray(raw.audioSources)) raw = raw.audioSources;
+  const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const seen = Object.create(null);
+  const out = [];
+  values.forEach(item => {
+    const normalized = normalizeAudioSourceItem(item);
+    if (!normalized || seen[normalized.url]) return;
+    seen[normalized.url] = true;
+    out.push(normalized);
+  });
+  return out;
+}
+function normalizeAudioSourcesJsonPreference(value, useDefaultWhenEmpty) {
+  const sources = normalizeAudioSources(value);
+  if (!sources.length && useDefaultWhenEmpty) return DEFAULT_AUDIO_SOURCES_JSON;
+  return JSON.stringify(sources);
+}
+function normalizeProfilePreferenceBoolValue(value, fallback) {
+  if (typeof preferenceValueToBool === "function") return preferenceValueToBool(value, fallback);
+  if (value === undefined || value === null || value === "") return !!fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return !!fallback;
+    if (["true", "1", "yes", "on"].indexOf(normalized) >= 0) return true;
+    if (["false", "0", "no", "off"].indexOf(normalized) >= 0) return false;
+  }
+  return !!value;
+}
 function emptyManifest() {
   return { dictionaries: {}, disabled: {}, dictionaryOrder: [], activeProfileId: DEFAULT_PROFILE_ID, profiles: {} };
 }
@@ -62,9 +115,12 @@ function normalizeProfilePreferences(prefs) {
   const out = {};
   PROFILE_PREFERENCE_KEYS.forEach(key => { out[key] = PROFILE_PREFERENCE_DEFAULTS[key]; });
   if (!prefs || typeof prefs !== "object") return out;
+  const hasAudioSources = Object.prototype.hasOwnProperty.call(prefs, "audioSourcesJson");
   PROFILE_PREFERENCE_KEYS.forEach(key => {
     if (Object.prototype.hasOwnProperty.call(prefs, key)) out[key] = prefs[key];
   });
+  out.audioAutoPlay = normalizeProfilePreferenceBoolValue(out.audioAutoPlay, PROFILE_PREFERENCE_DEFAULTS.audioAutoPlay);
+  out.audioSourcesJson = normalizeAudioSourcesJsonPreference(out.audioSourcesJson, !hasAudioSources);
   return out;
 }
 function makeDefaultProfile(id, name) {
