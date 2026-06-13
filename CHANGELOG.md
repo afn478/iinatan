@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.1 - 2026-06-13
+
+### Fixed
+
+- Playback now resumes after a hover lookup popup disappears when popup pause is enabled, while preserving manually paused playback.
+- Popup pause handling now ignores stale hide events and cancels pending resume when another popup appears.
+
 ## 1.8.0 - 2026-06-12
 
 ### Added

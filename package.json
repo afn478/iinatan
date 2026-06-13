@@ -1,6 +1,6 @@
 {
   "name": "iinatan",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "description": "Hover Japanese subtitles to see dictionary popups in IINA",
   "license": "GPL-3.0-only",
