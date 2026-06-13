@@ -754,7 +754,7 @@
     const sub = visibleSubtitleRect();
     const margin = 12;
     const gap = Math.max(12, Number(state.config.popupSubtitleGapPx || 34));
-    const scale = Number(state.config.popupScale || 0.92);
+    const scale = Math.max(0.1, Number(state.config.popupScale || 0.92) || 0.92);
     const desiredVh = Math.max(20, Math.min(60, Number(state.config.popupMaxHeightVh || 34)));
     const desiredMax = Math.floor(window.innerHeight * desiredVh / 100);
 
@@ -785,13 +785,13 @@
 
     const regionHeight = Math.max(80, regionBottom - regionTop);
     const cappedHeight = Math.max(80, Math.min(desiredMax, regionHeight));
-    document.documentElement.style.setProperty('--popup-max-height', String(Math.floor(cappedHeight)) + 'px');
+    document.documentElement.style.setProperty('--popup-max-height', String(Math.floor(cappedHeight / scale)) + 'px');
 
     popupEl.style.left = '0px';
     popupEl.style.top = '0px';
     const pr = popupEl.getBoundingClientRect();
-    const popupW = pr.width / scale;
-    const popupH = Math.min(pr.height / scale, cappedHeight);
+    const popupW = Math.min(Math.max(0, pr.width), Math.max(0, window.innerWidth - margin * 2));
+    const popupH = Math.min(Math.max(0, pr.height), cappedHeight);
 
     let left = rect.left + rect.width / 2 - popupW / 2;
     const maxLeft = window.innerWidth - popupW - margin;
@@ -809,7 +809,7 @@
     const overlaps = !(top + popupH <= sub.top - gap / 2 || top >= sub.bottom + gap / 2);
     if (overlaps && availableAbove > 80) {
       const safeHeight = Math.max(80, Math.min(desiredMax, availableAbove));
-      document.documentElement.style.setProperty('--popup-max-height', String(Math.floor(safeHeight)) + 'px');
+      document.documentElement.style.setProperty('--popup-max-height', String(Math.floor(safeHeight / scale)) + 'px');
       top = Math.max(margin, sub.top - gap - safeHeight);
     }
 

@@ -105,6 +105,7 @@ class FakeElement {
     return out;
   }
   getBoundingClientRect() {
+    if (this._rect) return this._rect;
     const pos = Number(this.dataset.pos || 0);
     if (this.tagName === 'subtitle') return { left: 100, top: 500, right: 500, bottom: 540, width: 400, height: 40 };
     if (this.tagName === 'popup') return { left: 0, top: 0, right: 260, bottom: 120, width: 260, height: 120 };
@@ -132,6 +133,9 @@ function makeOverlayContext(options) {
   };
   elements.popup.classList.add('hidden');
   const head = new FakeElement('head');
+  const rootStyle = {
+    setProperty(name, value) { this[name] = String(value); }
+  };
   const sent = [];
   const handlers = Object.create(null);
   const sockets = [];
@@ -156,7 +160,7 @@ function makeOverlayContext(options) {
     window: { innerWidth: 1280, innerHeight: 720, addEventListener() {} },
     document: {
       head,
-      documentElement: { style: { setProperty() {} } },
+      documentElement: { style: rootStyle },
       addEventListener() {},
       getElementById(id) { return elements[id]; },
       createElement(tag) { return new FakeElement(tag); },
