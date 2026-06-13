@@ -214,8 +214,8 @@
     #popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
     #popup::-webkit-scrollbar-thumb:hover { background: var(--popup-scroll-thumb-hover); }
     #popup .head { padding: 14px 18px 12px; }
-    #popup .head-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
-    #popup .head-title { min-width: 0; }
+    #popup .head-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
+    #popup .head-title { flex: 1 1 auto; min-width: 0; }
     #popup .term { font-size: 30px; font-weight: 800; line-height: 1.15; }
     #popup .reading { margin-left: 10px; color: var(--popup-reading); font-size: 16px; font-weight: 650; }
     #popup .lookup-source { margin-top: 4px; color: var(--popup-faint); font-size: 12px; font-weight: 650; line-height: 1.25; }
@@ -226,8 +226,8 @@
     .dict { color: var(--popup-muted); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
-    .dict-term { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
-    .dict-term-text { min-width: 0; }
+    .dict-term { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
+    .dict-term-text { flex: 1 1 auto; min-width: 0; }
     .dict-reading { color: var(--popup-reading); font-weight: 650; margin-left: 10px; font-size: 16px; }
     .audio-button {
       position: relative;
@@ -237,7 +237,7 @@
       flex: 0 0 auto;
       width: 26px;
       height: 26px;
-      margin: 1px 0 0;
+      margin: 1px 0 0 auto;
       border: 1px solid var(--popup-divider);
       border-radius: 999px;
       padding: 0;

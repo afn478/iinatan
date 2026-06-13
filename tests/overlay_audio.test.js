@@ -9,21 +9,10 @@ const { context, overlay } = loadOverlayForTest([
   'playAudioForTerm'
 ]);
 
-const fetchUrls = [];
-let responseMode = 'fallback';
-context.fetch = async function fetch(url) {
-  fetchUrls.push(String(url));
-  const audioSources = responseMode === 'empty' ? [] : [
-    { name: 'bad', url: 'http://127.0.0.1:5050/bad.mp3' },
-    { name: 'good', url: '/good.mp3' }
-  ];
-  return {
-    ok: true,
-    status: 200,
-    async text() {
-      return JSON.stringify({ type: 'audioSourceList', audioSources });
-    }
-  };
+let fetchCalled = false;
+context.fetch = async function fetch() {
+  fetchCalled = true;
+  throw new Error('overlay fetch should not be used when bridge resolves audio');
 };
 
 const loaded = [];
@@ -65,6 +54,7 @@ context.Audio.prototype.pause = function pause() {};
 overlay.applyConfig({
   language: { id: 'ja', label: 'Japanese', lookupUnit: 'character', wordMode: 'rightward-prefix' },
   audioSources: [{ url: 'http://127.0.0.1:5050/?term={term}&reading={reading}' }],
+  overlayBridgePort: 19741,
   hoverRequestTimeoutMs: 5000
 });
 
@@ -94,22 +84,42 @@ button.className = 'audio-button';
 button.dataset.audioKey = key;
 context.__elements.popup.appendChild(button);
 
+function respondToAudioSourceRequest(fromIndex, candidates, ok) {
+  const message = context.__sent.slice(fromIndex).find(item => item.type === 'audio-source');
+  assert(message, 'Audio playback should request source JSON over the WebSocket bridge');
+  context.__handlers['audio-source-result']({
+    requestId: message.requestId,
+    ok: ok !== false,
+    candidates: candidates || []
+  });
+  return message;
+}
+
 (async () => {
-  const ok = await overlay.playAudioForTerm('読む', 'よむ', button, {});
+  const beforeFirst = context.__sent.length;
+  const playPromise = overlay.playAudioForTerm('読む', 'よむ', button, {});
+  const request = respondToAudioSourceRequest(beforeFirst, [
+    { name: 'bad', url: 'http://127.0.0.1:5050/bad.mp3' },
+    { name: 'good', url: 'http://127.0.0.1:5050/good.mp3' }
+  ]);
+  const ok = await playPromise;
   assert(ok, 'Audio playback should succeed when a later candidate works');
-  assert(fetchUrls[0].indexOf('term=%E8%AA%AD%E3%82%80') >= 0, 'Audio source URL should receive the encoded term');
-  assert(fetchUrls[0].indexOf('reading=%E3%82%88%E3%82%80') >= 0, 'Audio source URL should receive the encoded reading');
+  assert(request.url.indexOf('term=%E8%AA%AD%E3%82%80') >= 0, 'Audio source URL should receive the encoded term');
+  assert(request.url.indexOf('reading=%E3%82%88%E3%82%80') >= 0, 'Audio source URL should receive the encoded reading');
+  assert(!fetchCalled, 'Overlay should not fetch source JSON directly when the bridge resolves audio');
   assert(loaded[0].indexOf('bad.mp3') >= 0, 'The first candidate should be tried before fallback candidates');
   assert(played[0] === 'http://127.0.0.1:5050/good.mp3', 'The first working candidate should be played');
   assert(button.dataset.audioState === 'ready', 'Successful audio should leave the button available without a missing badge');
 
-  responseMode = 'empty';
   const missingKey = overlay.audioTermReadingKey('無音', '');
   const missingButton = context.document.createElement('button');
   missingButton.className = 'audio-button';
   missingButton.dataset.audioKey = missingKey;
   context.__elements.popup.appendChild(missingButton);
-  const missing = await overlay.playAudioForTerm('無音', '', missingButton, {});
+  const beforeMissing = context.__sent.length;
+  const missingPromise = overlay.playAudioForTerm('無音', '', missingButton, {});
+  respondToAudioSourceRequest(beforeMissing, []);
+  const missing = await missingPromise;
   assert(!missing, 'Empty audio source JSON should report missing audio');
   assert(missingButton.dataset.audioState === 'missing', 'Missing audio should mark the speaker with the missing badge state');
 

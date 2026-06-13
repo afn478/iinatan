@@ -3462,6 +3462,8 @@ function ensureOverlayBridge() {
 	          handleLookupPopupVisibility(payload);
 	        } else if (payload && typeof payload === "object" && payload.type === "lookup") {
 	          handleBridgeLookup(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "audio-source") {
+	          handleBridgeAudioSource(payload);
 	        } else if (payload && typeof payload === "object" && payload.type === "open-url") {
 	          openExternalUrlFromOverlay(payload.url);
 	        } else if (payload && typeof payload === "object" && payload.type === "overlay-log") {
@@ -3480,6 +3482,83 @@ function ensureOverlayBridge() {
   } catch (error) {
     debugLog("overlay bridge start failed: " + compactError(error));
 	  }
+	}
+
+	function fallbackResolveAudioCandidateUrl(value, baseUrl) {
+	  if (/^https?:\/\/[^\s<>"']+$/i.test(value)) return value;
+	  if (/[\s<>"']/.test(value)) return "";
+	  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return "";
+	  const base = String(baseUrl || "").trim();
+	  const baseMatch = /^(https?:)\/\/([^\/?#]+)(\/[^?#]*)?/i.exec(base);
+	  if (!baseMatch) return "";
+	  if (/^\/\//.test(value)) return baseMatch[1] + value;
+	  const origin = baseMatch[1] + "//" + baseMatch[2];
+	  if (value.charAt(0) === "/") return origin + value;
+	  const basePath = baseMatch[3] || "/";
+	  const baseDir = basePath.charAt(basePath.length - 1) === "/" ? basePath : basePath.slice(0, basePath.lastIndexOf("/") + 1) || "/";
+	  return origin + baseDir + value;
+	}
+	function safeAudioCandidateUrl(rawUrl, baseUrl) {
+	  const value = String(rawUrl || "").trim();
+	  if (!value) return "";
+	  try {
+	    if (typeof URL === "function") {
+	      const parsed = new URL(value, baseUrl || undefined);
+	      if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+	      return "";
+	    }
+	  } catch (_) {
+	    return "";
+	  }
+	  return fallbackResolveAudioCandidateUrl(value, baseUrl);
+	}
+	function audioCandidatesFromSourceJson(rawJson, sourceUrl) {
+	  let parsed = null;
+	  try { parsed = JSON.parse(String(rawJson || "")); } catch (error) {
+	    throw new Error("Audio source did not return JSON: " + compactError(error));
+	  }
+	  if (!parsed || parsed.type !== "audioSourceList" || !Array.isArray(parsed.audioSources)) {
+	    throw new Error("Audio source JSON was not a Yomitan audioSourceList.");
+	  }
+	  const out = [];
+	  parsed.audioSources.forEach(item => {
+	    const url = safeAudioCandidateUrl(item && item.url, sourceUrl);
+	    if (!url) return;
+	    const name = String((item && item.name) || "").trim();
+	    out.push(name ? { name, url } : { url });
+	  });
+	  return out;
+	}
+	async function fetchAudioSourceCandidates(sourceUrl) {
+	  const url = safeExternalHttpUrl(sourceUrl);
+	  if (!url) throw new Error("Invalid audio source URL.");
+	  const result = await utils.exec("/usr/bin/curl", [
+	    "--silent",
+	    "--show-error",
+	    "--location",
+	    "--max-time",
+	    "8",
+	    url
+	  ], dataRoot());
+	  if (!result || result.status !== 0) {
+	    throw new Error("Audio source request failed: " + String((result && (result.stderr || result.stdout)) || "curl failed").slice(0, 500));
+	  }
+	  return audioCandidatesFromSourceJson(result.stdout, url);
+	}
+	function handleBridgeAudioSource(payload) {
+	  const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : "";
+	  const sourceUrl = String((payload && payload.url) || "");
+	  (async () => {
+	    try {
+	      const candidates = await fetchAudioSourceCandidates(sourceUrl);
+	      debugVerbose("audio source resolved requestId=" + requestId + " url=" + JSON.stringify(sourceUrl) + " candidates=" + candidates.length);
+	      postToOverlay("audio-source-result", { requestId, ok: true, candidates });
+	    } catch (error) {
+	      const msg = compactError(error);
+	      debugWarn("audio source request failed requestId=" + requestId + " url=" + JSON.stringify(sourceUrl) + ": " + msg);
+	      postToOverlay("audio-source-result", { requestId, ok: false, error: msg });
+	    }
+	  })();
 	}
 
 	function safeExternalHttpUrl(rawUrl) {

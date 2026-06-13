@@ -51,6 +51,8 @@
     audioPlaying: null,
     audioCache: Object.create(null),
     audioAutoPlayed: Object.create(null),
+    audioSourceRequestSeq: 0,
+    pendingAudioSourceRequests: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -175,6 +177,42 @@
 	    });
 	    return urls;
 	  }
+	  function normalizeAudioCandidateList(candidates, sourceUrl) {
+	    const out = [];
+	    (Array.isArray(candidates) ? candidates : []).forEach(item => {
+	      const audioUrl = safeAudioUrl(item && item.url, sourceUrl);
+	      if (audioUrl) out.push({ url: audioUrl, name: normalizeWhitespace(item && item.name || '') });
+	    });
+	    return out;
+	  }
+	  function requestAudioCandidatesFromPlugin(sourceUrl) {
+	    return new Promise(resolve => {
+	      const requestId = 'audio-' + String(++state.audioSourceRequestSeq);
+	      const timeoutMs = Math.min(9000, Math.max(2500, Number(state.config.hoverRequestTimeoutMs || 5000)));
+	      let timer = null;
+	      const finish = result => {
+	        if (timer !== null) clearTimeout(timer);
+	        delete state.pendingAudioSourceRequests[requestId];
+	        resolve(result || null);
+	      };
+	      state.pendingAudioSourceRequests[requestId] = { finish, sourceUrl };
+	      const sent = sendBridgeMessage({
+	        type: 'audio-source',
+	        requestId,
+	        url: sourceUrl,
+	        at: Date.now()
+	      });
+	      if (!sent) {
+	        delete state.pendingAudioSourceRequests[requestId];
+	        resolve(null);
+	        return;
+	      }
+	      timer = setTimeout(() => {
+	        overlayDebug("audio source bridge request timed out requestId=" + requestId + " url=" + JSON.stringify(sourceUrl));
+	        finish(null);
+	      }, timeoutMs);
+	    });
+	  }
 	  function fetchTextWithTimeout(url, timeoutMs) {
 	    if (typeof fetch !== 'function') return Promise.reject(new Error('fetch unavailable'));
 	    let timer = null;
@@ -208,6 +246,16 @@
 	    const sourceUrl = safeAudioUrl(audioUrlFromTemplate(source && source.url, term, reading), '');
 	    if (!sourceUrl) return [];
 	    if (urlLooksLikeAudioFile(sourceUrl)) return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	    const bridgeResult = await requestAudioCandidatesFromPlugin(sourceUrl);
+	    if (bridgeResult && bridgeResult.ok && Array.isArray(bridgeResult.candidates)) {
+	      const candidates = normalizeAudioCandidateList(bridgeResult.candidates, sourceUrl);
+	      overlayDebug("audio source bridge resolved url=" + JSON.stringify(sourceUrl) + " candidates=" + candidates.length);
+	      return candidates;
+	    }
+	    if (bridgeResult && bridgeResult.ok === false) {
+	      overlayDebug("audio source bridge failed url=" + JSON.stringify(sourceUrl) + " error=" + JSON.stringify(String(bridgeResult.error || "")));
+	      return [];
+	    }
 	    try {
 	      const text = await fetchTextWithTimeout(sourceUrl, Math.min(8000, Math.max(2500, Number(state.config.hoverRequestTimeoutMs || 5000))));
 	      let parsed = null;
@@ -220,7 +268,7 @@
 	    } catch (error) {
 	      overlayDebug("audio source JSON fetch failed url=" + JSON.stringify(sourceUrl) + " error=" + String(error && error.message ? error.message : error));
 	    }
-	    return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	    return [];
 	  }
 	  function waitForAudioData(audio, timeoutMs) {
 	    return new Promise((resolve, reject) => {
@@ -267,6 +315,13 @@
 	    if (!audio) return;
 	    try { audio.pause(); } catch (_) {}
 	    state.audioPlaying = null;
+	  }
+	  function cancelPendingAudioSourceRequests() {
+	    Object.keys(state.pendingAudioSourceRequests || {}).forEach(requestId => {
+	      const req = state.pendingAudioSourceRequests[requestId];
+	      delete state.pendingAudioSourceRequests[requestId];
+	      try { if (req && typeof req.finish === 'function') req.finish(null); } catch (_) {}
+	    });
 	  }
 	  function setAudioButtonsStateForKey(key, status, title) {
 	    try {
@@ -561,6 +616,7 @@
     state.lineId = Number(lineId || 0);
     Object.keys(state.pendingLookupTimers || {}).forEach(k => clearTimeout(state.pendingLookupTimers[k]));
     Object.keys(state.pendingLookupRequests || {}).forEach(k => cancelPendingLookupRequest(k));
+    cancelPendingAudioSourceRequests();
     state.pendingLookupTimers = Object.create(null);
     state.pendingLookupRequests = Object.create(null);
     state.charByPos = Object.create(null);
@@ -1876,6 +1932,12 @@
       clearInterval(req.retryTimer);
       req.retryTimer = null;
     }
+  });
+  iina.onMessage('audio-source-result', payload => {
+    const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : '';
+    const req = requestId ? state.pendingAudioSourceRequests[requestId] : null;
+    if (!req || typeof req.finish !== 'function') return;
+    req.finish(payload || null);
   });
 
   iina.onMessage('line-lookup-result', payload => {
