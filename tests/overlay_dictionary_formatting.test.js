@@ -383,6 +383,8 @@ assert(!/\.dict-details \{[^}]*border-left:/s.test(css), 'Collapsed details shou
 assert(/\.dict-details\[open\] \{[^}]*border-left:/s.test(css), 'Expanded details should keep the left border');
 assert(/\.dict-details summary \{[^}]*list-style-position: inside;[^}]*\}/.test(css), 'Collapsed details marker should be inset');
 assert(/\.dict-term \{[^}]*font-size: 30px;[^}]*\}/.test(css), 'Secondary entry headwords should match the main popup headword size');
+assert(/\.dict-term \{[^}]*position: relative;[^}]*padding-right: 38px;[^}]*\}/.test(css), 'Secondary entry headword rows should reserve space for the speaker button');
+assert(/\.dict-term \.audio-button \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*\}/.test(css), 'Secondary entry speaker buttons should be pinned to the row top-right');
 assert(/\.pitch-group \{[^}]*flex: 0 0 100%;[^}]*width: 100%;[^}]*\}/.test(css), 'Pitch accent group should start on a new metadata row');
 assert(!/\.pitch-group \{[^}]*flex-direction: column;/s.test(css), 'Pitch source chip and accent pattern should stay side by side');
 assert(/\.pitch-patterns \{[^}]*font-size: 15px;[^}]*\}/.test(css), 'Pitch accent pattern should be larger than the source chip');

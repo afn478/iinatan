@@ -78,6 +78,7 @@ const headHtml = context.__elements.popup.children[0]._innerHTML;
 assert(/class="audio-button"/.test(headHtml), 'Lookup result header should render a speaker button when audio sources are configured');
 assert(/data-audio-term="読む"/.test(headHtml), 'Speaker button should carry the entry headword');
 assert(/data-audio-reading="よむ"/.test(headHtml), 'Speaker button should carry the entry reading');
+assert(/<svg class="audio-icon"/.test(headHtml), 'Speaker buttons should use a centered vector icon instead of an emoji glyph');
 
 const key = overlay.audioTermReadingKey('読む', 'よむ');
 const button = context.document.createElement('button');

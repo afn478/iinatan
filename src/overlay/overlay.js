@@ -1134,7 +1134,7 @@
 	    if (!audioTerm || !activeAudioSources().length) return '';
 	    const audioReading = String(reading || '').trim();
 	    const key = audioTermReadingKey(audioTerm, audioReading);
-	    return '<button type="button" class="audio-button" data-audio-key="' + escapeHtml(key) + '" data-audio-term="' + escapeHtml(audioTerm) + '" data-audio-reading="' + escapeHtml(audioReading) + '" title="Play audio" aria-label="Play audio"><span class="audio-icon" aria-hidden="true"></span></button>';
+	    return '<button type="button" class="audio-button" data-audio-key="' + escapeHtml(key) + '" data-audio-term="' + escapeHtml(audioTerm) + '" data-audio-reading="' + escapeHtml(audioReading) + '" title="Play audio" aria-label="Play audio"><svg class="audio-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="audio-speaker-body" d="M3 9v6h4l5 4V5L7 9H3z"></path><path class="audio-wave" d="M16 8.5a5 5 0 0 1 0 7"></path><path class="audio-wave" d="M19 5a9 9 0 0 1 0 14"></path></svg></button>';
 	  }
 	  function bindPopupAudioButtons() {
 	    try {
