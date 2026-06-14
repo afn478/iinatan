@@ -61,6 +61,10 @@
 	    taskTimer: null
 	  };
   const LOOKUP_RETRY_INTERVAL_MS = 60;
+	  const JAPANESE_KANJI_RANGE = '\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3005';
+	  const JAPANESE_KANJI_PATTERN = new RegExp('[' + JAPANESE_KANJI_RANGE + ']');
+	  const JAPANESE_KANJI_SEGMENT_PATTERN = new RegExp('[' + JAPANESE_KANJI_RANGE + ']+|[^' + JAPANESE_KANJI_RANGE + ']+', 'g');
+	  const JAPANESE_KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/;
 	  let customPopupStyleEl = null;
 	  let lastCustomPopupCss = null;
 	  let popupThemeHintQuery = null;
@@ -80,6 +84,97 @@
 	  function compareTextKey(s) {
 	    const raw = normalizeWhitespace(s).toLowerCase();
 	    try { return raw.normalize('NFKC'); } catch (_) { return raw; }
+	  }
+	  function toHiragana(s) {
+	    return String(s || '').replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+	  }
+	  function createFuriganaSegment(text, reading) {
+	    return { text, reading };
+	  }
+	  function splitKanaFuriganaSegments(text, reading) {
+	    const textLength = text.length;
+	    const segments = [];
+	    let start = 0;
+	    let matching = reading[0] === text[0];
+	    for (let i = 1; i < textLength; i++) {
+	      const nextMatching = reading[i] === text[i];
+	      if (matching === nextMatching) continue;
+	      segments.push(createFuriganaSegment(text.substring(start, i), matching ? '' : reading.substring(start, i)));
+	      matching = nextMatching;
+	      start = i;
+	    }
+	    segments.push(createFuriganaSegment(text.substring(start, textLength), matching ? '' : reading.substring(start, textLength)));
+	    return segments;
+	  }
+	  function segmentizeFurigana(reading, readingNormalized, groups, groupIndex) {
+	    const remainingGroups = groups.length - groupIndex;
+	    if (remainingGroups <= 0) return reading.length === 0 ? [] : null;
+	    const group = groups[groupIndex];
+	    const text = group.text;
+	    const textLength = text.length;
+	    if (group.isKana) {
+	      if (group.textNormalized && readingNormalized.startsWith(group.textNormalized)) {
+	        const tail = segmentizeFurigana(reading.substring(textLength), readingNormalized.substring(textLength), groups, groupIndex + 1);
+	        if (tail) {
+	          if (reading.startsWith(text)) tail.unshift(createFuriganaSegment(text, ''));
+	          else tail.unshift(...splitKanaFuriganaSegments(text, reading));
+	          return tail;
+	        }
+	      }
+	      return null;
+	    }
+	    let result = null;
+	    for (let i = reading.length; i >= textLength; i--) {
+	      const tail = segmentizeFurigana(reading.substring(i), readingNormalized.substring(i), groups, groupIndex + 1);
+	      if (tail) {
+	        if (result) return null;
+	        tail.unshift(createFuriganaSegment(text, reading.substring(0, i)));
+	        result = tail;
+	      }
+	      if (remainingGroups === 1) break;
+	    }
+	    return result;
+	  }
+	  function segmentFurigana(expression, reading) {
+	    const headword = String(expression || '');
+	    const displayReading = String(reading || '');
+	    if (!headword || !displayReading || compareTextKey(headword) === compareTextKey(displayReading)) return [[headword, '']];
+	    if (!JAPANESE_KANJI_PATTERN.test(headword) || !JAPANESE_KANA_PATTERN.test(displayReading)) return [[headword, displayReading]];
+	    const groups = [];
+	    const matches = headword.match(JAPANESE_KANJI_SEGMENT_PATTERN) || [];
+	    matches.forEach(text => {
+	      const isKana = !JAPANESE_KANJI_PATTERN.test(text[0]);
+	      groups.push({ text, isKana, textNormalized: isKana ? toHiragana(text) : null });
+	    });
+	    const segments = segmentizeFurigana(displayReading, toHiragana(displayReading), groups, 0);
+	    return segments ? segments.map(segment => [segment.text, segment.reading]) : [[headword, displayReading]];
+	  }
+	  function renderFuriganaHtml(expression, reading) {
+	    return segmentFurigana(expression, reading).map(segment => {
+	      const text = segment[0];
+	      const furigana = segment[1];
+	      return furigana ? '<ruby>' + escapeHtml(text) + '<rt>' + escapeHtml(furigana) + '</rt></ruby>' : escapeHtml(text);
+	    }).join('');
+	  }
+	  function shouldRenderFurigana(expression, reading) {
+	    return !!(expression && reading && JAPANESE_KANJI_PATTERN.test(String(expression)) && JAPANESE_KANA_PATTERN.test(String(reading)));
+	  }
+	  function shouldRenderWholeReadingRuby(expression, reading) {
+	    return !!(expression && reading && JAPANESE_KANJI_PATTERN.test(String(expression)) && !JAPANESE_KANA_PATTERN.test(String(reading)));
+	  }
+	  function renderWholeReadingRubyHtml(expression, reading) {
+	    return '<ruby>' + escapeHtml(expression || '') + '<rt>' + escapeHtml(reading || '') + '</rt></ruby>';
+	  }
+	  function renderHeadwordStackHtml(headword, reading, options) {
+	    const termClass = options && options.termClass ? options.termClass : 'term';
+	    const readingClass = options && options.readingClass ? options.readingClass : 'reading';
+	    const rubyReading = shouldRenderFurigana(headword, reading) || shouldRenderWholeReadingRuby(headword, reading);
+	    const termHtml = shouldRenderFurigana(headword, reading)
+	      ? renderFuriganaHtml(headword, reading)
+	      : (shouldRenderWholeReadingRuby(headword, reading) ? renderWholeReadingRubyHtml(headword, reading) : escapeHtml(headword || ''));
+	    return '<span class="headword-stack">' +
+	      (!rubyReading && reading ? '<span class="' + escapeHtml(readingClass) + '">' + escapeHtml(reading) + '</span>' : '') +
+	      '<span class="' + escapeHtml(termClass) + '">' + termHtml + '</span></span>';
 	  }
 	  function safeExternalUrl(raw) {
 	    const value = String(raw || '').trim();
@@ -1180,8 +1275,8 @@
 	  }
 	  function renderPopupHead(heading, reading, secondaryText, audioData) {
 	    const audioHtml = audioData ? renderAudioButtonHtml(audioData.term, audioData.reading) : '';
-	    return '<div class="head-main"><div class="head-title"><span class="term">' + escapeHtml(heading || '') + '</span>' +
-	      (reading ? '<span class="reading">' + escapeHtml(reading) + '</span>' : '') + '</div>' +
+	    return '<div class="head-main"><div class="head-title">' +
+	      renderHeadwordStackHtml(heading || '', reading || '', { termClass: 'term', readingClass: 'reading' }) + '</div>' +
 	      audioHtml + '</div>' +
 	      (secondaryText ? '<div class="lookup-source">' + escapeHtml(secondaryText) + '</div>' : '');
 	  }
@@ -1878,6 +1973,12 @@
 	    const term = entry && entry.term ? entry.term : {};
 	    return String(term.expression || entry.deinflected || entry.matched || '');
 	  }
+	  function displayReadingForTerm(term, headword) {
+	    const reading = normalizeWhitespace(term && term.reading !== undefined ? String(term.reading) : '');
+	    const expression = normalizeWhitespace(headword !== undefined ? String(headword || '') : String((term && term.expression) || ''));
+	    if (!reading || (expression && compareTextKey(reading) === compareTextKey(expression))) return '';
+	    return reading;
+	  }
 	  function lookupSurfaceForResult(result, entry) {
 	    if (result && /^(ja|zh)$/.test(String(result.language || '')) && entry && entry.matched) return String(entry.matched);
 	    const candidate = result && result.candidateUsed ? result.candidateUsed : null;
@@ -1897,7 +1998,7 @@
 	  function displayHeaderForResult(result, firstEntry) {
 	    const heading = displayHeadwordForEntry(firstEntry);
 	    const term = firstEntry && firstEntry.term ? firstEntry.term : {};
-	    const reading = term.reading ? String(term.reading) : '';
+	    const reading = displayReadingForTerm(term, heading);
 	    const surface = lookupSurfaceForResult(result, firstEntry);
 	    const secondary = surface && compareTextKey(surface) !== compareTextKey(heading)
 	      ? 'looked up from: ' + surface
@@ -1950,12 +2051,13 @@
 	      html += '<div class="entry">';
 	      if (term.expression || term.reading) {
 	        const entryHeadword = displayHeadwordForEntry(entry);
+	        const entryReading = displayReadingForTerm(term, entryHeadword);
 	        const repeatsHeader = entryIndex === 0 &&
 	          compareTextKey(entryHeadword) === compareTextKey(header.heading) &&
-	          compareTextKey(term.reading || '') === compareTextKey(header.reading || '');
+	          compareTextKey(entryReading) === compareTextKey(header.reading || '');
 	        if (!repeatsHeader) {
 	          const entryAudio = audioDataForEntry(entry);
-	          html += '<div class="dict-term"><span class="dict-term-text">' + escapeHtml(entryHeadword) + (term.reading ? '<span class="dict-reading">' + escapeHtml(term.reading) + '</span>' : '') + '</span>' + (entryAudio ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading) : '') + '</div>';
+	          html += '<div class="dict-term"><span class="dict-term-text">' + renderHeadwordStackHtml(entryHeadword, entryReading, { termClass: 'dict-headword', readingClass: 'dict-reading' }) + '</span>' + (entryAudio ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading) : '') + '</div>';
 	        }
 	      }
 	      html += renderEntryMetadata(term);

@@ -10,6 +10,10 @@ const { context, overlay } = loadOverlayForTest([
   'renderPlainGlossaryText',
   'renderEntryMetadata',
   'displayHeaderForResult',
+  'displayReadingForTerm',
+  'segmentFurigana',
+  'renderFuriganaHtml',
+  'renderPopupHead',
   'safeExternalUrl',
   'placePopup'
 ]);
@@ -59,6 +63,63 @@ const header = overlay.displayHeaderForResult({
 });
 assert(header.heading === 'just', 'Dictionary headword should be the primary heading');
 assert(header.secondary === 'looked up from: juster', 'Surface form should be secondary metadata');
+assert(header.reading === '', 'Expression-identical readings should not be shown as popup readings');
+
+const japaneseHeader = overlay.displayHeaderForResult({
+  language: 'ja',
+  text: '情報',
+  lookupStart: 0,
+  lookupEnd: 2,
+  lookupText: '情報'
+}, {
+  matched: '情報',
+  deinflected: '情報',
+  term: { expression: '情報', reading: 'じょうほう', glossaries: [] }
+});
+assert(japaneseHeader.reading === 'じょうほう', 'Distinct dictionary readings should remain visible');
+assert(
+  JSON.stringify(overlay.segmentFurigana('積む', 'つむ')) === JSON.stringify([['積', 'つ'], ['む', '']]),
+  'Japanese okurigana should be removed from generated furigana'
+);
+assert(
+  JSON.stringify(overlay.segmentFurigana('情報', 'じょうほう')) === JSON.stringify([['情報', 'じょうほう']]),
+  'Kanji compounds should stay grouped so browser ruby can distribute the reading'
+);
+assert(
+  JSON.stringify(overlay.segmentFurigana('駆け込む', 'かけこむ')) === JSON.stringify([['駆', 'か'], ['け', ''], ['込', 'こ'], ['む', '']]),
+  'Japanese furigana segmentation should handle kana between kanji groups'
+);
+assert(
+  overlay.renderFuriganaHtml('積む', 'つむ') === '<ruby>積<rt>つ</rt></ruby>む',
+  'Japanese furigana HTML should annotate only the kanji-bearing segment'
+);
+
+const headerHtml = overlay.renderPopupHead(japaneseHeader.heading, japaneseHeader.reading, '', null);
+assert(/class="headword-stack"/.test(headerHtml), 'Popup readings and headwords should share one sizing stack');
+assert(
+  /<span class="term"><ruby>情報<rt>じょうほう<\/rt><\/ruby><\/span>/.test(headerHtml),
+  'Japanese popup readings should render as ruby above the headword'
+);
+assert(!/class="reading">じょうほう/.test(headerHtml), 'Japanese popup readings should not render as a separate plain reading row');
+
+const duplicateReading = overlay.displayReadingForTerm({ expression: 'witch', reading: 'witch' }, 'witch');
+assert(duplicateReading === '', 'Latin expression-copied readings should be hidden generally');
+const latinReadingHtml = overlay.renderPopupHead('résumé', 'REZ-oo-may', '', null);
+assert(
+  latinReadingHtml.indexOf('class="reading">REZ-oo-may</span>') < latinReadingHtml.indexOf('class="term">résumé</span>'),
+  'Non-Japanese readings should still render above the headword as plain text'
+);
+const chineseReadingHtml = overlay.renderPopupHead('情報', 'qing bao', '', null);
+assert(
+  /<span class="term"><ruby>情報<rt>qing bao<\/rt><\/ruby><\/span>/.test(chineseReadingHtml),
+  'Hanzi readings without kana should render as whole-headword ruby for spacing'
+);
+assert(!/class="reading">qing bao/.test(chineseReadingHtml), 'Hanzi ruby readings should not render as a separate plain reading row');
+const koreanReadingHtml = overlay.renderPopupHead('한국', 'han-guk', '', null);
+assert(
+  koreanReadingHtml.indexOf('class="reading">han-guk</span>') < koreanReadingHtml.indexOf('class="term">한국</span>'),
+  'Non-Hanzi readings should keep the plain reading row'
+);
 
 const zhHeader = overlay.displayHeaderForResult({
   language: 'zh',
@@ -376,6 +437,9 @@ assert(/:root\.theme-light/.test(css), 'Popup CSS should define a concrete light
 assert(!/theme-inherit/.test(css), 'Popup CSS should not define a separate inherit theme');
 assert(/#popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css), 'Popup header should keep its spacing');
 assert(!/#popup \.head \{[^}]*border-bottom:/s.test(css), 'Popup header should not draw a horizontal rule below the headword');
+assert(/\.headword-stack \{[^}]*display: inline-block;[^}]*max-width: 100%;[^}]*\}/.test(css), 'Popup readings and ruby headwords should share one inline stack');
+assert(/#popup \.term rt \{[^}]*color: var\(--popup-reading\);[^}]*font-size: 0\.53em;[^}]*\}/.test(css), 'Primary Japanese furigana should use compact reading styling');
+assert(/#popup \.reading \{[^}]*display: block;[^}]*margin: 0 0 2px;[^}]*text-align: center;[^}]*\}/.test(css), 'Popup readings should no longer render inline beside the headword');
 assert(/\.entry \+ \.entry \{[^}]*border-top:/s.test(css), 'Entry separators should remain between dictionary entries');
 assert(/\.dict-details \{[^}]*margin: 8px 0;[^}]*\}/.test(css), 'Collapsed details base style should remain present');
 assert(/\.dict-details \{[^}]*padding-left: 8px;[^}]*\}/.test(css), 'Collapsed details should keep a marker gap from the popup edge');
@@ -385,6 +449,8 @@ assert(/\.dict-details summary \{[^}]*list-style-position: inside;[^}]*\}/.test(
 assert(/\.dict-term \{[^}]*font-size: 30px;[^}]*\}/.test(css), 'Secondary entry headwords should match the main popup headword size');
 assert(/\.dict-term \{[^}]*position: relative;[^}]*padding-right: 38px;[^}]*\}/.test(css), 'Secondary entry headword rows should reserve space for the speaker button');
 assert(/\.dict-term \.audio-button \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*\}/.test(css), 'Secondary entry speaker buttons should be pinned to the row top-right');
+assert(/\.dict-reading \{[^}]*display: block;[^}]*margin: 0 0 2px;[^}]*text-align: center;[^}]*\}/.test(css), 'Secondary entry readings should render centered above their headwords');
+assert(/\.dict-headword rt \{[^}]*color: var\(--popup-reading\);[^}]*font-size: 0\.53em;[^}]*\}/.test(css), 'Secondary Japanese furigana should use compact reading styling');
 assert(/\.pitch-group \{[^}]*flex: 0 0 100%;[^}]*width: 100%;[^}]*\}/.test(css), 'Pitch accent group should start on a new metadata row');
 assert(!/\.pitch-group \{[^}]*flex-direction: column;/s.test(css), 'Pitch source chip and accent pattern should stay side by side');
 assert(/\.pitch-patterns \{[^}]*font-size: 15px;[^}]*\}/.test(css), 'Pitch accent pattern should be larger than the source chip');
