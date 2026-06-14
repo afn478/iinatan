@@ -4,8 +4,15 @@
 
 ### Changed
 
+- Moved recommended Japanese dictionary downloads into an in-window settings panel and expanded the list with JMnedict, BCCWJ, JPDB, and Jiten Global.
+- Added term/frequency-only recommended downloads for English, German, French, Chinese, and Korean.
+- Recommended dictionary panel contents now follow the active profile lookup language.
 - Required packaged release builds to include `CHANGELOG.md`.
 - GitHub release publishing now uses the matching `CHANGELOG.md` version section as the release notes.
+
+### Fixed
+
+- Recommended Japanese dictionary updates now replace older matching installed dictionaries instead of leaving duplicate dated installs behind.
 
 ### Documentation
 

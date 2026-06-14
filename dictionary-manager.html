@@ -213,6 +213,40 @@
       overflow: hidden;
       background: var(--panel);
     }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      background: rgba(0, 0, 0, 0.28);
+    }
+    .dialog-backdrop[hidden] { display: none; }
+    .dialog-panel {
+      width: min(640px, 100%);
+      max-height: min(620px, calc(100vh - 44px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+      overflow: hidden;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dialog-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
     .empty {
       padding: 22px 16px;
       color: var(--muted);
@@ -434,7 +468,9 @@
     <section class="panel" data-panel="dictionaries">
       <h2>Dictionaries</h2>
       <h3>Recommended Downloads</h3>
-      <section id="recommendedList" class="recommended-list"></section>
+      <div class="toolbar">
+        <button id="openRecommended" class="primary" type="button">Get recommended dictionaries...</button>
+      </div>
 
       <h3>Installed Dictionaries</h3>
       <div class="toolbar">
@@ -489,6 +525,17 @@
       </div>
     </section>
   </main>
+  <div id="recommendedDialogBackdrop" class="dialog-backdrop" hidden>
+    <section id="recommendedDialog" class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="recommendedDialogTitle">
+      <div class="dialog-header">
+        <h2 id="recommendedDialogTitle">Recommended Dictionaries</h2>
+        <button id="closeRecommended" type="button">Close</button>
+      </div>
+      <div class="dialog-body">
+        <section id="recommendedList" class="recommended-list"></section>
+      </div>
+    </section>
+  </div>
   <script>
     const DEFAULT_AUDIO_SOURCE_URL = 'http://127.0.0.1:5050/?term={term}&reading={reading}';
 
@@ -508,6 +555,7 @@
       draggingAudioSourceId: '',
       commandSerial: 0,
       activeTab: 'profile',
+      recommendedDialogOpen: false,
       rendering: false,
       audioSourceSerial: 0
     };
@@ -520,6 +568,9 @@
       deleteProfile: document.getElementById('deleteProfile'),
       importZip: document.getElementById('importZip'),
       refresh: document.getElementById('refresh'),
+      openRecommended: document.getElementById('openRecommended'),
+      closeRecommended: document.getElementById('closeRecommended'),
+      recommendedDialogBackdrop: document.getElementById('recommendedDialogBackdrop'),
       addAudioSource: document.getElementById('addAudioSource'),
       status: document.getElementById('status'),
       dictionaryList: document.getElementById('dictionaryList'),
@@ -585,9 +636,10 @@
     }
     function updateBusyState() {
       const disabled = !!state.busy;
-      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource].forEach(button => {
+      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource, els.openRecommended].forEach(button => {
         button.disabled = disabled;
       });
+      els.openRecommended.disabled = disabled || !state.recommendedDictionaries.length;
       const profile = activeProfile();
       els.profileSelect.disabled = disabled || (state.profiles && state.profiles.length ? state.profiles.length : 1) < 2;
       els.deleteProfile.disabled = disabled || !!profile.locked;
@@ -617,6 +669,24 @@
     }
     function postOrder() {
       command('dictionary-manager-set-order', { order: currentOrder() }, 'Saving dictionary order...');
+    }
+    function openRecommendedDialog() {
+      if (state.busy || !state.recommendedDictionaries.length) return;
+      state.recommendedDialogOpen = true;
+      renderRecommendedDialog();
+    }
+    function closeRecommendedDialog() {
+      state.recommendedDialogOpen = false;
+      renderRecommendedDialog();
+    }
+    function renderRecommendedDialog() {
+      const wasHidden = els.recommendedDialogBackdrop.hidden;
+      els.recommendedDialogBackdrop.hidden = !state.recommendedDialogOpen;
+      if (state.recommendedDialogOpen && wasHidden && els.closeRecommended && typeof els.closeRecommended.focus === 'function') {
+        setTimeout(() => {
+          if (state.recommendedDialogOpen) els.closeRecommended.focus();
+        }, 0);
+      }
     }
     function normalizeAudioSourceUrl(value) {
       const url = String(value || '').trim();
@@ -822,6 +892,8 @@
     function renderRecommended() {
       els.recommendedList.innerHTML = '';
       if (!state.recommendedDictionaries.length) {
+        state.recommendedDialogOpen = false;
+        renderRecommendedDialog();
         const empty = document.createElement('div');
         empty.className = 'empty';
         empty.textContent = 'No recommended downloads are configured.';
@@ -837,14 +909,15 @@
         title.textContent = item.title || item.id;
         const meta = document.createElement('div');
         meta.className = 'meta';
-        meta.textContent = [item.language, item.description].filter(Boolean).join(' | ');
+        const details = [item.category, item.language, item.description].filter(Boolean);
+        meta.textContent = details.join(' | ');
         body.appendChild(title);
         body.appendChild(meta);
         row.appendChild(body);
         const button = document.createElement('button');
         button.type = 'button';
         button.className = item.installed ? '' : 'primary';
-        button.textContent = item.installed ? 'Reinstall' : 'Download';
+        button.textContent = item.installed ? 'Update' : 'Download';
         button.dataset.busyControl = 'true';
         button.addEventListener('click', () => {
           command('dictionary-manager-download-recommended', { id: item.id }, 'Starting recommended dictionary download...');
@@ -1058,6 +1131,7 @@
       renderDictionaries();
       renderAudioSources();
       renderTabs();
+      renderRecommendedDialog();
       updateBusyState();
     }
 
@@ -1068,6 +1142,14 @@
       });
     });
     els.addAudioSource.addEventListener('click', addAudioSource);
+    els.openRecommended.addEventListener('click', openRecommendedDialog);
+    els.closeRecommended.addEventListener('click', closeRecommendedDialog);
+    els.recommendedDialogBackdrop.addEventListener('click', event => {
+      if (event.target === els.recommendedDialogBackdrop) closeRecommendedDialog();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && state.recommendedDialogOpen) closeRecommendedDialog();
+    });
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
       control.addEventListener('change', saveProfilePreferences);
     });

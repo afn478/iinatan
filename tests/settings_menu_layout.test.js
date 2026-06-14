@@ -45,6 +45,11 @@ assert(/dictionary-manager-rename-profile/.test(managerHtml), 'Settings manager 
 assert(/dictionary-manager-delete-profile/.test(managerHtml), 'Settings manager should delete profiles');
 assert(/Delete/.test(managerHtml), 'Dictionary manager rows should include a delete button');
 assert(/id="recommendedList"/.test(managerHtml), 'Settings manager should expose a recommended downloads list');
+assert(/id="openRecommended"/.test(managerHtml), 'Settings manager should open recommended downloads from a foreground panel button');
+assert(/id="recommendedDialogBackdrop"/.test(managerHtml), 'Recommended downloads should live in an in-window foreground panel');
+assert(/Get recommended dictionaries\.\.\./.test(managerHtml), 'Settings manager should label the recommended downloads opener');
+assert(/item\.installed \? 'Update' : 'Download'/.test(managerHtml), 'Installed recommended downloads should be labeled as updates');
+assert(/Recommended Dictionaries/.test(managerHtml), 'Recommended downloads panel title should be language-neutral');
 assert(/Import ZIP/.test(managerHtml), 'Dictionary manager should expose ZIP import');
 assert(/typeof iina !== 'undefined'/.test(managerHtml), 'Dictionary manager should use the IINA webview message bridge');
 assert(/id="profileSelect"/.test(managerHtml), 'Dictionary manager should expose profile selection');
@@ -88,6 +93,21 @@ assert(/utils\.open\(p\)/.test(menuSource), 'Debug reveal actions should prefer 
 assert(!/file\.showInFinder\(dataRoot\(\)\)/.test(rebuildMenu), 'Plugin data folder reveal should not rely on the older direct Finder call');
 
 const managerBridgeSource = fs.readFileSync(path.join(root, 'src/main/65_dictionary_manager_window.js'), 'utf8');
+const contextSource = fs.readFileSync(path.join(root, 'src/main/00_context_state_paths.js'), 'utf8');
+assert(/JMnedict\.zip/.test(contextSource), 'Japanese recommendations should include JMnedict');
+assert(/BCCWJ_SUW_LUW_combined\.zip/.test(contextSource), 'Japanese recommendations should include BCCWJ SUW/LUW Combined');
+assert(/JPDB_v2\.2_Frequency_Kana\.zip/.test(contextSource), 'Japanese recommendations should include JPDB v2.2 Kana');
+assert(/api\.jiten\.moe\/api\/frequency-list\/download\?downloadType=yomitan/.test(contextSource), 'Japanese recommendations should use Yomitan-compatible Jiten Global download URL');
+assert(/wty-en-en\.zip/.test(contextSource), 'English recommendations should include Yomitan Wiktionary terms');
+assert(/wty-de-en\.zip/.test(contextSource), 'German recommendations should include Yomitan Wiktionary terms');
+assert(/wty-fr-en\.zip/.test(contextSource), 'French recommendations should include Yomitan Wiktionary terms');
+assert(/wty-ko-en\.zip/.test(contextSource), 'Korean recommendations should include Yomitan Wiktionary terms');
+assert(/CC-CEDICT\.zip/.test(contextSource), 'Chinese recommendations should include CC-CEDICT terms');
+assert(/wty-zh-en\.zip/.test(contextSource), 'Chinese recommendations should include Yomitan Wiktionary terms');
+assert(!/KANJIDIC_english\.zip/.test(contextSource), 'Recommended downloads should not include Japanese character dictionaries');
+assert(!/hanzi/i.test(contextSource), 'Recommended downloads should not include Hanzi character dictionaries');
+assert(/recommendedDictionariesForLanguage\(lookupLanguage, dicts\)/.test(managerBridgeSource), 'Recommended dictionaries should follow the active profile language');
+assert(/getRecommendedDictionaries\(requestedId\)/.test(managerBridgeSource), 'Recommended downloads should pass the selected dictionary id');
 const openDictionaryManagerSource = managerBridgeSource.slice(managerBridgeSource.indexOf('function openDictionaryManager()'));
 assert(
   openDictionaryManagerSource.indexOf('standaloneWindow.loadFile("dictionary-manager.html")') < openDictionaryManagerSource.indexOf('registerDictionaryManagerHandlers()'),
