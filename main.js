@@ -10,7 +10,7 @@
 
 const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, http, utils, standaloneWindow } = iina;
 
-const VERSION = "1.9.0";
+const VERSION = "1.9.1";
 const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
 const RECOMMENDED_JAPANESE_DICTIONARIES = [
   {

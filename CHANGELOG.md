@@ -1,17 +1,20 @@
 # Changelog
 
-## Unreleased
+## 1.9.1 - 2026-06-14
 
 ### Changed
 
+- Popup readings now render above dictionary headwords, with Japanese entries using segmented ruby that omits okurigana and Hanzi readings using whole-headword ruby for spacing.
 - Moved recommended Japanese dictionary downloads into an in-window settings panel and expanded the list with JMnedict, BCCWJ, JPDB, and Jiten Global.
 - Added term/frequency-only recommended downloads for English, German, French, Chinese, and Korean.
 - Recommended dictionary panel contents now follow the active profile lookup language.
+- Removed experimental labels from English, German, French, and Chinese; Korean remains marked experimental.
 - Required packaged release builds to include `CHANGELOG.md`.
 - GitHub release publishing now uses the matching `CHANGELOG.md` version section as the release notes.
 
 ### Fixed
 
+- Dictionary popup readings that only duplicate the headword are now hidden.
 - Recommended Japanese dictionary updates now replace older matching installed dictionaries instead of leaving duplicate dated installs behind.
 
 ### Documentation
