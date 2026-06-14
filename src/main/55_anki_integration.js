@@ -225,11 +225,159 @@ function ankiCompareKey(value) {
   const raw = ankiNormalizeWhitespace(value).toLowerCase();
   try { return raw.normalize("NFKC"); } catch (_) { return raw; }
 }
+function ankiToArray(value) {
+  return Array.isArray(value) ? value : (value === undefined || value === null ? [] : [value]);
+}
+function ankiParseGlossaryJson(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || (text.charAt(0) !== "[" && text.charAt(0) !== "{")) return null;
+  try { return JSON.parse(text); } catch (_) { return null; }
+}
+function ankiAttr(value) {
+  return ankiEscapeHtml(value);
+}
+function ankiSafeDataName(name) {
+  const clean = String(name || "").trim();
+  if (!clean || /[\s"'<>/=]/.test(clean)) return "";
+  return clean;
+}
+function ankiDataMap(node) {
+  return node && typeof node === "object" && node.data && typeof node.data === "object" ? node.data : {};
+}
+function ankiNodeKind(node) {
+  const data = ankiDataMap(node);
+  return String(data.content || data["data-content"] || node && node.dataContent || node && node.kind || "");
+}
+function ankiNodeClassName(node) {
+  const data = ankiDataMap(node);
+  const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+  return String(data.class || data.className || attrs.class || node && node.className || "");
+}
+function ankiNodeTitle(node) {
+  const data = ankiDataMap(node);
+  const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+  return String(node && node.title || data.title || attrs.title || "");
+}
+function ankiNodeHref(node) {
+  const data = ankiDataMap(node);
+  const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+  return String(node && (node.href || node.url) || data.href || data.url || attrs.href || attrs.url || "");
+}
+function ankiSafeHref(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\/[^\s<>"']+$/i.test(raw)) return raw;
+  return "";
+}
+function ankiKebabCssName(value) {
+  return String(value || "")
+    .replace(/[A-Z]/g, ch => "-" + ch.toLowerCase())
+    .replace(/[^a-z0-9-]/gi, "")
+    .replace(/^-+|-+$/g, "");
+}
+function ankiStyleText(style) {
+  if (!style) return "";
+  if (typeof style === "string") {
+    const text = style.replace(/javascript\s*:/gi, "").replace(/expression\s*\(/gi, "").trim();
+    return /[<>"']/.test(text) ? "" : text.slice(0, 2000);
+  }
+  if (typeof style !== "object" || Array.isArray(style)) return "";
+  const parts = [];
+  Object.keys(style).forEach(key => {
+    const name = ankiKebabCssName(key);
+    const value = String(style[key] === undefined || style[key] === null ? "" : style[key]).trim();
+    if (!name || !value || /[<>"']/.test(value) || /javascript\s*:|expression\s*\(/i.test(value)) return;
+    parts.push(name + ": " + value);
+  });
+  return parts.join("; ");
+}
+function ankiCommonAttributes(node, options) {
+  const opts = options || {};
+  const attrs = [];
+  const cls = opts.className !== undefined ? String(opts.className || "") : ankiNodeClassName(node);
+  if (cls && !/[\0<>"']/.test(cls)) attrs.push('class="' + ankiAttr(cls).slice(0, 500) + '"');
+  if (node && node.lang && /^[a-z0-9-]+$/i.test(String(node.lang))) attrs.push('lang="' + ankiAttr(node.lang) + '"');
+  const title = ankiNodeTitle(node);
+  if (title) attrs.push('title="' + ankiAttr(title).slice(0, 1000) + '"');
+  const data = ankiDataMap(node);
+  Object.keys(data).forEach(key => {
+    const name = ankiSafeDataName(key === "className" ? "class" : key);
+    if (!name) return;
+    const value = data[key];
+    if (value === undefined || value === null || typeof value === "object") return;
+    attrs.push('data-' + name + '="' + ankiAttr(value).slice(0, 2000) + '"');
+  });
+  const style = ankiStyleText(node && node.style);
+  if (style) attrs.push('style="' + ankiAttr(style) + '"');
+  if (opts.extraAttrs) opts.extraAttrs.forEach(attr => { if (attr) attrs.push(attr); });
+  return attrs.length ? " " + attrs.join(" ") : "";
+}
+const ANKI_STRUCTURED_TAGS = {
+  a: true, abbr: true, b: true, blockquote: true, br: true, cite: true, code: true,
+  del: true, details: true, div: true, em: true, i: true, img: true, ins: true,
+  kbd: true, li: true, mark: true, ol: true, p: true, pre: true, q: true, rp: true,
+  rt: true, ruby: true, s: true, samp: true, small: true, span: true, strong: true,
+  sub: true, summary: true, sup: true, table: true, tbody: true, td: true, tfoot: true,
+  th: true, thead: true, time: true, tr: true, u: true, ul: true, var: true
+};
+const ANKI_VOID_TAGS = { br: true, img: true };
+function ankiSafeTagName(value) {
+  const tag = String(value || "").trim().toLowerCase();
+  return ANKI_STRUCTURED_TAGS[tag] ? tag : "";
+}
+function ankiImageSrc(node) {
+  const data = ankiDataMap(node);
+  const attrs = node && (node.attributes || node.attrs) ? (node.attributes || node.attrs) : {};
+  const src = String(node && (node.src || node.path) || data.src || data.path || attrs.src || "");
+  if (/^(?:https?:\/\/|data:image\/(?:png|jpe?g|gif|webp);base64,)[^\s<>"']+$/i.test(src)) return src;
+  return "";
+}
+function ankiStructuredText(value) {
+  if (value === undefined || value === null) return "";
+  const parsed = ankiParseGlossaryJson(value);
+  if (parsed !== null) return ankiStructuredText(parsed);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const allPrimitive = value.every(item => item === null || typeof item === "string" || typeof item === "number" || typeof item === "boolean");
+    return value.map(ankiStructuredText).filter(Boolean).join(allPrimitive ? "; " : "");
+  }
+  if (typeof value !== "object") return "";
+  if (ankiNodeKind(value) === "attribution") return "";
+  if (value.type === "structured-content") return ankiStructuredText(value.content);
+  const tag = String(value.tag || "").toLowerCase();
+  const kind = ankiNodeKind(value);
+  if (tag === "rt" || tag === "rp") return "";
+  if (tag === "br") return "\n";
+  if (tag === "ruby") {
+    return ankiToArray(value.content)
+      .filter(part => !(part && typeof part === "object" && String(part.tag || "").toLowerCase() === "rt"))
+      .map(ankiStructuredText)
+      .join("");
+  }
+  if (tag === "ul" || tag === "ol") {
+    return ankiToArray(value.content).map(ankiStructuredText).filter(Boolean).join("; ");
+  }
+  if (/^(div|p|details|summary|table|thead|tbody|tfoot|tr|th|td)$/i.test(tag)) {
+    return ankiToArray(value.content).map(ankiStructuredText).filter(Boolean).join(" ");
+  }
+  if (kind === "part-of-speech-info" || kind === "tag" || kind === "misc-info") {
+    const text = ankiStructuredText(value.content);
+    return text ? text + " " : "";
+  }
+  if (value.content !== undefined) return ankiStructuredText(value.content);
+  if (value.text !== undefined) return ankiStructuredText(value.text);
+  if (value.glossary !== undefined) return ankiStructuredText(value.glossary);
+  return "";
+}
 function ankiPlainText(value) {
   if (value === undefined || value === null) return "";
+  const parsed = ankiParseGlossaryJson(value);
+  if (parsed !== null) return ankiNormalizeWhitespace(ankiStructuredText(parsed));
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return ankiNormalizeWhitespace(value);
-  if (Array.isArray(value)) return value.map(ankiPlainText).filter(Boolean).join("; ");
+  if (Array.isArray(value)) return ankiNormalizeWhitespace(ankiStructuredText(value));
   if (typeof value === "object") {
+    if (value.type === "structured-content" || value.tag) return ankiNormalizeWhitespace(ankiStructuredText(value));
     if (value.content !== undefined) return ankiPlainText(value.content);
     if (value.text !== undefined) return ankiPlainText(value.text);
     if (value.glossary !== undefined) return ankiPlainText(value.glossary);
@@ -237,8 +385,40 @@ function ankiPlainText(value) {
   }
   return "";
 }
+function ankiStructuredHtml(value) {
+  if (value === undefined || value === null) return "";
+  const parsed = ankiParseGlossaryJson(value);
+  if (parsed !== null) return ankiStructuredHtml(parsed);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return ankiEscapeHtml(value).replace(/\n/g, "<br>");
+  if (Array.isArray(value)) return value.map(ankiStructuredHtml).filter(Boolean).join("");
+  if (typeof value !== "object") return "";
+  if (ankiNodeKind(value) === "attribution") return "";
+  if (value.type === "structured-content") return ankiStructuredHtml(value.content);
+  const tag = ankiSafeTagName(value.tag);
+  if (!tag) return ankiStructuredHtml(value.content !== undefined ? value.content : value.text);
+  if (tag === "a") {
+    const body = ankiStructuredHtml(value.content) || ankiEscapeHtml(ankiNodeHref(value));
+    const href = ankiSafeHref(ankiNodeHref(value));
+    return href ? '<a href="' + ankiAttr(href) + '">' + body + "</a>" : "<span>" + body + "</span>";
+  }
+  if (tag === "img") {
+    const src = ankiImageSrc(value);
+    const alt = ankiPlainText(value.alt || value.title || "");
+    return src ? '<img src="' + ankiAttr(src) + '"' + (alt ? ' alt="' + ankiAttr(alt) + '"' : "") + ">" : (alt ? ankiEscapeHtml(alt) : "");
+  }
+  let extraAttrs = [];
+  if ((tag === "td" || tag === "th") && Number.isFinite(Number(value.colSpan))) extraAttrs.push('colspan="' + ankiAttr(Number(value.colSpan)) + '"');
+  if ((tag === "td" || tag === "th") && Number.isFinite(Number(value.rowSpan))) extraAttrs.push('rowspan="' + ankiAttr(Number(value.rowSpan)) + '"');
+  if (tag === "details" && value.open === true) extraAttrs.push("open");
+  const body = ANKI_VOID_TAGS[tag] ? "" : ankiStructuredHtml(value.content);
+  const className = ankiNodeClassName(value);
+  const attrs = ankiCommonAttributes(value, { className, extraAttrs });
+  return ANKI_VOID_TAGS[tag] ? ("<" + tag + attrs + ">") : ("<" + tag + attrs + ">" + body + "</" + tag + ">");
+}
 function ankiHtmlFromValue(value) {
   if (value === undefined || value === null) return "";
+  const parsed = ankiParseGlossaryJson(value);
+  if (parsed !== null) return ankiStructuredHtml(parsed);
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return ankiEscapeHtml(value);
   if (Array.isArray(value)) {
     const items = value.map(ankiHtmlFromValue).filter(Boolean);
@@ -246,6 +426,7 @@ function ankiHtmlFromValue(value) {
     return "<ul>" + items.map(item => "<li>" + item + "</li>").join("") + "</ul>";
   }
   if (typeof value === "object") {
+    if (value.type === "structured-content" || value.tag) return ankiStructuredHtml(value);
     if (value.content !== undefined) return ankiHtmlFromValue(value.content);
     if (value.text !== undefined) return ankiHtmlFromValue(value.text);
     if (value.glossary !== undefined) return ankiHtmlFromValue(value.glossary);
@@ -259,18 +440,38 @@ function ankiGlossaryItems(entry) {
 function ankiGlossaryPlain(entry) {
   return ankiGlossaryItems(entry).map(item => ankiPlainText(item && item.glossary)).filter(Boolean).join("\n");
 }
+function ankiGlossaryMetaLabel(item) {
+  const dict = ankiNormalizeWhitespace(item && item.dict);
+  const bits = [];
+  ["partOfSpeech", "part_of_speech", "partOfSpeechInfo"].forEach(key => {
+    const text = ankiNormalizeWhitespace(item && item[key]);
+    if (text) bits.push(text);
+  });
+  if (dict) bits.push(dict);
+  return bits.filter(Boolean).join(", ");
+}
+function ankiGlossaryEntryHtml(item) {
+  const dict = ankiNormalizeWhitespace(item && item.dict);
+  const body = ankiHtmlFromValue(item && item.glossary);
+  if (!dict && !body) return "";
+  const meta = ankiGlossaryMetaLabel(item);
+  return '<li' + (dict ? ' data-dictionary="' + ankiAttr(dict) + '"' : "") + ">" +
+    (meta ? "<i>(" + ankiEscapeHtml(meta) + ")</i> " : "") +
+    body +
+    "</li>";
+}
 function ankiGlossaryHtml(entry) {
-  const items = ankiGlossaryItems(entry).map(item => {
-    const dict = ankiNormalizeWhitespace(item && item.dict);
-    const body = ankiHtmlFromValue(item && item.glossary);
-    if (!dict && !body) return "";
-    return "<div class=\"iinatan-glossary\">" + (dict ? "<b>" + ankiEscapeHtml(dict) + "</b>: " : "") + body + "</div>";
-  }).filter(Boolean);
-  return items.join("");
+  const items = ankiGlossaryItems(entry).map(ankiGlossaryEntryHtml).filter(Boolean);
+  return items.length ? '<div style="text-align: left;" class="yomitan-glossary"><ol>' + items.join("") + "</ol></div>" : "";
 }
 function ankiFirstGlossary(entry) {
   const items = ankiGlossaryItems(entry);
   return items.length ? ankiPlainText(items[0] && items[0].glossary) : "";
+}
+function ankiFirstGlossaryHtml(entry) {
+  const first = ankiGlossaryItems(entry)[0];
+  const item = first ? ankiGlossaryEntryHtml(first) : "";
+  return item ? '<div style="text-align: left;" class="yomitan-glossary"><ol>' + item + "</ol></div>" : "";
 }
 function ankiDictionaryNames(entry) {
   const seen = Object.create(null);
@@ -473,6 +674,7 @@ function ankiCardContextFromPayload(payload) {
   const sourcePath = ankiSourcePathFromMpv();
   const timePos = ankiTimePosFromMpv();
   const selectedGlossary = ankiFirstGlossary(entry);
+  const selectedGlossaryHtml = ankiFirstGlossaryHtml(entry);
   return {
     requestId: String((payload && payload.requestId) || ""),
     entry,
@@ -490,6 +692,7 @@ function ankiCardContextFromPayload(payload) {
     glossaryPlain: ankiGlossaryPlain(entry),
     glossaryFirst: selectedGlossary,
     selectedGlossary,
+    selectedGlossaryHtml,
     dictionary: ankiDictionaryNames(entry),
     partOfSpeech: ankiPartOfSpeech(entry),
     tags: ankiEntryTags(entry),
@@ -538,7 +741,8 @@ function ankiMarkerValue(marker, context, media) {
   if (key === "cloze-suffix") return ankiEscapeHtml(context.clozeSuffix);
   if (key === "glossary") return context.glossary;
   if (key === "glossary-plain") return ankiEscapeHtml(context.glossaryPlain);
-  if (key === "glossary-first" || key === "selected-glossary") return ankiEscapeHtml(context.glossaryFirst);
+  if (key === "glossary-first") return ankiEscapeHtml(context.glossaryFirst);
+  if (key === "selected-glossary") return context.selectedGlossaryHtml || ankiEscapeHtml(context.selectedGlossary || context.glossaryFirst);
   if (key === "dictionary" || key === "dictionary-alias") return ankiEscapeHtml(context.dictionary);
   if (key === "part-of-speech") return ankiEscapeHtml(context.partOfSpeech);
   if (key === "tags") return ankiEscapeHtml(context.tags);
@@ -850,7 +1054,7 @@ function handleBridgeAnkiCardOpen(payload) {
       }
       if (!query) throw new Error("No duplicate note query is available.");
       await ankiConnectInvoke("guiBrowse", { query }, { url: ankiActiveProfilePreferences().ankiConnectUrl, timeoutSeconds: 8 });
-      postAnkiCardState(requestId, { ok: true, state: "opened", message: "Opened in Anki." });
+      postAnkiCardState(requestId, { ok: true, state: "opened", noteIds: ids, message: "Opened in Anki." });
     } catch (error) {
       postAnkiCardState(requestId, { ok: false, state: "error", message: compactError(error) });
     }
@@ -868,7 +1072,7 @@ function handleBridgeAnkiCardAdd(payload) {
       const known = String((payload && payload.duplicateKnown) || "");
       const knownIds = payload && Array.isArray(payload.noteIds) ? payload.noteIds : [];
       let duplicates = [];
-      if (prefs.ankiDuplicateCheck && known === "duplicate" && knownIds.length) {
+      if (prefs.ankiDuplicateCheck && known !== "ready" && knownIds.length) {
         duplicates = knownIds;
       } else if (prefs.ankiDuplicateCheck && known !== "ready") {
         const fieldNames = await ankiConfiguredFieldNames(prefs);

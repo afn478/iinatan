@@ -850,6 +850,10 @@
 	  function activeAnkiConfig() {
 	    return normalizeAnkiConfig(state.config && state.config.anki);
 	  }
+	  function ankiButtonVisibleForPopup() {
+	    const config = activeAnkiConfig();
+	    return !!config.enabled;
+	  }
 	  function ankiEnabledForPopup() {
 	    const config = activeAnkiConfig();
 	    return !!(config.enabled && config.configured);
@@ -1717,6 +1721,20 @@
     }
     return false;
   }
+  function sendBridgeMessageWhenReady(payload, timeoutMs, onFailure) {
+    const startedAt = Date.now();
+    const timeout = Math.max(250, Number(timeoutMs || 2500) || 2500);
+    const attempt = () => {
+      if (sendBridgeMessage(payload)) return;
+      if (Date.now() - startedAt >= timeout) {
+        if (typeof onFailure === 'function') onFailure();
+        return;
+      }
+      setTimeout(attempt, 60);
+    };
+    attempt();
+    return true;
+  }
 
   function sendBridgePopupVisibility(visible) {
     return sendBridgeMessage({
@@ -1881,39 +1899,71 @@
 	    return '<svg class="anki-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>';
 	  }
 	  function renderAnkiButtonHtml(contextId) {
-	    if (!contextId || !ankiEnabledForPopup()) return '';
-	    return '<button type="button" class="anki-button" data-anki-context-id="' + escapeHtml(contextId) + '" data-anki-state="ready" title="Add Anki card" aria-label="Add Anki card">' + ankiIconSvg('plus') + '</button>';
+	    if (!contextId || !ankiButtonVisibleForPopup()) return '';
+	    const config = activeAnkiConfig();
+	    const stateName = config.configured ? 'ready' : 'disabled';
+	    const title = config.configured ? 'Add Anki card' : 'Configure Anki export in settings';
+	    const icon = config.configured ? ankiIconSvg('plus') : ankiIconSvg('error');
+	    const action = config.configured ? 'add' : 'disabled';
+	    return '<button type="button" class="anki-button" data-anki-context-id="' + escapeHtml(contextId) + '" data-anki-state="' + stateName + '" data-anki-action="' + action + '" data-anki-note-ids="[]" title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '">' + icon + '</button>';
+	  }
+	  function setNoteIdsForAnkiButton(button, noteIds) {
+	    if (!button || !button.dataset) return;
+	    button.dataset.ankiNoteIds = JSON.stringify(Array.isArray(noteIds) ? noteIds : []);
 	  }
 	  function setAnkiButtonState(button, status) {
 	    if (!button) return;
 	    const stateName = String((status && status.state) || 'ready');
 	    const duplicate = !!(status && status.duplicate);
+	    const statusNoteIds = Array.isArray(status && status.noteIds) ? status.noteIds : null;
 	    const config = activeAnkiConfig();
 	    button.dataset.ankiState = stateName;
-	    if (Array.isArray(status && status.noteIds)) button.dataset.ankiNoteIds = JSON.stringify(status.noteIds);
 	    if (stateName === 'duplicate' && duplicate) {
 	      button.dataset.ankiDuplicateKnown = 'duplicate';
+	      setNoteIdsForAnkiButton(button, statusNoteIds || []);
 	      if (config.duplicateMode === 'allow') {
+	        button.dataset.ankiAction = 'add';
 	        button.innerHTML = ankiIconSvg('plus');
 	        button.title = 'Duplicate found. Click to add anyway; right-click to open existing note.';
 	        button.setAttribute('aria-label', 'Add duplicate Anki card');
 	      } else {
+	        button.dataset.ankiAction = 'open';
 	        button.innerHTML = ankiIconSvg('book');
 	        button.title = 'Duplicate found. Open existing note in Anki.';
 	        button.setAttribute('aria-label', 'Open existing Anki note');
 	      }
 	    } else if (stateName === 'added') {
 	      button.dataset.ankiDuplicateKnown = '';
+	      setNoteIdsForAnkiButton(button, []);
+	      button.dataset.ankiAction = 'add';
 	      button.innerHTML = ankiIconSvg('check');
 	      button.title = 'Added to Anki';
 	      button.setAttribute('aria-label', 'Added to Anki');
+	    } else if (stateName === 'opened') {
+	      button.dataset.ankiDuplicateKnown = 'duplicate';
+	      if (statusNoteIds) setNoteIdsForAnkiButton(button, statusNoteIds);
+	      button.dataset.ankiAction = 'open';
+	      button.innerHTML = ankiIconSvg('book');
+	      button.title = String((status && status.message) || 'Opened in Anki');
+	      button.setAttribute('aria-label', 'Open existing Anki note');
 	    } else if (stateName === 'error') {
 	      button.dataset.ankiDuplicateKnown = '';
+	      setNoteIdsForAnkiButton(button, []);
+	      button.dataset.ankiAction = 'add';
 	      button.innerHTML = ankiIconSvg('error');
 	      button.title = String((status && status.message) || 'Anki add failed');
 	      button.setAttribute('aria-label', 'Anki add failed');
+	    } else if (stateName === 'disabled') {
+	      button.dataset.ankiDuplicateKnown = '';
+	      setNoteIdsForAnkiButton(button, []);
+	      button.dataset.ankiAction = 'disabled';
+	      button.innerHTML = ankiIconSvg('error');
+	      button.title = String((status && status.message) || 'Configure Anki export in settings');
+	      button.setAttribute('aria-label', 'Configure Anki export in settings');
 	    } else {
 	      button.dataset.ankiDuplicateKnown = stateName === 'ready' ? 'ready' : '';
+	      setNoteIdsForAnkiButton(button, []);
+	      button.dataset.ankiAction = 'add';
 	      button.innerHTML = ankiIconSvg('plus');
 	      button.title = String((status && status.message) || 'Add Anki card');
 	      button.setAttribute('aria-label', 'Add Anki card');
@@ -1939,13 +1989,18 @@
 	    if (type !== 'anki-card-open') {
 	      button.dataset.ankiState = type === 'anki-card-add' ? 'adding' : 'checking';
 	    }
-	    return sendBridgeMessage({
+	    if (type === 'anki-card-add') setStatus({ message: 'Adding Anki card...', kind: 'info' });
+	    else if (type === 'anki-card-open') setStatus({ message: 'Opening in Anki...', kind: 'info' });
+	    const payload = {
 	      type,
 	      requestId,
 	      context,
 	      noteIds: noteIdsForButton(button),
 	      duplicateKnown: button && button.dataset ? String(button.dataset.ankiDuplicateKnown || '') : '',
 	      at: Date.now()
+	    };
+	    return sendBridgeMessageWhenReady(payload, type === 'anki-card-status' ? 1800 : 9000, () => {
+	      if (type !== 'anki-card-status') setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
 	    });
 	  }
 	  function requestAnkiCardStatus(button) {
@@ -1960,9 +2015,15 @@
 	          button.dataset.ankiBound = 'true';
 	          button.addEventListener('click', event => {
 	            try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
-	            const duplicate = button.dataset.ankiState === 'duplicate';
 	            const config = activeAnkiConfig();
-	            const type = duplicate && config.duplicateMode !== 'allow' ? 'anki-card-open' : 'anki-card-add';
+	            if (button.dataset.ankiAction === 'disabled' || button.dataset.ankiState === 'disabled') {
+	              setAnkiButtonState(button, { state: 'disabled', message: 'Configure Anki export in settings' });
+	              return;
+	            }
+	            const duplicate = button.dataset.ankiState === 'duplicate' || button.dataset.ankiDuplicateKnown === 'duplicate';
+	            const hasDuplicateIds = noteIdsForButton(button).length > 0;
+	            const openAction = button.dataset.ankiAction === 'open' || (duplicate && hasDuplicateIds && config.duplicateMode !== 'allow');
+	            const type = openAction ? 'anki-card-open' : 'anki-card-add';
 	            if (!sendAnkiCardMessage(button, type)) setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
 	          });
 	          button.addEventListener('contextmenu', event => {
@@ -1993,7 +2054,7 @@
 	  function renderPopupHead(heading, reading, secondaryText, audioData, ankiData) {
 	    const audioHtml = audioData ? renderAudioButtonHtml(audioData.term, audioData.reading) : '';
 	    const ankiHtml = ankiData ? renderAnkiButtonHtml(ankiData.contextId) : '';
-	    const actionHtml = audioHtml || ankiHtml ? '<div class="head-actions">' + audioHtml + ankiHtml + '</div>' : '';
+	    const actionHtml = audioHtml || ankiHtml ? '<div class="head-actions">' + ankiHtml + audioHtml + '</div>' : '';
 	    return '<div class="head-main"><div class="head-title">' +
 	      renderHeadwordStackHtml(heading || '', reading || '', { termClass: 'term', readingClass: 'reading' }) + '</div>' +
 	      actionHtml + '</div>' +
@@ -2734,7 +2795,7 @@
 	    return { term: expression, reading: String(term.reading || '') };
 	  }
 	  function buildAnkiCardContext(stored, entry, header) {
-	    if (!ankiEnabledForPopup() || !entry) return null;
+	    if (!ankiButtonVisibleForPopup() || !entry) return null;
 	    const result = stored && stored.result ? stored.result : {};
 	    const expression = (header && header.heading) || displayHeadwordForEntry(entry);
 	    const reading = (header && header.reading) || displayReadingForTerm(entry.term || {}, expression);
@@ -2910,6 +2971,7 @@
     } catch (_) {}
     if (payload && payload.ok === false && payload.message) setStatus({ message: payload.message, kind: 'error' });
     else if (payload && payload.state === 'added') setStatus({ message: payload.message || 'Added Anki card.', kind: 'info' });
+    else if (payload && payload.state === 'opened') setStatus({ message: payload.message || 'Opened in Anki.', kind: 'info' });
   }
 
   iina.onMessage('config', payload => applyConfig(payload));

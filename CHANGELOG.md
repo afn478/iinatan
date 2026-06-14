@@ -6,6 +6,11 @@
 
 - Added profile-level AnkiConnect export with popup add/open actions, note type field mapping, duplicate detection, JPEG screenshots, configurable image quality, and configurable-bitrate subtitle sentence audio.
 
+### Fixed
+
+- Fixed Anki glossary fields so structured dictionary content is rendered as card-ready HTML instead of raw JSON, while keeping glossary-plain as extracted plaintext.
+- Fixed duplicate Anki book actions so they open the detected note in Anki instead of falling through to add, clear stale note IDs after deleted duplicates, and avoid first-click bridge warm-up stalls.
+
 ## 1.9.1 - 2026-06-14
 
 ### Changed

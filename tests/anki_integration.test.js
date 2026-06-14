@@ -161,6 +161,68 @@ assert(rendered.Frequency === 'JPDB 120', 'Frequency marker should include dicti
 assert(rendered.PitchPosition === '1', 'Pitch position marker should render pitch positions');
 assert(rendered.MiscInfo === '猫の映画 1:23', 'Document metadata markers should render together');
 
+const jitendexStructuredGlossary = JSON.stringify([{
+  type: 'structured-content',
+  content: [{
+    tag: 'div',
+    data: { content: 'sense-group' },
+    content: [
+      {
+        tag: 'span',
+        title: 'noun (common) (futsuumeishi)',
+        data: { class: 'tag', code: 'n', content: 'part-of-speech-info' },
+        content: 'noun'
+      },
+      {
+        tag: 'div',
+        data: { content: 'sense' },
+        content: [{
+          tag: 'ul',
+          data: { content: 'glossary' },
+          content: [
+            { tag: 'li', content: 'first love' },
+            { tag: 'li', content: 'puppy love' }
+          ]
+        }]
+      }
+    ]
+  }]
+}]);
+const structuredEntry = {
+  matched: '初恋',
+  term: {
+    expression: '初恋',
+    reading: 'はつこい',
+    glossaries: [{ dict: 'Jitendex.org [2026-06-06]', glossary: jitendexStructuredGlossary }]
+  }
+};
+const structuredContext = context.ankiCardContextFromPayload({
+  context: {
+    sentence: '初恋だった。',
+    position: 0,
+    expression: '初恋',
+    reading: 'はつこい',
+    surface: '初恋',
+    entry: structuredEntry,
+    result: { text: '初恋だった。', lookupStart: 0, lookupEnd: 2, language: 'ja' }
+  }
+});
+const structuredRendered = context.renderAnkiFields({
+  MainDefinition: '{selected-glossary}',
+  FullGlossary: '{glossary}',
+  PlainGlossary: '{glossary-plain}',
+  FirstPlain: '{glossary-first}'
+}, structuredContext, {});
+assert(/class="yomitan-glossary"/.test(structuredRendered.MainDefinition), 'Selected glossary should render as formatted glossary HTML');
+assert(/data-dictionary="Jitendex\.org \[2026-06-06\]"/.test(structuredRendered.MainDefinition), 'Selected glossary should retain its source dictionary');
+assert(/data-content="glossary"/.test(structuredRendered.MainDefinition), 'Structured glossary HTML should preserve useful data attributes');
+assert(/<li>first love<\/li>/.test(structuredRendered.MainDefinition), 'Structured glossary HTML should preserve list items');
+assert(!/\[\{"type":/.test(structuredRendered.MainDefinition), 'Selected glossary should not leak raw structured-content JSON');
+assert(!/\[\{"type":/.test(structuredRendered.FullGlossary), 'Full glossary should not leak raw structured-content JSON');
+assert(/first love/.test(structuredRendered.PlainGlossary) && /puppy love/.test(structuredRendered.PlainGlossary), 'Plain glossary should extract text from structured content');
+assert(!/nounfirst/.test(structuredRendered.PlainGlossary), 'Plain glossary should separate structured tags from definitions');
+assert(structuredRendered.FirstPlain.indexOf('[{"type"') < 0, 'First glossary plain marker should not leak raw JSON');
+
 const duplicateOptions = context.ankiDuplicateOptions({
   ankiDuplicateMode: 'allow',
   ankiDuplicateScope: 'collection',

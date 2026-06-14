@@ -158,6 +158,8 @@ assert(/"-nostdin"/.test(ankiSource) && /"-loglevel"/.test(ankiSource), 'Sentenc
 assert(/ankiModelFieldCache/.test(ankiSource), 'Anki integration should cache note field names for repeated popup actions');
 assert(/guiBrowse/.test(ankiSource), 'Anki duplicate handling should be able to open existing notes');
 assert(/allowDuplicate/.test(ankiSource), 'Anki duplicate settings should be passed to addNote');
+assert(/prefs\.ankiDuplicateCheck && known !== "ready" && knownIds\.length/.test(ankiSource), 'Anki add requests should ignore stale duplicate note IDs once the popup is ready again');
+assert(/ankiStructuredHtml/.test(ankiSource), 'Anki glossary rendering should convert structured dictionary content into HTML');
 
 const overlayBridgeSource = fs.readFileSync(path.join(root, 'src/main/50_overlay_bridge_pause.js'), 'utf8');
 assert(/anki-card-status/.test(overlayBridgeSource), 'Overlay bridge should handle Anki status checks');
@@ -166,9 +168,13 @@ assert(/anki-card-open/.test(overlayBridgeSource), 'Overlay bridge should handle
 
 const overlaySource = fs.readFileSync(path.join(root, 'src/overlay/overlay.js'), 'utf8');
 assert(/class="anki-button"/.test(overlaySource), 'Overlay should render an Anki action button');
+assert(/'<div class="head-actions">' \+ ankiHtml \+ audioHtml/.test(overlaySource), 'Overlay should place the Anki button to the left of the audio button');
+assert(/function ankiButtonVisibleForPopup/.test(overlaySource), 'Overlay should keep enabled Anki buttons visible even before full configuration');
+assert(/data-anki-action/.test(overlaySource), 'Overlay should track the current Anki button action separately from the icon state');
 assert(/anki-card-status/.test(overlaySource), 'Overlay should request duplicate status for Anki buttons');
 assert(/anki-card-open/.test(overlaySource), 'Overlay should open duplicates from the Anki button');
 assert(/duplicateKnown/.test(overlaySource), 'Overlay should reuse duplicate preflight state on add');
+assert(/button\.dataset\.ankiAction === 'open'/.test(overlaySource), 'Overlay should use explicit open action state for duplicate book buttons');
 assert(/right-click to open existing/.test(overlaySource), 'Anki add-anyway mode should still expose open-existing behavior');
 
 const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
