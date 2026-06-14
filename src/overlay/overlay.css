@@ -270,6 +270,47 @@
       line-height: 1;
     }
     .audio-icon::before { content: "\1F50A"; font-size: 14px; line-height: 1; }
+    .audio-source-menu {
+      z-index: 80;
+      display: flex;
+      flex-direction: column;
+      min-width: 210px;
+      max-width: 260px;
+      max-height: 48vh;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--popup-border);
+      border-radius: 8px;
+      background: var(--popup-bg);
+      color: var(--popup-heading);
+      box-shadow: var(--popup-shadow);
+      pointer-events: auto;
+      user-select: none;
+    }
+    .audio-source-menu-item {
+      display: block;
+      width: 100%;
+      min-height: 38px;
+      border: 0;
+      border-radius: 6px;
+      padding: 7px 12px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 750;
+      line-height: 1.25;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .audio-source-menu-item:hover,
+    .audio-source-menu-item:focus {
+      outline: none;
+      background: var(--popup-chip-bg);
+    }
     @keyframes audio-pulse {
       from { opacity: 0.45; }
       to { opacity: 1; }

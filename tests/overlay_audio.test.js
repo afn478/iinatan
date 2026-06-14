@@ -6,7 +6,8 @@ const { context, overlay } = loadOverlayForTest([
   'showPopup',
   'renderStoredLookup',
   'audioTermReadingKey',
-  'playAudioForTerm'
+  'playAudioForTerm',
+  'showAudioSourceMenu'
 ]);
 
 let fetchCalled = false;
@@ -141,6 +142,43 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(directRequest.url.indexOf('kana=%E3%82%88%E3%82%80') >= 0, 'Direct audio source URL should encode the reading');
   assert(played[played.length - 1] === directRequest.url, 'Direct audio fallback should play the templated source URL');
   assert(directButton.dataset.audioState === 'ready', 'Direct audio fallback should leave the button ready');
+
+  overlay.applyConfig({
+    audioSources: [
+      { name: 'JapanesePod101', url: 'https://japanese.example.invalid/audio.mp3?term={term}' },
+      { url: 'https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?kanji={term}&kana={reading}' },
+      { url: 'http://127.0.0.1:5050/?term={term}&reading={reading}' }
+    ]
+  });
+  const menuButton = context.document.createElement('button');
+  menuButton.className = 'audio-button';
+  menuButton.dataset.audioTerm = '読む';
+  menuButton.dataset.audioReading = 'よむ';
+  context.__elements.popup.appendChild(menuButton);
+  let menuPrevented = false;
+  const menuOpened = overlay.showAudioSourceMenu(menuButton, {
+    clientX: 220,
+    clientY: 160,
+    preventDefault() { menuPrevented = true; },
+    stopPropagation() {}
+  });
+  assert(menuOpened, 'Right-clicking an audio button should open the source menu');
+  assert(menuPrevented, 'Audio source menu should suppress the native context menu');
+  const menu = context.__elements.popup.querySelector('.audio-source-menu');
+  assert(menu, 'Audio source menu should be rendered');
+  const items = menu.querySelectorAll('.audio-source-menu-item');
+  assert(items.length === 3, 'Audio source menu should list configured sources');
+  assert(items[0].textContent === 'JapanesePod101', 'Named audio sources should use their configured name');
+  assert(items[1].textContent === 'languagepod101.com', 'Unnamed web audio sources should use a readable host label');
+  assert(items[2].textContent === 'Local audio', 'The local Anki source should use a readable label');
+
+  const beforeMenuPlay = context.__sent.length;
+  items[1].listeners.click({ preventDefault() {}, stopPropagation() {} });
+  const menuRequest = respondToAudioSourceRequest(beforeMenuPlay, [], false);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert(menuRequest.url.indexOf('languagepod101.com') >= 0, 'Choosing a menu item should play only that source');
+  assert(played[played.length - 1] === menuRequest.url, 'Chosen direct audio source should be played');
+  assert(!context.__elements.popup.querySelector('.audio-source-menu'), 'Choosing a source should close the menu');
 
   console.log('overlay audio tests passed');
 })().catch(error => {

@@ -53,6 +53,7 @@
     audioAutoPlayed: Object.create(null),
     audioSourceRequestSeq: 0,
     pendingAudioSourceRequests: Object.create(null),
+    audioSourceMenu: null,
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -142,6 +143,20 @@
 	  }
 	  function activeAudioSources() {
 	    return normalizeAudioSources(state.config && state.config.audioSources);
+	  }
+	  function audioSourceDisplayLabel(source, index) {
+	    const name = normalizeWhitespace(source && source.name || '');
+	    if (name) return name;
+	    const url = String(source && source.url || '');
+	    if (/^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost):5050(?:[/?#]|$)/i.test(url)) return 'Local audio';
+	    try {
+	      if (typeof URL === 'function') {
+	        const parsed = new URL(url);
+	        const host = parsed.hostname.replace(/^www\./i, '').replace(/^assets\./i, '');
+	        return host ? (host + (parsed.port ? ':' + parsed.port : '')) : ('Source ' + String(Number(index || 0) + 1));
+	      }
+	    } catch (_) {}
+	    return 'Source ' + String(Number(index || 0) + 1);
 	  }
 	  function audioSourcesSignature(sources) {
 	    return JSON.stringify((sources || []).map(source => ({ name: source.name || '', url: source.url || '' })));
@@ -363,9 +378,10 @@
 	    return null;
 	  }
 	  async function playAudioForTerm(term, reading, button, options) {
+	    options = options || {};
 	    term = String(term || '').trim();
 	    reading = String(reading || '').trim();
-	    const sources = activeAudioSources();
+	    const sources = Array.isArray(options.sources) ? normalizeAudioSources(options.sources) : activeAudioSources();
 	    if (!term || !sources.length) return false;
 	    const key = audioTermReadingKey(term, reading);
 	    if (button) button.dataset.audioKey = key;
@@ -398,6 +414,91 @@
 	        if (button && button.dataset.audioState === 'loading') delete button.dataset.audioState;
 	      } catch (_) {}
 	    }
+	  }
+	  function nodeContains(parent, child) {
+	    let node = child;
+	    while (node) {
+	      if (node === parent) return true;
+	      node = node.parentNode || null;
+	    }
+	    return false;
+	  }
+	  function hideAudioSourceMenu() {
+	    const menu = state.audioSourceMenu;
+	    state.audioSourceMenu = null;
+	    try { if (menu && typeof menu.remove === 'function') menu.remove(); } catch (_) {}
+	  }
+	  function audioSourceMenuContainer() {
+	    try {
+	      if (document.body && typeof document.body.appendChild === 'function') return document.body;
+	    } catch (_) {}
+	    return popupEl;
+	  }
+	  function placeAudioSourceMenu(menu, button, event, inPopup) {
+	    const buttonRect = button && typeof button.getBoundingClientRect === 'function' ? button.getBoundingClientRect() : null;
+	    const popupRect = popupEl && typeof popupEl.getBoundingClientRect === 'function' ? popupEl.getBoundingClientRect() : null;
+	    const clientX = event && Number.isFinite(Number(event.clientX)) ? Number(event.clientX) : (buttonRect ? buttonRect.right : 24);
+	    const clientY = event && Number.isFinite(Number(event.clientY)) ? Number(event.clientY) : (buttonRect ? buttonRect.bottom : 24);
+	    const maxWidth = 260;
+	    if (inPopup && popupRect) {
+	      const scale = Math.max(0.1, Number(state.config.popupScale || 1) || 1);
+	      const left = Math.max(8, Math.min((popupRect.width / scale) - maxWidth - 8, (clientX - popupRect.left) / scale));
+	      const top = Math.max(8, (clientY - popupRect.top) / scale + 4);
+	      menu.style.position = 'absolute';
+	      menu.style.left = String(Math.max(8, left)) + 'px';
+	      menu.style.top = String(top) + 'px';
+	      return;
+	    }
+	    const winWidth = Number(window && window.innerWidth || 1280);
+	    const winHeight = Number(window && window.innerHeight || 720);
+	    menu.style.position = 'fixed';
+	    menu.style.left = String(Math.max(8, Math.min(winWidth - maxWidth - 8, clientX))) + 'px';
+	    menu.style.top = String(Math.max(8, Math.min(winHeight - 48, clientY + 4))) + 'px';
+	  }
+	  function showAudioSourceMenu(button, event) {
+	    try { if (event) { event.preventDefault(); event.stopPropagation(); } } catch (_) {}
+	    const term = String(button && button.dataset && button.dataset.audioTerm || '').trim();
+	    const reading = String(button && button.dataset && button.dataset.audioReading || '').trim();
+	    const sources = activeAudioSources();
+	    if (!term || !sources.length) return false;
+	    hideAudioSourceMenu();
+	    const menu = document.createElement('div');
+	    menu.className = 'audio-source-menu';
+	    menu.setAttribute('role', 'menu');
+	    menu.setAttribute('aria-label', 'Audio sources');
+	    sources.forEach((source, index) => {
+	      const label = audioSourceDisplayLabel(source, index);
+	      const item = document.createElement('button');
+	      item.type = 'button';
+	      item.className = 'audio-source-menu-item';
+	      item.textContent = label;
+	      item.title = source.url || label;
+	      item.dataset.audioSourceIndex = String(index);
+	      item.setAttribute('role', 'menuitem');
+	      item.addEventListener('click', clickEvent => {
+	        try { clickEvent.preventDefault(); clickEvent.stopPropagation(); } catch (_) {}
+	        hideAudioSourceMenu();
+	        playAudioForTerm(term, reading, button, {
+	          userGesture: true,
+	          sources: [Object.assign({}, source, { name: label })]
+	        }).catch(() => {});
+	      });
+	      menu.appendChild(item);
+	    });
+	    menu.addEventListener('click', clickEvent => {
+	      try { clickEvent.stopPropagation(); } catch (_) {}
+	    });
+	    menu.addEventListener('contextmenu', menuEvent => {
+	      try { menuEvent.preventDefault(); menuEvent.stopPropagation(); } catch (_) {}
+	    });
+	    const container = audioSourceMenuContainer();
+	    const inPopup = container === popupEl;
+	    container.appendChild(menu);
+	    state.audioSourceMenu = menu;
+	    placeAudioSourceMenu(menu, button, event, inPopup);
+	    const firstItem = menu.querySelector('.audio-source-menu-item');
+	    try { if (firstItem && typeof firstItem.focus === 'function') firstItem.focus(); } catch (_) {}
+	    return true;
 	  }
 	  function nodeHref(node) {
 	    if (!node || typeof node !== 'object') return '';
@@ -1010,6 +1111,7 @@
   }
 
   function hidePopup() {
+    hideAudioSourceMenu();
     setLookupPopupVisibility(false);
     popupEl.classList.add('hidden');
     state.currentPos = null;
@@ -1035,7 +1137,11 @@
 	        button.dataset.audioBound = 'true';
 	        button.addEventListener('click', event => {
 	          try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+	          hideAudioSourceMenu();
 	          playAudioForTerm(button.dataset.audioTerm || '', button.dataset.audioReading || '', button, { userGesture: true }).catch(() => {});
+	        });
+	        button.addEventListener('contextmenu', event => {
+	          showAudioSourceMenu(button, event);
 	        });
 	      });
 	    } catch (_) {}
@@ -1048,6 +1154,7 @@
 	      (secondaryText ? '<div class="lookup-source">' + escapeHtml(secondaryText) + '</div>' : '');
 	  }
 	  function showPopup(anchor, heading, bodyHtml) {
+	    hideAudioSourceMenu();
 	    state.currentAnchor = anchor || null;
 	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '', null) + '</div><div class="body">' + bodyHtml + '</div>';
 	    markPopupClickable();
@@ -1056,6 +1163,7 @@
 	    placePopup(anchor);
 	  }
 	  function setPopupBody(bodyHtml, heading, reading, secondaryText, audioData) {
+	    hideAudioSourceMenu();
 	    const head = popupEl.querySelector('.head');
 	    const body = popupEl.querySelector('.body');
 	    if (head && heading !== undefined) {
@@ -1959,7 +2067,23 @@
   iina.onMessage('status', setStatus);
   iina.onMessage('task-status', setTaskStatus);
 
+  document.addEventListener('click', event => {
+    const menu = state.audioSourceMenu;
+    if (!menu) return;
+    if (nodeContains(menu, event && event.target)) return;
+    hideAudioSourceMenu();
+  });
+  document.addEventListener('contextmenu', event => {
+    const menu = state.audioSourceMenu;
+    if (!menu) return;
+    if (nodeContains(menu, event && event.target)) return;
+    hideAudioSourceMenu();
+  });
+  document.addEventListener('keydown', event => {
+    if (event && event.key === 'Escape') hideAudioSourceMenu();
+  });
   window.addEventListener('resize', () => {
+    hideAudioSourceMenu();
     if (state.currentAnchor && !popupEl.classList.contains('hidden')) placePopup(state.currentAnchor);
   });
 
