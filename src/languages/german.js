@@ -306,8 +306,8 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
 
   return {
     id: "de",
-    label: "German (experimental)",
-    experimental: true,
+    label: "German",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",

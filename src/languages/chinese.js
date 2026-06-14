@@ -43,8 +43,8 @@ const IINATAN_CHINESE_LANGUAGE = (() => {
 
   return {
     id: "zh",
-    label: "Chinese (experimental)",
-    experimental: true,
+    label: "Chinese",
+    experimental: false,
     lookupUnit: "character",
     wordMode: "rightward-prefix",
     lookupMode: "prefix",

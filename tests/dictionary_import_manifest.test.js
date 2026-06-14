@@ -47,7 +47,7 @@ const context = {
   debugError() {},
   prefBool() { return true; },
   prefNumber(_key, fallback) { return fallback; },
-  selectedLanguageModule() { return { id: 'fr', label: 'French (experimental)' }; },
+  selectedLanguageModule() { return { id: 'fr', label: 'French' }; },
   showOSD() {},
   async ensureBundledBackendInstalled() { calls.push(['ensureBackendInstalled']); },
   async execChecked(command, args) { calls.push(['exec', command, args]); },

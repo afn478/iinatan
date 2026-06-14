@@ -43,6 +43,12 @@ assert(fr.id === 'fr', 'French language should be registered');
 assert(de.id === 'de', 'German language should be registered');
 assert(zh.id === 'zh', 'Chinese language should be registered');
 assert(ko.id === 'ko', 'Korean language should be registered');
+[ja, en, fr, de, zh].forEach(language => {
+  assert(!/\(experimental\)/i.test(language.label), language.id + ' should not include an experimental label');
+  assert(language.experimental === false, language.id + ' should not be marked experimental');
+});
+assert(/\(experimental\)/i.test(ko.label), 'Korean should keep its experimental label');
+assert(ko.experimental === true, 'Korean should remain marked experimental');
 assert(ja.lookupMode === 'yomitan-japanese', 'Japanese should declare HoshiDicts/Yomitan lookup mode');
 assert(en.lookupMode === 'exact', 'English should declare exact lookup mode');
 assert(fr.lookupMode === 'exact', 'French should declare exact lookup mode');

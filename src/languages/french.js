@@ -144,8 +144,8 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
 
   return {
     id: "fr",
-    label: "French (experimental)",
-    experimental: true,
+    label: "French",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",

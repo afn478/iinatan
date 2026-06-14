@@ -980,8 +980,8 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
 
   return {
     id: "en",
-    label: "English (experimental)",
-    experimental: true,
+    label: "English",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
@@ -1151,8 +1151,8 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
 
   return {
     id: "fr",
-    label: "French (experimental)",
-    experimental: true,
+    label: "French",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
@@ -1511,8 +1511,8 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
 
   return {
     id: "de",
-    label: "German (experimental)",
-    experimental: true,
+    label: "German",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
@@ -1575,8 +1575,8 @@ const IINATAN_CHINESE_LANGUAGE = (() => {
 
   return {
     id: "zh",
-    label: "Chinese (experimental)",
-    experimental: true,
+    label: "Chinese",
+    experimental: false,
     lookupUnit: "character",
     wordMode: "rightward-prefix",
     lookupMode: "prefix",

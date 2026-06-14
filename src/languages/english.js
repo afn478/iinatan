@@ -117,8 +117,8 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
 
   return {
     id: "en",
-    label: "English (experimental)",
-    experimental: true,
+    label: "English",
+    experimental: false,
     lookupUnit: "word",
     wordMode: "latin-word",
     lookupMode: "exact",
