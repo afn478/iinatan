@@ -140,6 +140,7 @@ function makeOverlayContext(options) {
     setProperty(name, value) { this[name] = String(value); }
   };
   const sent = [];
+  const posted = [];
   const handlers = Object.create(null);
   const sockets = [];
   function FakeWebSocket(url) {
@@ -173,12 +174,16 @@ function makeOverlayContext(options) {
     },
     iina: {
       onMessage(name, handler) { handlers[name] = handler; },
-      postMessage() {}
+      postMessage(name, payload) {
+        if (options.postMessageThrows) throw new Error('postMessage unavailable');
+        posted.push({ name, payload });
+      }
     },
     __elements: elements,
     __body: body,
     __head: head,
     __sent: sent,
+    __posted: posted,
     __handlers: handlers,
     __sockets: sockets,
     __openSocket(index) {

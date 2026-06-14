@@ -1069,12 +1069,8 @@ function handleBridgeAnkiCardAdd(payload) {
       const templates = ankiFieldTemplatesFromPrefs(prefs);
       const context = ankiCardContextFromPayload(payload);
       let fields = renderAnkiFields(templates, context, {});
-      const known = String((payload && payload.duplicateKnown) || "");
-      const knownIds = payload && Array.isArray(payload.noteIds) ? payload.noteIds : [];
       let duplicates = [];
-      if (prefs.ankiDuplicateCheck && known !== "ready" && knownIds.length) {
-        duplicates = knownIds;
-      } else if (prefs.ankiDuplicateCheck && known !== "ready") {
+      if (prefs.ankiDuplicateCheck) {
         const fieldNames = await ankiConfiguredFieldNames(prefs);
         duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
       }

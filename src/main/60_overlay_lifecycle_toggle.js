@@ -20,6 +20,9 @@ function initializeOverlay() {
 	  overlay.onMessage("lookup-popup-visibility", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("open-external-url", payload => { openExternalUrlFromOverlay(payload && payload.url !== undefined ? payload.url : payload); });
+	  overlay.onMessage("anki-card-status", payload => { handleBridgeAnkiCardStatus(payload); });
+	  overlay.onMessage("anki-card-add", payload => { handleBridgeAnkiCardAdd(payload); });
+	  overlay.onMessage("anki-card-open", payload => { handleBridgeAnkiCardOpen(payload); });
 	}
 function prepareRuntimeAfterProfileChange() {
   lookupBackendReadyForNativeHide = false;

@@ -1133,6 +1133,15 @@
     }
     return false;
   }
+  function postIinaMessage(name, payload) {
+    try {
+      iina.postMessage(name, payload || {});
+      return true;
+    } catch (error) {
+      overlayDebug('iina.postMessage failed ' + String(error));
+      return false;
+    }
+  }
   function sendBridgeMessageWhenReady(payload, timeoutMs, onFailure) {
     const startedAt = Date.now();
     const timeout = Math.max(250, Number(timeoutMs || 2500) || 2500);
@@ -1411,6 +1420,7 @@
 	      duplicateKnown: button && button.dataset ? String(button.dataset.ankiDuplicateKnown || '') : '',
 	      at: Date.now()
 	    };
+	    if (postIinaMessage(type, payload)) return true;
 	    return sendBridgeMessageWhenReady(payload, type === 'anki-card-status' ? 1800 : 9000, () => {
 	      if (type !== 'anki-card-status') setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
 	    });

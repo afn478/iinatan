@@ -11,6 +11,11 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function postedMessage(context, name) {
+  const item = context.__posted.find(message => message.name === name);
+  return item && item.payload;
+}
+
 function makeAnkiButton(context, id) {
   const button = context.document.createElement('button');
   button.className = 'anki-button';
@@ -48,12 +53,28 @@ const overlayAnkiExports = [
 
   const addButton = makeAnkiButton(context, 'ctx1');
   overlay.bindPopupAnkiButtons();
+  context.__posted.length = 0;
   clickButton(addButton);
   assert(context.__elements.status.textContent === 'Adding Anki card...', 'Anki add click should show immediate feedback');
-  assert(!context.__sent.some(message => message.type === 'anki-card-add'), 'Anki add should wait while the bridge socket is connecting');
-  context.__openSocket();
+  assert(postedMessage(context, 'anki-card-add'), 'Anki add should use the native IINA overlay bridge immediately');
+  assert(!context.__sent.some(message => message.type === 'anki-card-add'), 'Anki add should not need the WebSocket when native overlay messages are available');
+
+  const { context: fallbackContext, overlay: fallbackOverlay } = loadOverlayForTest(overlayAnkiExports, {
+    autoOpenWebSocket: false,
+    postMessageThrows: true
+  });
+  fallbackOverlay.applyConfig({
+    overlayBridgePort: 19741,
+    anki: { enabled: true, configured: true, duplicateMode: 'prevent' }
+  });
+  fallbackOverlay.state.ankiCardContexts.ctxFallback = overlay.state.ankiCardContexts.ctx1;
+  const fallbackButton = makeAnkiButton(fallbackContext, 'ctxFallback');
+  fallbackOverlay.bindPopupAnkiButtons();
+  clickButton(fallbackButton);
+  assert(!fallbackContext.__sent.some(message => message.type === 'anki-card-add'), 'Anki add fallback should wait while the bridge socket is connecting');
+  fallbackContext.__openSocket();
   await wait(120);
-  assert(context.__sent.some(message => message.type === 'anki-card-add'), 'Anki add should send once the bridge socket opens');
+  assert(fallbackContext.__sent.some(message => message.type === 'anki-card-add'), 'Anki add fallback should send once the bridge socket opens');
 
   const { context: openContext, overlay: openOverlay } = loadOverlayForTest(overlayAnkiExports);
   openOverlay.applyConfig({
@@ -67,12 +88,13 @@ const overlayAnkiExports = [
   openButton.dataset.ankiDuplicateKnown = 'duplicate';
   openButton.dataset.ankiNoteIds = JSON.stringify([12345]);
   openOverlay.bindPopupAnkiButtons();
+  openContext.__posted.length = 0;
   clickButton(openButton);
   await wait(20);
-  const openMessage = openContext.__sent.find(message => message.type === 'anki-card-open');
+  const openMessage = postedMessage(openContext, 'anki-card-open');
   assert(openMessage, 'Duplicate book buttons should send an open request');
   assert(openMessage.noteIds[0] === 12345, 'Duplicate open requests should include the detected note ID');
-  assert(!openContext.__sent.some(message => message.type === 'anki-card-add'), 'Duplicate book buttons should not fall through to add');
+  assert(!postedMessage(openContext, 'anki-card-add'), 'Duplicate book buttons should not fall through to add');
 
   const { context: staleContext, overlay: staleOverlay } = loadOverlayForTest(overlayAnkiExports);
   staleOverlay.applyConfig({
@@ -89,10 +111,10 @@ const overlayAnkiExports = [
   assert(staleButton.dataset.ankiNoteIds === '[]', 'Ready Anki buttons should clear stale duplicate note IDs');
   assert(staleButton.dataset.ankiDuplicateKnown === 'ready', 'Ready Anki buttons should mark the duplicate state as refreshed');
   staleOverlay.bindPopupAnkiButtons();
-  staleContext.__sent.length = 0;
+  staleContext.__posted.length = 0;
   clickButton(staleButton);
   await wait(20);
-  const addMessage = staleContext.__sent.find(message => message.type === 'anki-card-add');
+  const addMessage = postedMessage(staleContext, 'anki-card-add');
   assert(addMessage, 'Ready buttons should send an add request after a deleted duplicate disappears');
   assert(addMessage.duplicateKnown === 'ready', 'Ready add requests should not report a known duplicate');
   assert(Array.isArray(addMessage.noteIds) && addMessage.noteIds.length === 0, 'Ready add requests should not send stale note IDs');

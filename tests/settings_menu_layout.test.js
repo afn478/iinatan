@@ -160,13 +160,17 @@ assert(/"-nostdin"/.test(ankiSource) && /"-loglevel"/.test(ankiSource), 'Sentenc
 assert(/ankiModelFieldCache/.test(ankiSource), 'Anki integration should cache note field names for repeated popup actions');
 assert(/guiBrowse/.test(ankiSource), 'Anki duplicate handling should be able to open existing notes');
 assert(/allowDuplicate/.test(ankiSource), 'Anki duplicate settings should be passed to addNote');
-assert(/prefs\.ankiDuplicateCheck && known !== "ready" && knownIds\.length/.test(ankiSource), 'Anki add requests should ignore stale duplicate note IDs once the popup is ready again');
+assert(/if\s*\(prefs\.ankiDuplicateCheck\)\s*\{\s*const fieldNames = await ankiConfiguredFieldNames/.test(ankiSource), 'Anki add requests should perform a fresh duplicate check before adding');
 assert(/ankiStructuredHtml/.test(ankiSource), 'Anki glossary rendering should convert structured dictionary content into HTML');
 
 const overlayBridgeSource = fs.readFileSync(path.join(root, 'src/main/50_overlay_bridge_pause.js'), 'utf8');
 assert(/anki-card-status/.test(overlayBridgeSource), 'Overlay bridge should handle Anki status checks');
 assert(/anki-card-add/.test(overlayBridgeSource), 'Overlay bridge should handle Anki add requests');
 assert(/anki-card-open/.test(overlayBridgeSource), 'Overlay bridge should handle Anki open-existing requests');
+const overlayLifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
+assert(/overlay\.onMessage\("anki-card-status"/.test(overlayLifecycleSource), 'Overlay should handle Anki status through native IINA messages');
+assert(/overlay\.onMessage\("anki-card-add"/.test(overlayLifecycleSource), 'Overlay should handle Anki add through native IINA messages');
+assert(/overlay\.onMessage\("anki-card-open"/.test(overlayLifecycleSource), 'Overlay should handle Anki open through native IINA messages');
 
 const overlaySource = fs.readFileSync(path.join(root, 'src/overlay/overlay.js'), 'utf8');
 assert(/class="anki-button"/.test(overlaySource), 'Overlay should render an Anki action button');
@@ -176,10 +180,11 @@ assert(/data-anki-action/.test(overlaySource), 'Overlay should track the current
 assert(/anki-card-status/.test(overlaySource), 'Overlay should request duplicate status for Anki buttons');
 assert(/anki-card-open/.test(overlaySource), 'Overlay should open duplicates from the Anki button');
 assert(/duplicateKnown/.test(overlaySource), 'Overlay should reuse duplicate preflight state on add');
+assert(/postIinaMessage\(type, payload\)/.test(overlaySource), 'Overlay should send Anki actions through native IINA messages before falling back to WebSocket');
 assert(/button\.dataset\.ankiAction === 'open'/.test(overlaySource), 'Overlay should use explicit open action state for duplicate book buttons');
 assert(/right-click to open existing/.test(overlaySource), 'Anki add-anyway mode should still expose open-existing behavior');
 
-const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
+const lifecycleSource = overlayLifecycleSource;
 assert(/function reloadOverlayForProfileChange\(\)/.test(lifecycleSource), 'Profile changes should be able to reload the overlay');
 assert(/function videoWindowAvailableForOverlayLoad\(\)/.test(lifecycleSource), 'Profile overlay reload should have a video-window availability guard');
 assert(/core\.window\.loaded/.test(lifecycleSource), 'Profile overlay reload should check IINA window availability before overlay.loadFile');
