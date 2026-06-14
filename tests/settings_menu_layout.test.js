@@ -28,6 +28,10 @@ assert(/data-profile-pref="audioAutoPlay"/.test(managerHtml), 'Settings manager 
 assert(/id="audioSourceList"/.test(managerHtml), 'Settings manager should expose the word audio source list');
 assert(/moveAudioSourceBefore/.test(managerHtml), 'Audio source priorities should support drag reordering');
 assert(/audioSourcesJson/.test(managerHtml), 'Audio source priorities should be saved with profile preferences');
+const addAudioSourceSource = managerHtml.slice(managerHtml.indexOf('function addAudioSource()'), managerHtml.indexOf('function updateAudioSourceUrl'));
+assert(/url:\s*''/.test(addAudioSourceSource), 'Adding an audio source should create an editable blank row');
+assert(!/DEFAULT_AUDIO_SOURCE_URL/.test(addAudioSourceSource), 'Adding an audio source should not duplicate the default Anki URL');
+assert(!/saveAudioSources\(\)/.test(addAudioSourceSource), 'Blank audio source drafts should not be saved before the user enters a URL');
 assert(/data-profile-pref="scanLength"/.test(managerHtml), 'Settings manager should expose per-profile scan length');
 assert(/data-profile-pref="popupTheme"/.test(managerHtml), 'Settings manager should expose per-profile popup color mode');
 assert(/data-profile-pref="customPopupCss"/.test(managerHtml), 'Settings manager should expose per-profile custom popup CSS');
