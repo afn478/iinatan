@@ -242,10 +242,13 @@
 	  function urlLooksLikeAudioFile(url) {
 	    return /\.(?:mp3|m4a|aac|ogg|oga|opus|wav|webm)(?:[?#]|$)/i.test(String(url || ''));
 	  }
+	  function directAudioCandidateForSource(source, sourceUrl) {
+	    return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	  }
 	  async function resolveAudioCandidateUrls(source, term, reading) {
 	    const sourceUrl = safeAudioUrl(audioUrlFromTemplate(source && source.url, term, reading), '');
 	    if (!sourceUrl) return [];
-	    if (urlLooksLikeAudioFile(sourceUrl)) return [{ url: sourceUrl, name: normalizeWhitespace(source && source.name || '') }];
+	    if (urlLooksLikeAudioFile(sourceUrl)) return directAudioCandidateForSource(source, sourceUrl);
 	    const bridgeResult = await requestAudioCandidatesFromPlugin(sourceUrl);
 	    if (bridgeResult && bridgeResult.ok && Array.isArray(bridgeResult.candidates)) {
 	      const candidates = normalizeAudioCandidateList(bridgeResult.candidates, sourceUrl);
@@ -254,7 +257,7 @@
 	    }
 	    if (bridgeResult && bridgeResult.ok === false) {
 	      overlayDebug("audio source bridge failed url=" + JSON.stringify(sourceUrl) + " error=" + JSON.stringify(String(bridgeResult.error || "")));
-	      return [];
+	      return directAudioCandidateForSource(source, sourceUrl);
 	    }
 	    try {
 	      const text = await fetchTextWithTimeout(sourceUrl, Math.min(8000, Math.max(2500, Number(state.config.hoverRequestTimeoutMs || 5000))));
@@ -268,7 +271,7 @@
 	    } catch (error) {
 	      overlayDebug("audio source JSON fetch failed url=" + JSON.stringify(sourceUrl) + " error=" + String(error && error.message ? error.message : error));
 	    }
-	    return [];
+	    return directAudioCandidateForSource(source, sourceUrl);
 	  }
 	  function waitForAudioData(audio, timeoutMs) {
 	    return new Promise((resolve, reject) => {

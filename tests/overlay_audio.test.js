@@ -123,6 +123,25 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(!missing, 'Empty audio source JSON should report missing audio');
   assert(missingButton.dataset.audioState === 'missing', 'Missing audio should mark the speaker with the missing badge state');
 
+  overlay.applyConfig({
+    audioSources: [{ name: 'LanguagePod101', url: 'https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?kanji={term}&kana={reading}' }]
+  });
+  const directKey = overlay.audioTermReadingKey('読む', 'よむ');
+  const directButton = context.document.createElement('button');
+  directButton.className = 'audio-button';
+  directButton.dataset.audioKey = directKey;
+  context.__elements.popup.appendChild(directButton);
+  const beforeDirect = context.__sent.length;
+  const directPromise = overlay.playAudioForTerm('読む', 'よむ', directButton, {});
+  const directRequest = respondToAudioSourceRequest(beforeDirect, [], false);
+  const direct = await directPromise;
+  assert(direct, 'Non-JSON source URLs should be tried directly as audio');
+  assert(directRequest.url.indexOf('audiomp3.php') >= 0, 'Direct audio source templates should be sent to the bridge before fallback');
+  assert(directRequest.url.indexOf('kanji=%E8%AA%AD%E3%82%80') >= 0, 'Direct audio source URL should encode the term');
+  assert(directRequest.url.indexOf('kana=%E3%82%88%E3%82%80') >= 0, 'Direct audio source URL should encode the reading');
+  assert(played[played.length - 1] === directRequest.url, 'Direct audio fallback should play the templated source URL');
+  assert(directButton.dataset.audioState === 'ready', 'Direct audio fallback should leave the button ready');
+
   console.log('overlay audio tests passed');
 })().catch(error => {
   console.error(error);
