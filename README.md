@@ -4,7 +4,7 @@ iinatan adds dictionary popups to subtitles in IINA on macOS. Pause a video, hov
 
 The plugin is still experimental, but the core workflow is usable today: install a dictionary, choose a lookup language, toggle iinatan on, and use it while watching subtitled video.
 
-Anki export is not supported yet.
+Anki export is available through AnkiConnect when Anki is running in the background.
 
 ## Screenshots
 
@@ -23,6 +23,7 @@ Anki export is not supported yet.
 - Import support for local Yomitan-compatible dictionary ZIP files.
 - Frequency and pitch-accent details for Japanese dictionaries that include them.
 - Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
+- One-click Anki card creation with duplicate detection, subtitle sentences, screenshots, and subtitle audio.
 - Profiles for keeping separate language, dictionary, popup, and playback setups.
 
 ## Installation
@@ -96,8 +97,13 @@ Common settings include:
 - Installed dictionaries and result priority
 - Subtitle and popup appearance
 - Playback behavior
+- AnkiConnect export fields, duplicate behavior, screenshots, and sentence audio
 - Advanced import and lookup options
 - Profiles for separate setups
+
+## Anki Export
+
+Install the AnkiConnect add-on, open Anki, then configure export from the **Anki** tab in **Plugins -> iinatan -> Settings...**. Anki settings are stored per profile, including the AnkiConnect URL, deck, note type, field templates, duplicate behavior, JPEG screenshot quality, and sentence audio format/bitrate.
 
 The IINA plugin menu also includes **Settings...** and quick profile switching.
 
