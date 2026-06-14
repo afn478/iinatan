@@ -1,10 +1,10 @@
 # iinatan
 
-iinatan brings hover-to-lookup dictionary popups to subtitles in IINA on macOS. It is vibecoded, still not production ready, and best treated as experimental, though most core functionality should basically work.
+iinatan adds dictionary popups to subtitles in IINA on macOS. Pause a video, hover a word, and look it up without leaving the player.
 
-The goal is a compact dictionary popup that feels native to a video player: quick enough for subtitles, structured enough for serious reading, and quiet enough to stay out of the movie's way.
+The plugin is still experimental, but the core workflow is usable today: install a dictionary, choose a lookup language, toggle iinatan on, and use it while watching subtitled video.
 
-Anki export is not supported yet, but it is a natural fit for a future version.
+Anki export is not supported yet.
 
 ## Screenshots
 
@@ -14,63 +14,98 @@ Anki export is not supported yet, but it is a natural fit for a future version.
 | --- | --- |
 | ![English lookup with language menu](docs/screenshots/english-popup-language-menu.png) | ![Dictionary settings](docs/screenshots/dictionary-settings.png) |
 
-## Feature Highlights
+## What You Get
 
-- Hover subtitle text to show dictionary entries without leaving IINA.
-- Pause-only popup behavior keeps lookups from interrupting normal playback.
-- Japanese lookup uses HoshiDicts with Yomitan-compatible dictionary data, including deinflection support.
-- Jitendex is the recommended Japanese dictionary and can be installed from the plugin settings.
-- English, French, German, Chinese, and Korean lookup modes are available for compatible dictionaries.
-- Japanese entries can show frequency and pitch-accent metadata when the dictionary provides it.
-- Dictionary popups support structured entries, compact tags, collapsed long sections, source links, and custom CSS.
-- Settings profiles make it possible to keep separate language, popup, playback, and dictionary setups.
+- Dictionary lookups directly on IINA subtitles.
+- Pause-only behavior, so popups do not interrupt normal playback.
+- Japanese, English, French, German, Chinese, and Korean lookup modes.
+- Built-in installer for the recommended Japanese dictionary, Jitendex.
+- Import support for local Yomitan-compatible dictionary ZIP files.
+- Frequency and pitch-accent details for Japanese dictionaries that include them.
+- Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
+- Profiles for keeping separate language, dictionary, popup, and playback setups.
 
 ## Installation
 
+For most users, the recommended option is the release package. Installing directly from GitHub follows the latest repository contents, so it can break temporarily when new commits are pushed.
+
+### Install a Release Package (Recommended)
+
+Download an `.iinaplgz` release package and install it through IINA's plugin manager.
+
 ### Install From GitHub
+Use this only if you want the newest in-progress changes and are comfortable with occasional breakage.
 
 1. Open IINA's plugin manager.
 2. Choose **Install from GitHub**.
 3. Enter `afn478/iinatan`.
 4. Enable the plugin.
-5. Open **Plugins -> iinatan -> Settings...** and install the recommended dictionary or import a Yomitan-compatible dictionary ZIP.
-6. Toggle iinatan with **Shift+H**.
+5. Open **Plugins -> iinatan -> Settings...**.
+6. Install the recommended dictionary, or import a Yomitan-compatible dictionary ZIP.
+7. Toggle iinatan with **Shift+H**.
 
-### Install a Release Package
+## Quick Start
 
-Release builds provide an `.iinaplgz` package. Install that file through IINA's plugin manager if you prefer a packaged plugin artifact.
-
-## Basic Japanese Setup
+### Japanese
 
 1. Open **Plugins -> iinatan -> Settings...**.
 2. Set the lookup language to **Japanese**.
-3. Install the recommended dictionary, Jitendex, from the dictionary panel.
+3. Install **Jitendex** from the dictionary panel.
 4. Make sure Jitendex is enabled.
 5. Open a video with Japanese subtitles.
-6. Pause playback, move the pointer over subtitle text, and wait for the popup.
-7. If the popup does not appear, press **Shift+H** to toggle iinatan on.
+6. Toggle iinatan with **Shift+H**.
+7. Pause playback and hover subtitle text.
+
+### Other Languages
+
+1. Open **Plugins -> iinatan -> Settings...**.
+2. Choose the lookup language you want to use.
+3. Import a compatible dictionary ZIP.
+4. Enable the dictionary and move it into the order you prefer.
+5. Pause playback and hover subtitle text.
+
+If the popup does not appear, press **Shift+H** to toggle iinatan on.
 
 ## Dictionaries
 
-Open **Plugins -> iinatan -> Settings...** to install the recommended Japanese dictionary, import local Yomitan-compatible dictionary ZIP files, enable or disable dictionaries, and reorder lookup priority.
+The dictionary panel lets you:
 
-Installed dictionary state is stored in the plugin data folder. The active profile controls dictionary order, lookup language, popup appearance, playback behavior, import settings, and lookup settings.
+- Install Jitendex for Japanese.
+- Import local Yomitan-compatible dictionary ZIP files.
+- Enable or disable installed dictionaries.
+- Reorder dictionaries to choose which results appear first.
 
-Language modes behave differently:
+Language support depends on the dictionaries you install. iinatan currently has lookup modes for:
 
-- Japanese uses HoshiDicts text processing and deinflection.
-- English looks up whole words after lowercasing the hovered text.
-- French and German use Yomitan-style candidate and deinflection rules.
-- Chinese uses longest rightward-prefix lookup.
-- Korean performs exact contiguous-Hangul lookup.
+- Japanese
+- English
+- French
+- German
+- Chinese
+- Korean
 
-Compatibility metadata is advisory. A dictionary may still import even when iinatan cannot confidently identify its language.
+Some dictionary ZIP files do not label their language clearly. When that happens, iinatan may still let you import the file, but you may need to choose the right lookup language yourself.
 
 ## Settings
 
-Use **Plugins -> iinatan -> Settings...** to create profiles, switch profiles, choose the lookup language, tune subtitle and popup appearance, manage playback behavior, adjust lookup/import timeouts, and manage installed dictionaries.
+Open **Plugins -> iinatan -> Settings...** to manage the plugin.
 
-The top plugin menu also exposes **Settings...** and direct profile switching.
+Common settings include:
+
+- Lookup language
+- Installed dictionaries and result priority
+- Subtitle and popup appearance
+- Playback behavior
+- Advanced import and lookup options
+- Profiles for separate setups
+
+The IINA plugin menu also includes **Settings...** and quick profile switching.
+
+## Troubleshooting
+
+- If no popup appears, press **Shift+H** and try again while playback is paused.
+- If a dictionary does not return results, check that it is enabled and that the current lookup language matches it.
+- If the plugin stalls, restart IINA.
 
 ## Development / Contributing
 
@@ -80,12 +115,8 @@ Development notes, build commands, test commands, packaging details, and release
 
 iinatan is licensed under the GNU General Public License v3.0 only (`GPL-3.0-only`). See `LICENSE` for the full license text.
 
-## Common Troubleshooting
-
-- If the plugin stalls, try restarting IINA first.
-
 ## Thanks
 
-- [Yomitan](https://github.com/yomidevs/yomitan) for the overall inspiration for popup dictionaries, as well as the deinflection logic base for non-Japanese languages.
-- [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the high-performance dictionary backend.
-- [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for inspiration on how to use HoshiDicts effectively, particularly for multilingual support.
+- [Yomitan](https://github.com/yomidevs/yomitan) for the inspiration behind the popup dictionary experience.
+- [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the dictionary engine used by iinatan.
+- [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for examples of compact, reader-friendly lookup design.
