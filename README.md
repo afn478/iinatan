@@ -117,6 +117,7 @@ iinatan is licensed under the GNU General Public License v3.0 only (`GPL-3.0-onl
 
 ## Thanks
 
+- [Yomipv](https://github.com/BrenoAqua/Yomipv) for the original idea of bringing Yomitan-style lookup into mpv.
 - [Yomitan](https://github.com/yomidevs/yomitan) for the inspiration behind the popup dictionary experience.
 - [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the dictionary engine used by iinatan.
 - [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for examples of compact, reader-friendly lookup design.
