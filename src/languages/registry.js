@@ -5,10 +5,12 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
     IINATAN_FRENCH_LANGUAGE,
     IINATAN_GERMAN_LANGUAGE,
     IINATAN_CHINESE_LANGUAGE,
-    IINATAN_KOREAN_LANGUAGE
+    IINATAN_KOREAN_LANGUAGE,
   ];
   const byId = Object.create(null);
-  languages.forEach(language => { byId[language.id] = language; });
+  languages.forEach((language) => {
+    byId[language.id] = language;
+  });
 
   function get(id) {
     return byId[String(id || "ja")] || byId.ja;
@@ -26,10 +28,14 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       experimental: !!selectedLanguage.experimental,
       lookupUnit: selectedLanguage.lookupUnit || "character",
       wordMode: selectedLanguage.wordMode,
-      lookupMode: selectedLanguage.lookupMode || selectedLanguage.backendMode || "yomitan-japanese",
+      lookupMode:
+        selectedLanguage.lookupMode ||
+        selectedLanguage.backendMode ||
+        "yomitan-japanese",
       deinflection: selectedLanguage.deinflection,
-      deinflectionMode: selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
-      dictionaryCompatibility: selectedLanguage.dictionaryCompatibility
+      deinflectionMode:
+        selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
+      dictionaryCompatibility: selectedLanguage.dictionaryCompatibility,
     };
   }
 
@@ -37,7 +43,7 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
     all: languages.slice(),
     get,
     selected,
-    overlayConfig
+    overlayConfig,
   };
 })();
 

@@ -8,43 +8,65 @@
  * - The worker keeps DictionaryQuery + Lookup in memory and accepts one lookup request file at a time.
  */
 
-const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, http, utils, standaloneWindow } = iina;
+const {
+  core,
+  mpv,
+  event,
+  overlay,
+  menu,
+  input,
+  ws,
+  preferences,
+  console,
+  file,
+  http,
+  utils,
+  standaloneWindow,
+} = iina;
 
 const VERSION = "1.9.1";
-const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
+const RECOMMENDED_JITENDEX_URL =
+  "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
 const RECOMMENDED_JAPANESE_DICTIONARIES = [
   {
     id: "jitendex-ja-en",
     title: "Jitendex",
     category: "Terms",
     language: "Japanese",
-    description: "Japanese-English dictionary with structured JMdict data, examples, notes, and links.",
+    description:
+      "Japanese-English dictionary with structured JMdict data, examples, notes, and links.",
     homepage: "https://jitendex.org",
     downloadUrl: RECOMMENDED_JITENDEX_URL,
     filename: "jitendex-yomitan.zip",
-    titlePrefixes: ["Jitendex"]
+    titlePrefixes: ["Jitendex"],
   },
   {
     id: "jmnedict-ja",
     title: "JMnedict",
     category: "Terms",
     language: "Japanese",
-    description: "Japanese proper names from the Electronic Dictionary Research and Development Group.",
-    homepage: "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
-    downloadUrl: "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip",
+    description:
+      "Japanese proper names from the Electronic Dictionary Research and Development Group.",
+    homepage:
+      "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
+    downloadUrl:
+      "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip",
     filename: "JMnedict.zip",
-    titlePrefixes: ["JMnedict"]
+    titlePrefixes: ["JMnedict"],
   },
   {
     id: "bccwj-suw-luw-combined",
     title: "BCCWJ SUW/LUW Combined",
     category: "Frequency",
     language: "Japanese",
-    description: "Frequency ranks from the Balanced Corpus of Contemporary Written Japanese.",
-    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#bccwj-suw-luw-combined",
-    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/BCCWJ_SUW_LUW_combined.zip",
+    description:
+      "Frequency ranks from the Balanced Corpus of Contemporary Written Japanese.",
+    homepage:
+      "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#bccwj-suw-luw-combined",
+    downloadUrl:
+      "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/BCCWJ_SUW_LUW_combined.zip",
     filename: "BCCWJ_SUW_LUW_combined.zip",
-    titlePrefixes: ["BCCWJ"]
+    titlePrefixes: ["BCCWJ"],
   },
   {
     id: "jpdb-v2-kana",
@@ -52,23 +74,27 @@ const RECOMMENDED_JAPANESE_DICTIONARIES = [
     category: "Frequency",
     language: "Japanese",
     description: "Kana-aware frequency ranks from the JPDB corpus.",
-    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#jpdb-v22-frequency",
-    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/JPDB_v2.2_Frequency_Kana.zip",
+    homepage:
+      "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#jpdb-v22-frequency",
+    downloadUrl:
+      "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/JPDB_v2.2_Frequency_Kana.zip",
     filename: "JPDB_v2.2_Frequency_Kana.zip",
-    titlePrefixes: ["JPDBv2", "JPDB v2.2"]
+    titlePrefixes: ["JPDBv2", "JPDB v2.2"],
   },
   {
     id: "jiten-global-frequency",
     title: "Jiten Global",
     category: "Frequency",
     language: "Japanese",
-    description: "Global Yomitan frequency dictionary generated from the Jiten media database.",
+    description:
+      "Global Yomitan frequency dictionary generated from the Jiten media database.",
     homepage: "https://jiten.moe/other",
-    downloadUrl: "https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan",
+    downloadUrl:
+      "https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan",
     downloadUrlAliases: ["https://api.jiten.moe/api/frequency-list/download"],
     filename: "jiten-global-yomitan.zip",
-    titlePrefixes: ["Jiten"]
-  }
+    titlePrefixes: ["Jiten"],
+  },
 ];
 const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
   ja: RECOMMENDED_JAPANESE_DICTIONARIES,
@@ -80,10 +106,11 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
       language: "English",
       description: "English dictionary created from Wiktionary data.",
       homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
-      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/en/en/wty-en-en.zip",
+      downloadUrl:
+        "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/en/en/wty-en-en.zip",
       filename: "wty-en-en.zip",
-      titlePrefixes: ["wty-en-en"]
-    }
+      titlePrefixes: ["wty-en-en"],
+    },
   ],
   de: [
     {
@@ -93,10 +120,11 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
       language: "German",
       description: "German to English dictionary created from Wiktionary data.",
       homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
-      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/de/en/wty-de-en.zip",
+      downloadUrl:
+        "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/de/en/wty-de-en.zip",
       filename: "wty-de-en.zip",
-      titlePrefixes: ["wty-de-en"]
-    }
+      titlePrefixes: ["wty-de-en"],
+    },
   ],
   fr: [
     {
@@ -106,10 +134,11 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
       language: "French",
       description: "French to English dictionary created from Wiktionary data.",
       homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
-      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/fr/en/wty-fr-en.zip",
+      downloadUrl:
+        "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/fr/en/wty-fr-en.zip",
       filename: "wty-fr-en.zip",
-      titlePrefixes: ["wty-fr-en"]
-    }
+      titlePrefixes: ["wty-fr-en"],
+    },
   ],
   zh: [
     {
@@ -117,23 +146,27 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
       title: "CC-CEDICT",
       category: "Terms",
       language: "Chinese",
-      description: "Chinese-English dictionary provided by the CC-CEDICT project.",
+      description:
+        "Chinese-English dictionary provided by the CC-CEDICT project.",
       homepage: "https://github.com/MarvNC/cc-cedict-yomitan",
-      downloadUrl: "https://github.com/MarvNC/cc-cedict-yomitan/releases/latest/download/CC-CEDICT.zip",
+      downloadUrl:
+        "https://github.com/MarvNC/cc-cedict-yomitan/releases/latest/download/CC-CEDICT.zip",
       filename: "CC-CEDICT.zip",
-      titlePrefixes: ["CC-CEDICT"]
+      titlePrefixes: ["CC-CEDICT"],
     },
     {
       id: "wty-zh-en",
       title: "wty-zh-en",
       category: "Terms",
       language: "Chinese",
-      description: "Chinese to English dictionary created from Wiktionary data.",
+      description:
+        "Chinese to English dictionary created from Wiktionary data.",
       homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
-      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/zh/en/wty-zh-en.zip",
+      downloadUrl:
+        "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/zh/en/wty-zh-en.zip",
       filename: "wty-zh-en.zip",
-      titlePrefixes: ["wty-zh-en"]
-    }
+      titlePrefixes: ["wty-zh-en"],
+    },
   ],
   ko: [
     {
@@ -143,11 +176,12 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
       language: "Korean",
       description: "Korean to English dictionary created from Wiktionary data.",
       homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
-      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/ko/en/wty-ko-en.zip",
+      downloadUrl:
+        "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/ko/en/wty-ko-en.zip",
       filename: "wty-ko-en.zip",
-      titlePrefixes: ["wty-ko-en"]
-    }
-  ]
+      titlePrefixes: ["wty-ko-en"],
+    },
+  ],
 };
 
 let enabled = false;
@@ -221,50 +255,86 @@ function prefNumber(key, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 function compactError(error) {
-  const msg = error && error.message ? String(error.message) : String(error || "Unknown error");
+  const msg =
+    error && error.message
+      ? String(error.message)
+      : String(error || "Unknown error");
   return msg.replace(/\s+/g, " ").slice(0, 1200);
 }
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-function showOSD(message) { try { core.osd(String(message || "")); } catch (_) {} }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function showOSD(message) {
+  try {
+    core.osd(String(message || ""));
+  } catch (_) {}
+}
 function notify(message, kind, ttlMs) {
   const text = String(message || "");
-  try { console.log(text); } catch (_) {}
+  try {
+    console.log(text);
+  } catch (_) {}
   showOSD(text);
-  try { setOverlayStatus(text, kind || "info", ttlMs || 12000); } catch (_) {}
+  try {
+    setOverlayStatus(text, kind || "info", ttlMs || 12000);
+  } catch (_) {}
 }
-function alert(message) { notify(message, "info", 14000); }
+function alert(message) {
+  notify(message, "info", 14000);
+}
 function logEnabled() {
-  try { return prefBool("debugLogEnabled", true); } catch (_) { return true; }
+  try {
+    return prefBool("debugLogEnabled", true);
+  } catch (_) {
+    return true;
+  }
 }
 function verboseLogEnabled() {
-  try { return prefBool("debugLogVerbose", false); } catch (_) { return false; }
+  try {
+    return prefBool("debugLogVerbose", false);
+  } catch (_) {
+    return false;
+  }
 }
 function formatDebugMessage(message, level) {
-  return "[iinatan " + VERSION + "]" + (level ? "[" + level + "] " : " ") + String(message || "");
+  return (
+    "[iinatan " +
+    VERSION +
+    "]" +
+    (level ? "[" + level + "] " : " ") +
+    String(message || "")
+  );
 }
 function emitToIinaLogViewer(message, level) {
   const formatted = formatDebugMessage(message, level || "debug");
   try {
     const logger = iina && iina.console ? iina.console : null;
     if (logger) {
-      if (level === "error" && typeof logger.error === "function") logger.error(formatted);
-      else if (level === "warn" && typeof logger.warn === "function") logger.warn(formatted);
+      if (level === "error" && typeof logger.error === "function")
+        logger.error(formatted);
+      else if (level === "warn" && typeof logger.warn === "function")
+        logger.warn(formatted);
       else if (typeof logger.log === "function") logger.log(formatted);
       else if (typeof logger.info === "function") logger.info(formatted);
     }
   } catch (_) {}
   try {
-    const gconsole = globalThis && globalThis.console ? globalThis.console : null;
+    const gconsole =
+      globalThis && globalThis.console ? globalThis.console : null;
     if (gconsole) {
-      if (level === "error" && typeof gconsole.error === "function") gconsole.error(formatted);
-      else if (level === "warn" && typeof gconsole.warn === "function") gconsole.warn(formatted);
+      if (level === "error" && typeof gconsole.error === "function")
+        gconsole.error(formatted);
+      else if (level === "warn" && typeof gconsole.warn === "function")
+        gconsole.warn(formatted);
       else if (typeof gconsole.log === "function") gconsole.log(formatted);
     }
   } catch (_) {}
   try {
     if (typeof console !== "undefined") {
-      if (level === "error" && typeof console.error === "function") console.error(formatted);
-      else if (level === "warn" && typeof console.warn === "function") console.warn(formatted);
+      if (level === "error" && typeof console.error === "function")
+        console.error(formatted);
+      else if (level === "warn" && typeof console.warn === "function")
+        console.warn(formatted);
       else if (typeof console.log === "function") console.log(formatted);
     }
   } catch (_) {}
@@ -274,7 +344,13 @@ function debugLog(message, level) {
   const lvl = level || "debug";
   emitToIinaLogViewer(message, lvl);
   try {
-    const line = (new Date()).toISOString() + " [main][" + lvl + "] " + String(message || "") + "\n";
+    const line =
+      new Date().toISOString() +
+      " [main][" +
+      lvl +
+      "] " +
+      String(message || "") +
+      "\n";
     debugLogPending = trimDebugLogText(debugLogPending + line);
     scheduleDebugLogFlush();
   } catch (_) {}
@@ -282,8 +358,12 @@ function debugLog(message, level) {
 function debugVerbose(message) {
   if (verboseLogEnabled()) debugLog(message, "verbose");
 }
-function debugWarn(message) { debugLog(message, "warn"); }
-function debugError(message) { debugLog(message, "error"); }
+function debugWarn(message) {
+  debugLog(message, "warn");
+}
+function debugError(message) {
+  debugLog(message, "error");
+}
 function trimDebugLogText(text) {
   return String(text || "").slice(-DEBUG_LOG_MAX_BYTES);
 }
@@ -297,7 +377,9 @@ function flushDebugLogBuffer() {
     const p = dataPath("debug.log");
     if (debugLogSnapshot === null) {
       let prev = "";
-      try { if (file.exists(p)) prev = String(file.read(p) || ""); } catch (_) {}
+      try {
+        if (file.exists(p)) prev = String(file.read(p) || "");
+      } catch (_) {}
       debugLogSnapshot = trimDebugLogText(prev);
     }
     const nextSnapshot = trimDebugLogText(debugLogSnapshot + debugLogPending);
@@ -310,10 +392,22 @@ function flushDebugLogBuffer() {
 }
 function scheduleDebugLogFlush() {
   if (debugLogFlushTimer !== null) return;
-  debugLogFlushTimer = setTimeout(flushDebugLogBuffer, DEBUG_LOG_FLUSH_DELAY_MS);
+  debugLogFlushTimer = setTimeout(
+    flushDebugLogBuffer,
+    DEBUG_LOG_FLUSH_DELAY_MS,
+  );
 }
 function postToOverlay(name, data) {
-  try { overlay.postMessage(name, data || {}); } catch (error) { try { debugLog("overlay.postMessage failed for " + name + ": " + compactError(error)); } catch (_) {} console.warn("overlay.postMessage failed: " + compactError(error)); }
+  try {
+    overlay.postMessage(name, data || {});
+  } catch (error) {
+    try {
+      debugLog(
+        "overlay.postMessage failed for " + name + ": " + compactError(error),
+      );
+    } catch (_) {}
+    console.warn("overlay.postMessage failed: " + compactError(error));
+  }
 }
 function rememberOverlayBridgeConnection(conn) {
   if (conn === undefined || conn === null || conn === "") return;
@@ -327,25 +421,36 @@ function forgetOverlayBridgeConnection(conn) {
   delete overlayBridgeConnections[key];
   if (String(overlayBridgeLastConnection) === key) {
     const keys = Object.keys(overlayBridgeConnections);
-    overlayBridgeLastConnection = keys.length ? overlayBridgeConnections[keys[keys.length - 1]] : null;
+    overlayBridgeLastConnection = keys.length
+      ? overlayBridgeConnections[keys[keys.length - 1]]
+      : null;
   }
 }
 function postToOverlayBridge(payload) {
   if (!ws || typeof ws.sendText !== "function") return false;
   const message = JSON.stringify(payload || {});
   const targets = [];
-  if (overlayBridgeLastConnection !== null && overlayBridgeLastConnection !== undefined) targets.push(overlayBridgeLastConnection);
-  Object.keys(overlayBridgeConnections).forEach(key => {
+  if (
+    overlayBridgeLastConnection !== null &&
+    overlayBridgeLastConnection !== undefined
+  )
+    targets.push(overlayBridgeLastConnection);
+  Object.keys(overlayBridgeConnections).forEach((key) => {
     const conn = overlayBridgeConnections[key];
     if (targets.map(String).indexOf(String(conn)) < 0) targets.push(conn);
   });
   let sent = false;
-  targets.forEach(conn => {
+  targets.forEach((conn) => {
     try {
       ws.sendText(conn, message);
       sent = true;
     } catch (error) {
-      debugVerbose("overlay bridge send failed conn=" + String(conn) + ": " + compactError(error));
+      debugVerbose(
+        "overlay bridge send failed conn=" +
+          String(conn) +
+          ": " +
+          compactError(error),
+      );
       forgetOverlayBridgeConnection(conn);
     }
   });
@@ -367,8 +472,13 @@ function setOverlayStatus(message, kind, ttlMs) {
 let taskStatusSerial = 0;
 let activeOverlayTaskPayload = null;
 function ensureTaskOverlayVisible() {
-  try { initializeOverlay(); } catch (_) {}
-  try { overlay.setOpacity(1); overlay.show(); } catch (_) {}
+  try {
+    initializeOverlay();
+  } catch (_) {}
+  try {
+    overlay.setOpacity(1);
+    overlay.show();
+  } catch (_) {}
 }
 function postOverlayTask(payload) {
   if (!payload) return;
@@ -377,12 +487,19 @@ function postOverlayTask(payload) {
 }
 function replayActiveOverlayTask() {
   if (activeOverlayTaskPayload) {
-    debugVerbose("replaying active task id=" + String(activeOverlayTaskPayload.id || ""));
+    debugVerbose(
+      "replaying active task id=" + String(activeOverlayTaskPayload.id || ""),
+    );
     postOverlayTask(activeOverlayTaskPayload);
   }
 }
 function startOverlayTask(kind, title, message) {
-  const id = String(kind || "task") + "-" + String(Date.now()) + "-" + String(++taskStatusSerial);
+  const id =
+    String(kind || "task") +
+    "-" +
+    String(Date.now()) +
+    "-" +
+    String(++taskStatusSerial);
   const payload = {
     active: true,
     id,
@@ -392,47 +509,94 @@ function startOverlayTask(kind, title, message) {
     detail: "",
     startedAt: Date.now(),
     updatedAt: Date.now(),
-    progress: null
+    progress: null,
   };
   activeOverlayTaskPayload = payload;
-  debugLog("task start id=" + id + " title=" + payload.title + " message=" + payload.message);
+  debugLog(
+    "task start id=" +
+      id +
+      " title=" +
+      payload.title +
+      " message=" +
+      payload.message,
+  );
   postOverlayTask(payload);
-  setOverlayStatus(payload.title + (payload.message ? ": " + payload.message : ""), "info");
+  setOverlayStatus(
+    payload.title + (payload.message ? ": " + payload.message : ""),
+    "info",
+  );
   showOSD(payload.title);
   return id;
 }
 function updateOverlayTask(id, patch) {
   if (!id) return;
-  const payload = Object.assign({}, activeOverlayTaskPayload && activeOverlayTaskPayload.id === id ? activeOverlayTaskPayload : {}, { active: true, id, updatedAt: Date.now() }, patch || {});
+  const payload = Object.assign(
+    {},
+    activeOverlayTaskPayload && activeOverlayTaskPayload.id === id
+      ? activeOverlayTaskPayload
+      : {},
+    { active: true, id, updatedAt: Date.now() },
+    patch || {},
+  );
   activeOverlayTaskPayload = payload;
-  debugVerbose("task update id=" + id + " message=" + String(payload.message || "") + " detail=" + String(payload.detail || "").slice(0, 120));
+  debugVerbose(
+    "task update id=" +
+      id +
+      " message=" +
+      String(payload.message || "") +
+      " detail=" +
+      String(payload.detail || "").slice(0, 120),
+  );
   postOverlayTask(payload);
-  if (payload.message) setOverlayStatus(payload.title ? (payload.title + ": " + payload.message) : payload.message, payload.kind === "error" ? "error" : "info");
+  if (payload.message)
+    setOverlayStatus(
+      payload.title ? payload.title + ": " + payload.message : payload.message,
+      payload.kind === "error" ? "error" : "info",
+    );
 }
 function finishOverlayTask(id, ok, message, detail) {
   if (!id) return;
-  const payload = Object.assign({}, activeOverlayTaskPayload && activeOverlayTaskPayload.id === id ? activeOverlayTaskPayload : {}, {
-    active: false,
-    id,
-    success: !!ok,
-    message: message || (ok ? "Done." : "Failed."),
-    detail: detail || "",
-    updatedAt: Date.now(),
-    ttlMs: ok ? 6500 : 0
-  });
+  const payload = Object.assign(
+    {},
+    activeOverlayTaskPayload && activeOverlayTaskPayload.id === id
+      ? activeOverlayTaskPayload
+      : {},
+    {
+      active: false,
+      id,
+      success: !!ok,
+      message: message || (ok ? "Done." : "Failed."),
+      detail: detail || "",
+      updatedAt: Date.now(),
+      ttlMs: ok ? 6500 : 0,
+    },
+  );
   activeOverlayTaskPayload = ok ? null : payload;
-  debugLog("task finish id=" + id + " ok=" + String(!!ok) + " message=" + payload.message);
+  debugLog(
+    "task finish id=" +
+      id +
+      " ok=" +
+      String(!!ok) +
+      " message=" +
+      payload.message,
+  );
   postOverlayTask(payload);
   setOverlayStatus(payload.message, ok ? "info" : "error", ok ? 6500 : 12000);
   showOSD(payload.message);
 }
 function recentNonEmptyLine(text) {
-  const lines = String(text || "").split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
   return lines.length ? lines[lines.length - 1] : "";
 }
 function pathJoin() {
-  return Array.prototype.slice.call(arguments)
-    .filter(part => part !== null && part !== undefined && String(part).length)
+  return Array.prototype.slice
+    .call(arguments)
+    .filter(
+      (part) => part !== null && part !== undefined && String(part).length,
+    )
     .map((part, index) => {
       const s = String(part);
       if (index === 0) return s.replace(/\/+$/, "");
@@ -446,7 +610,10 @@ function dataRoot() {
   if (cachedDataRoot) return cachedDataRoot;
   const resolved = utils.resolvePath("@data/");
   if (!resolved || String(resolved).charAt(0) !== "/") {
-    throw new Error("Could not resolve @data/ to an absolute plugin data directory; got: " + String(resolved));
+    throw new Error(
+      "Could not resolve @data/ to an absolute plugin data directory; got: " +
+        String(resolved),
+    );
   }
   cachedDataRoot = String(resolved).replace(/\/+$/, "");
   return cachedDataRoot;
@@ -457,17 +624,27 @@ function parentDir(path) {
   return idx > 0 ? s.slice(0, idx) : "";
 }
 function isPluginRoot(path) {
-  try { return !!path && file.exists(pathJoin(path, "Info.json")) && file.exists(pathJoin(path, "main.js")); } catch (_) { return false; }
+  try {
+    return (
+      !!path &&
+      file.exists(pathJoin(path, "Info.json")) &&
+      file.exists(pathJoin(path, "main.js"))
+    );
+  } catch (_) {
+    return false;
+  }
 }
 function normalizeFileUrlPath(path) {
   let s = String(path || "");
   if (s.indexOf("file://") === 0) s = s.replace(/^file:\/\//, "");
-  try { s = decodeURIComponent(s); } catch (_) {}
+  try {
+    s = decodeURIComponent(s);
+  } catch (_) {}
   return s;
 }
 function pluginRootFromStack() {
   try {
-    const stack = String((new Error()).stack || "");
+    const stack = String(new Error().stack || "");
     const match = stack.match(/(?:file:\/\/)?(\/[^)\n]+\/main\.js)(?::\d+)?/);
     if (match && match[1]) return parentDir(normalizeFileUrlPath(match[1]));
   } catch (_) {}
@@ -476,8 +653,12 @@ function pluginRootFromStack() {
 function pluginRoot() {
   if (cachedPluginRoot) return cachedPluginRoot;
   const candidates = [];
-  try { candidates.push(utils.resolvePath(".")); } catch (_) {}
-  try { candidates.push(utils.resolvePath("./")); } catch (_) {}
+  try {
+    candidates.push(utils.resolvePath("."));
+  } catch (_) {}
+  try {
+    candidates.push(utils.resolvePath("./"));
+  } catch (_) {}
   candidates.push(pluginRootFromStack());
   for (const candidate of candidates) {
     const root = String(candidate || "").replace(/\/+$/, "");
@@ -488,35 +669,99 @@ function pluginRoot() {
   }
   throw new Error("Could not locate the iinatan plugin folder.");
 }
-function dataPath() { return pathJoin.apply(null, [dataRoot()].concat(Array.prototype.slice.call(arguments))); }
-function bundledBinPath() { return pathJoin(pluginRoot(), "bin", "iina-hoshi-dicts"); }
-function binPath() { return pathJoin(dataRoot(), "bin", "iina-hoshi-dicts"); }
-function dictRoot() { return pathJoin(dataRoot(), "dictionaries"); }
-function downloadRoot() { return pathJoin(dataRoot(), "downloads"); }
-function buildRoot() { return pathJoin(dataRoot(), "build"); }
-function manifestPath() { return pathJoin(dataRoot(), "manifest.json"); }
-function workerRoot() { return pathJoin(dataRoot(), "worker"); }
-function workerQueueDir() { return pathJoin(workerRoot(), "queue"); }
-function workerResponseDir() { return pathJoin(workerRoot(), "responses"); }
-function workerStateDir() { return pathJoin(workerRoot(), "state"); }
-function workerConfigPath() { return pathJoin(workerRoot(), "config.tsv"); }
-function workerPidPath() { return pathJoin(workerRoot(), "worker.pid"); }
-function workerStopPath() { return pathJoin(workerRoot(), "stop"); }
-function workerReadyPath() { return pathJoin(workerStateDir(), "ready.json"); }
-function workerLogPath() { return pathJoin(workerRoot(), "worker.log"); }
-function workerStartScriptPath() { return pathJoin(workerRoot(), "start_worker.sh"); }
+function dataPath() {
+  return pathJoin.apply(
+    null,
+    [dataRoot()].concat(Array.prototype.slice.call(arguments)),
+  );
+}
+function bundledBinPath() {
+  return pathJoin(pluginRoot(), "bin", "iina-hoshi-dicts");
+}
+function binPath() {
+  return pathJoin(dataRoot(), "bin", "iina-hoshi-dicts");
+}
+function dictRoot() {
+  return pathJoin(dataRoot(), "dictionaries");
+}
+function downloadRoot() {
+  return pathJoin(dataRoot(), "downloads");
+}
+function buildRoot() {
+  return pathJoin(dataRoot(), "build");
+}
+function manifestPath() {
+  return pathJoin(dataRoot(), "manifest.json");
+}
+function workerRoot() {
+  return pathJoin(dataRoot(), "worker");
+}
+function workerQueueDir() {
+  return pathJoin(workerRoot(), "queue");
+}
+function workerResponseDir() {
+  return pathJoin(workerRoot(), "responses");
+}
+function workerStateDir() {
+  return pathJoin(workerRoot(), "state");
+}
+function workerConfigPath() {
+  return pathJoin(workerRoot(), "config.tsv");
+}
+function workerPidPath() {
+  return pathJoin(workerRoot(), "worker.pid");
+}
+function workerStopPath() {
+  return pathJoin(workerRoot(), "stop");
+}
+function workerReadyPath() {
+  return pathJoin(workerStateDir(), "ready.json");
+}
+function workerLogPath() {
+  return pathJoin(workerRoot(), "worker.log");
+}
+function workerStartScriptPath() {
+  return pathJoin(workerRoot(), "start_worker.sh");
+}
 
 async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
-  const result = await utils.exec(command, args || [], cwd || undefined, stdoutHook, stderrHook);
+  const result = await utils.exec(
+    command,
+    args || [],
+    cwd || undefined,
+    stdoutHook,
+    stderrHook,
+  );
   if (!result || result.status !== 0) {
-    throw new Error(command + " exited with " + (result ? result.status : "unknown") + ": " + ((result && result.stderr) || (result && result.stdout) || ""));
+    throw new Error(
+      command +
+        " exited with " +
+        (result ? result.status : "unknown") +
+        ": " +
+        ((result && result.stderr) || (result && result.stdout) || ""),
+    );
   }
   return result;
 }
 async function ensureDataDirs() {
-  await execChecked("/bin/mkdir", ["-p", dataRoot(), pathJoin(dataRoot(), "bin"), dictRoot(), downloadRoot(), buildRoot(), workerRoot(), workerQueueDir(), workerResponseDir(), workerStateDir()]);
+  await execChecked("/bin/mkdir", [
+    "-p",
+    dataRoot(),
+    pathJoin(dataRoot(), "bin"),
+    dictRoot(),
+    downloadRoot(),
+    buildRoot(),
+    workerRoot(),
+    workerQueueDir(),
+    workerResponseDir(),
+    workerStateDir(),
+  ]);
 }
-function safeDelete(path) { try { if (file.exists(path)) file.delete(path); } catch (_) {} }
+function safeDelete(path) {
+  try {
+    if (file.exists(path)) file.delete(path);
+  } catch (_) {}
+}
 async function clearDirFiles(dir) {
   try {
     if (!file.exists(dir)) return;

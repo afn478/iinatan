@@ -75,6 +75,14 @@ Regenerate runtime files after source edits:
 npm run build
 ```
 
+Format project JavaScript files:
+
+```bash
+npm run format:js
+```
+
+Run `npm run format:js` after JavaScript edits and before the final build/test pass. The formatter covers project source and test `.js` files while ignoring dependency, vendor, build, dist, binary output, and generated root runtime files.
+
 Run the standard test suite:
 
 ```bash
@@ -102,7 +110,7 @@ npm run package
 For overlay/display work, use this pre-commit verification:
 
 ```bash
-npm run build && node tests/overlay_dictionary_formatting.test.js && npm test
+npm run format:js && npm run build && node tests/overlay_dictionary_formatting.test.js && npm test
 ```
 
 For backend, package, submodule, or layout-sensitive work, also run:

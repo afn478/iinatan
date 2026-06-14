@@ -6,6 +6,7 @@
   "license": "GPL-3.0-only",
   "scripts": {
     "build": "python3 scripts/build_plugin.py",
+    "format:js": "prettier --write \"**/*.js\"",
     "package": "python3 scripts/build_plugin.py --package dist/iinatan.iinaplgz",
     "validate": "python3 scripts/build_plugin.py --validate",
     "validate:release": "python3 scripts/build_plugin.py --validate --require-backend",
@@ -15,5 +16,8 @@
     "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link .",
     "iina:pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
     "iina:link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link ."
+  },
+  "devDependencies": {
+    "prettier": "^3.8.4"
   }
 }

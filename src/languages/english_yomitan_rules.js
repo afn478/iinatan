@@ -41,14 +41,14 @@ const IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES = [
   ["y", "e", ["adj"], ["n", "v"], "-y"],
   ["able", "", ["v"], ["adj"], "-able"],
   ["able", "e", ["v"], ["adj"], "-able"],
-  ["iable", "y", ["v"], ["adj"], "-able"]
+  ["iable", "y", ["v"], ["adj"], "-able"],
 ];
 const IINATAN_ENGLISH_YOMITAN_PREFIX_RULES = [
   ["un", "", ["adj", "adv", "v"], ["adj", "adv", "v"], "un-"],
   ["going to ", "", ["v"], ["v"], "going-to future"],
   ["will ", "", ["v"], ["v"], "will future"],
   ["don't ", "", ["v"], ["v"], "imperative negative"],
-  ["do not ", "", ["v"], ["v"], "imperative negative"]
+  ["do not ", "", ["v"], ["v"], "imperative negative"],
 ];
 const IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES = [
   ["bdgklmnprstz", "ed", ["v"], ["v"], "past"],
@@ -56,5 +56,5 @@ const IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES = [
   ["bdgmnt", "er", ["adj"], ["adj"], "comparative"],
   ["bdgmnt", "est", ["adj"], ["adj"], "superlative"],
   ["glmnprst", "y", [], ["n", "v"], "-y"],
-  ["bdgklmnprstz", "able", ["v"], ["adj"], "-able"]
+  ["bdgklmnprstz", "able", ["v"], ["adj"], "-able"],
 ];

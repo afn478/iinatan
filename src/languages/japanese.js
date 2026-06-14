@@ -14,7 +14,10 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     const pos = common.clampPosition(position, chars.length);
     const suffix = chars.slice(pos).join("");
     if (!suffix || !isHoverableChar(chars[pos])) return null;
-    const length = Math.min(chars.length - pos, Math.max(1, Number(scanLength) || 24));
+    const length = Math.min(
+      chars.length - pos,
+      Math.max(1, Number(scanLength) || 24),
+    );
     const lookupText = common.slice(chars, pos, pos + length);
     return {
       lookupText,
@@ -26,7 +29,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
       backendMode: "yomitan-japanese",
       scanLength: length,
       cacheStrategy: "exact-position",
-      cacheKey: "char:" + pos + ":" + lookupText
+      cacheKey: "char:" + pos + ":" + lookupText,
     };
   }
 
@@ -39,11 +42,12 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     lookupMode: "yomitan-japanese",
     deinflection: "hoshidicts-japanese",
     deinflectionMode: "hoshidicts-japanese",
-    dictionaryCompatibility: "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
+    dictionaryCompatibility:
+      "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
     isHoverableChar,
     hasLookupText,
     dictionaryMatches: () => true,
-    normalizeText: text => String(text || ""),
-    lookupRequest
+    normalizeText: (text) => String(text || ""),
+    lookupRequest,
   };
 })();

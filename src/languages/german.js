@@ -1,21 +1,58 @@
 const IINATAN_GERMAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
-  const YOMITAN_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES : [];
-  const LOCAL_SEPARABLE_PREFIXES = typeof IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES !== "undefined" ? IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES : [];
-  const YOMITAN_SUFFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_SUFFIX_RULES : [];
-  const LOCAL_SUFFIX_RULES = typeof IINATAN_GERMAN_LOCAL_SUFFIX_RULES !== "undefined" ? IINATAN_GERMAN_LOCAL_SUFFIX_RULES : [];
-  const YOMITAN_PREFIX_RULES = typeof IINATAN_GERMAN_YOMITAN_PREFIX_RULES !== "undefined" ? IINATAN_GERMAN_YOMITAN_PREFIX_RULES : [];
+  const YOMITAN_SEPARABLE_PREFIXES =
+    typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined"
+      ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES
+      : [];
+  const LOCAL_SEPARABLE_PREFIXES =
+    typeof IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES !== "undefined"
+      ? IINATAN_GERMAN_LOCAL_SEPARABLE_PREFIXES
+      : [];
+  const YOMITAN_SUFFIX_RULES =
+    typeof IINATAN_GERMAN_YOMITAN_SUFFIX_RULES !== "undefined"
+      ? IINATAN_GERMAN_YOMITAN_SUFFIX_RULES
+      : [];
+  const LOCAL_SUFFIX_RULES =
+    typeof IINATAN_GERMAN_LOCAL_SUFFIX_RULES !== "undefined"
+      ? IINATAN_GERMAN_LOCAL_SUFFIX_RULES
+      : [];
+  const YOMITAN_PREFIX_RULES =
+    typeof IINATAN_GERMAN_YOMITAN_PREFIX_RULES !== "undefined"
+      ? IINATAN_GERMAN_YOMITAN_PREFIX_RULES
+      : [];
   const MAX_RIGHT_CONTEXT_CHARS = 96;
   const MAX_RIGHT_CONTEXT_WORDS = 12;
   const GERMAN_WORD_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+$/;
   const GERMAN_TOKEN_RE = /[A-Za-zÀ-ÖØ-öø-ÿ]+/g;
   const ABBREVIATIONS = [
-    "bzw.", "bspw.", "ca.", "d.h.", "dr.", "etc.", "evtl.", "ggf.", "inkl.",
-    "i.d.r.", "m.e.", "nr.", "prof.", "s.", "sog.", "u.a.", "u.u.", "usw.",
-    "v.a.", "vgl.", "z.b.", "z.t.", "zzgl."
+    "bzw.",
+    "bspw.",
+    "ca.",
+    "d.h.",
+    "dr.",
+    "etc.",
+    "evtl.",
+    "ggf.",
+    "inkl.",
+    "i.d.r.",
+    "m.e.",
+    "nr.",
+    "prof.",
+    "s.",
+    "sog.",
+    "u.a.",
+    "u.u.",
+    "usw.",
+    "v.a.",
+    "vgl.",
+    "z.b.",
+    "z.t.",
+    "zzgl.",
   ];
-  const SEPARABLE_PREFIXES = YOMITAN_SEPARABLE_PREFIXES.concat(LOCAL_SEPARABLE_PREFIXES);
+  const SEPARABLE_PREFIXES = YOMITAN_SEPARABLE_PREFIXES.concat(
+    LOCAL_SEPARABLE_PREFIXES,
+  );
   const PREFIX_SET = SEPARABLE_PREFIXES.reduce((out, prefix) => {
     out[prefix] = true;
     return out;
@@ -85,18 +122,22 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     tut: ["tun"],
     werde: ["werden"],
     wirst: ["werden"],
-    wird: ["werden"]
+    wird: ["werden"],
   };
 
   function yomitanGermanRules() {
     const rules = [];
-    YOMITAN_SUFFIX_RULES.concat(LOCAL_SUFFIX_RULES).forEach(rule => {
+    YOMITAN_SUFFIX_RULES.concat(LOCAL_SUFFIX_RULES).forEach((rule) => {
       if (!rule || rule.length < 5) return;
-      rules.push(deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+      rules.push(
+        deinflect.suffixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]),
+      );
     });
-    YOMITAN_PREFIX_RULES.forEach(rule => {
+    YOMITAN_PREFIX_RULES.forEach((rule) => {
       if (!rule || rule.length < 5) return;
-      rules.push(deinflect.prefixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]));
+      rules.push(
+        deinflect.prefixInflection(rule[0], rule[1], rule[2], rule[3], rule[4]),
+      );
     });
     return rules;
   }
@@ -109,13 +150,23 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
       { name: "vw", isDefault: true },
       { name: "vst", isDefault: true },
       { name: "n", isDefault: true },
-      { name: "adj", isDefault: true }
+      { name: "adj", isDefault: true },
     ],
     rules: yomitanGermanRules().concat([
-      deinflect.customInflection(getBasicPastParticiples, [], "vw", "past participle"),
-      deinflect.customInflection(getSeparablePastParticiples, [], "vw", "past participle"),
-      deinflect.customInflection(getZuInfinitives, [], "v", "zu-infinitive")
-    ])
+      deinflect.customInflection(
+        getBasicPastParticiples,
+        [],
+        "vw",
+        "past participle",
+      ),
+      deinflect.customInflection(
+        getSeparablePastParticiples,
+        [],
+        "vw",
+        "past participle",
+      ),
+      deinflect.customInflection(getZuInfinitives, [], "v", "zu-infinitive"),
+    ]),
   });
 
   function isHoverableChar(ch) {
@@ -127,18 +178,18 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
   }
 
   function dictionaryMatches(dict) {
-    const primary = [
-      dict && dict.name,
-      dict && dict.title,
-      dict && dict.path
-    ].join(" ").toLowerCase();
+    const primary = [dict && dict.name, dict && dict.title, dict && dict.path]
+      .join(" ")
+      .toLowerCase();
     if (!primary) return false;
     if (primary.indexOf("jitendex") >= 0) return false;
-    return /\bgerman\b/.test(primary) ||
+    return (
+      /\bgerman\b/.test(primary) ||
       /\bdeutsch\b/.test(primary) ||
       /(^|[^a-z])de[-_/]/.test(primary) ||
       /(^|[^a-z])deu[-_/]/.test(primary) ||
-      /(^|[^a-z])ger[-_/]/.test(primary);
+      /(^|[^a-z])ger[-_/]/.test(primary)
+    );
   }
 
   function getBasicPastParticiples(text) {
@@ -149,14 +200,18 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
 
   function getSeparablePastParticiples(text) {
     const prefix = SEPARABLE_PREFIXES.join("|");
-    const match = new RegExp("^(" + prefix + ")ge([a-zà-öø-ÿ]+)t$", "i").exec(text);
+    const match = new RegExp("^(" + prefix + ")ge([a-zà-öø-ÿ]+)t$", "i").exec(
+      text,
+    );
     if (!match) return [];
     return [match[1] + match[2] + "en", match[1] + match[2] + "n"];
   }
 
   function getZuInfinitives(text) {
     const prefix = SEPARABLE_PREFIXES.join("|");
-    const match = new RegExp("^(" + prefix + ")zu([a-zà-öø-ÿ]+)$", "i").exec(text);
+    const match = new RegExp("^(" + prefix + ")zu([a-zà-öø-ÿ]+)$", "i").exec(
+      text,
+    );
     return match ? [match[1] + match[2]] : [];
   }
 
@@ -170,15 +225,27 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
       reason,
       language: "de",
       displayText,
-      range
+      range,
     });
   }
 
   function addEszettVariants(list, seen, text, displayText, range) {
-    const ss = String(text || "").replace(/ẞ/g, "SS").replace(/ß/g, "ss");
-    const eszett = String(text || "").replace(/SS/g, "ẞ").replace(/ss/g, "ß");
+    const ss = String(text || "")
+      .replace(/ẞ/g, "SS")
+      .replace(/ß/g, "ss");
+    const eszett = String(text || "")
+      .replace(/SS/g, "ẞ")
+      .replace(/ss/g, "ß");
     addCandidate(list, seen, ss, displayText, range, "eszett", "eszett to ss");
-    addCandidate(list, seen, eszett, displayText, range, "eszett", "ss to eszett");
+    addCandidate(
+      list,
+      seen,
+      eszett,
+      displayText,
+      range,
+      "eszett",
+      "ss to eszett",
+    );
   }
 
   function finiteVerbInfinitives(word) {
@@ -201,21 +268,29 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     if (lower.endsWith("t")) push(lower.slice(0, -1) + "en");
     if (lower.endsWith("e")) push(lower.slice(0, -1) + "en");
     if (lower.endsWith("en")) push(lower);
-    return out.filter(value => value.length > 3);
+    return out.filter((value) => value.length > 3);
   }
 
   function abbreviationKey(text) {
-    return String(text || "").toLowerCase().replace(/\s+/g, "");
+    return String(text || "")
+      .toLowerCase()
+      .replace(/\s+/g, "");
   }
 
   function isAbbreviationPeriod(line, index) {
     const raw = String(line || "");
-    const before = abbreviationKey(raw.slice(Math.max(0, index - 16), index + 1));
-    if (ABBREVIATIONS.some(abbr => before.endsWith(abbr))) return true;
-    const after = abbreviationKey(raw.slice(index + 1, Math.min(raw.length, index + 8)));
+    const before = abbreviationKey(
+      raw.slice(Math.max(0, index - 16), index + 1),
+    );
+    if (ABBREVIATIONS.some((abbr) => before.endsWith(abbr))) return true;
+    const after = abbreviationKey(
+      raw.slice(index + 1, Math.min(raw.length, index + 8)),
+    );
     if (/^[a-zà-öø-ÿ]\./.test(after)) return true;
     const recent = raw.slice(Math.max(0, index - 12), index + 1).toLowerCase();
-    return /(?:^|[^a-zà-öø-ÿ])(?:[a-zà-öø-ÿ]{1,3}\.){2,}$/.test(recent.replace(/\s+/g, ""));
+    return /(?:^|[^a-zà-öø-ÿ])(?:[a-zà-öø-ÿ]{1,3}\.){2,}$/.test(
+      recent.replace(/\s+/g, ""),
+    );
   }
 
   function rightContextWindow(text, start, end) {
@@ -225,8 +300,13 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     let stop = runEnd;
     for (; stop < maxEnd; stop++) {
       const ch = chars[stop];
-      if ((ch === "!" || ch === "?" || ch === ";" || ch === ":") && stop > runEnd) break;
-      if (ch === "." && stop > runEnd && !isAbbreviationPeriod(text, stop)) break;
+      if (
+        (ch === "!" || ch === "?" || ch === ";" || ch === ":") &&
+        stop > runEnd
+      )
+        break;
+      if (ch === "." && stop > runEnd && !isAbbreviationPeriod(text, stop))
+        break;
     }
     let context = common.slice(chars, start, stop);
     const tokens = context.match(GERMAN_TOKEN_RE) || [];
@@ -238,7 +318,7 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
       text: context,
       end: start + common.chars(context).length,
       maxChars: MAX_RIGHT_CONTEXT_CHARS,
-      maxWords: MAX_RIGHT_CONTEXT_WORDS
+      maxWords: MAX_RIGHT_CONTEXT_WORDS,
     };
   }
 
@@ -248,7 +328,9 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     const finite = tokens[0];
     const prefix = tokens[tokens.length - 1].toLowerCase();
     if (!PREFIX_SET[prefix]) return [];
-    return finiteVerbInfinitives(finite).map(infinitive => prefix + infinitive);
+    return finiteVerbInfinitives(finite).map(
+      (infinitive) => prefix + infinitive,
+    );
   }
 
   function generateCandidates(displayText, range, fullText) {
@@ -258,10 +340,29 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     const list = [];
     const seen = Object.create(null);
     const candidateRange = range || null;
-    const rightContext = fullText && range ? rightContextWindow(fullText, range.start, range.end) : null;
+    const rightContext =
+      fullText && range
+        ? rightContextWindow(fullText, range.start, range.end)
+        : null;
 
-    addCandidate(list, seen, trimmed, displayText, candidateRange, "surface", "surface form");
-    addCandidate(list, seen, lower, displayText, candidateRange, "lowercase", "lowercase form");
+    addCandidate(
+      list,
+      seen,
+      trimmed,
+      displayText,
+      candidateRange,
+      "surface",
+      "surface form",
+    );
+    addCandidate(
+      list,
+      seen,
+      lower,
+      displayText,
+      candidateRange,
+      "lowercase",
+      "lowercase form",
+    );
     addEszettVariants(list, seen, trimmed, displayText, candidateRange);
     addEszettVariants(list, seen, lower, displayText, candidateRange);
 
@@ -271,8 +372,16 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     }
 
     if (rightContext && GERMAN_WORD_RE.test(trimmed)) {
-      splitVerbCandidates(rightContext.text).forEach(candidate => {
-        addCandidate(list, seen, candidate, displayText, candidateRange, "german-split-verb", "bounded right-context separable prefix");
+      splitVerbCandidates(rightContext.text).forEach((candidate) => {
+        addCandidate(
+          list,
+          seen,
+          candidate,
+          displayText,
+          candidateRange,
+          "german-split-verb",
+          "bounded right-context separable prefix",
+        );
       });
     }
     return { candidates: list, rightContext };
@@ -285,7 +394,11 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     const run = common.findRun(chars, pos, isHoverableChar);
     if (!run) return null;
     const displayText = common.slice(chars, run.start, run.end);
-    const generated = generateCandidates(displayText, { start: run.start, end: run.end }, normalized);
+    const generated = generateCandidates(
+      displayText,
+      { start: run.start, end: run.end },
+      normalized,
+    );
     const candidates = generated.candidates;
     if (!candidates.length) return null;
     return {
@@ -298,9 +411,15 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
       backendMode: "exact",
       scanLength: common.chars(candidates[0].text).length,
       cacheStrategy: "word-candidates",
-      cacheKey: "word:" + run.start + ":" + run.end + ":" + candidates.map(c => c.text).join("|"),
+      cacheKey:
+        "word:" +
+        run.start +
+        ":" +
+        run.end +
+        ":" +
+        candidates.map((c) => c.text).join("|"),
       candidates,
-      rightContext: generated.rightContext
+      rightContext: generated.rightContext,
     };
   }
 
@@ -313,7 +432,8 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     lookupMode: "exact",
     deinflection: "yomitan-style-german",
     deinflectionMode: "yomitan-style-german",
-    dictionaryCompatibility: "Yomitan-compatible German-headword term dictionaries; capitalization and separable-verb candidate lookup.",
+    dictionaryCompatibility:
+      "Yomitan-compatible German-headword term dictionaries; capitalization and separable-verb candidate lookup.",
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
@@ -321,6 +441,6 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     generateCandidates,
     rightContextWindow,
     splitVerbCandidates,
-    lookupRequest
+    lookupRequest,
   };
 })();

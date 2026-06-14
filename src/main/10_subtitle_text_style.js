@@ -22,22 +22,31 @@ function cleanSubtitleText(text) {
     .replace(/[ \t\f\v]{2,}/g, " ")
     .trim();
 }
-function isJapaneseish(text) { return languageModuleById("ja").hasLookupText(text); }
+function isJapaneseish(text) {
+  return languageModuleById("ja").hasLookupText(text);
+}
 function mpvStringProp(names, fallback) {
   for (const name of names) {
     try {
       const value = mpv.getString(name);
-      if (value !== undefined && value !== null && String(value).trim() !== "") return String(value).trim();
+      if (value !== undefined && value !== null && String(value).trim() !== "")
+        return String(value).trim();
     } catch (_) {}
   }
   return fallback;
 }
 function sanitizeFontFamily(font) {
   const raw = String(font || "").trim();
-  if (!raw) return '"Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif';
+  if (!raw)
+    return '"Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif';
   if (/[,"]/.test(raw)) return raw;
-  if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(raw)) return raw;
-  return '"' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '", "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif';
+  if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(raw))
+    return raw;
+  return (
+    '"' +
+    raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+    '", "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif'
+  );
 }
 function mpvNumberProp(names, fallback) {
   for (const name of names) {
@@ -83,7 +92,9 @@ function cssColorFromMpv(raw, fallback) {
     const r = parseInt(hex.slice(2, 4), 16);
     const g = parseInt(hex.slice(4, 6), 16);
     const b = parseInt(hex.slice(6, 8), 16);
-    return "rgba(" + r + "," + g + "," + b + "," + Math.round(a * 1000) / 1000 + ")";
+    return (
+      "rgba(" + r + "," + g + "," + b + "," + Math.round(a * 1000) / 1000 + ")"
+    );
   }
   return fallback;
 }
@@ -105,32 +116,67 @@ function readSubtitleFontFamily() {
   return sanitizeFontFamily(configured);
 }
 function readSubtitleStyleConfig() {
-  const fontSize = clampNumber(mpvNumberProp(["options/sub-font-size", "sub-font-size"], 0), 18, 120, 0);
-  const borderSize = clampNumber(mpvNumberProp(["options/sub-border-size", "sub-border-size"], 3), 0, 16, 3);
-  const shadowOffset = clampNumber(mpvNumberProp(["options/sub-shadow-offset", "sub-shadow-offset"], 2), 0, 24, 2);
-  const shadowBlur = clampNumber(mpvNumberProp(["options/sub-shadow-blur", "sub-shadow-blur"], Math.max(2, shadowOffset * 1.6)), 0, 32, Math.max(2, shadowOffset * 1.6));
+  const fontSize = clampNumber(
+    mpvNumberProp(["options/sub-font-size", "sub-font-size"], 0),
+    18,
+    120,
+    0,
+  );
+  const borderSize = clampNumber(
+    mpvNumberProp(["options/sub-border-size", "sub-border-size"], 3),
+    0,
+    16,
+    3,
+  );
+  const shadowOffset = clampNumber(
+    mpvNumberProp(["options/sub-shadow-offset", "sub-shadow-offset"], 2),
+    0,
+    24,
+    2,
+  );
+  const shadowBlur = clampNumber(
+    mpvNumberProp(
+      ["options/sub-shadow-blur", "sub-shadow-blur"],
+      Math.max(2, shadowOffset * 1.6),
+    ),
+    0,
+    32,
+    Math.max(2, shadowOffset * 1.6),
+  );
   const bold = mpvBoolProp(["options/sub-bold", "sub-bold"], true);
   const italic = mpvBoolProp(["options/sub-italic", "sub-italic"], false);
   return {
     subtitleFontFamily: readSubtitleFontFamily(),
-    subtitleFontSize: fontSize > 0 ? (String(fontSize) + "px") : "clamp(26px, 4.2vw, 64px)",
+    subtitleFontSize:
+      fontSize > 0 ? String(fontSize) + "px" : "clamp(26px, 4.2vw, 64px)",
     subtitleFontWeight: bold ? "800" : "400",
     subtitleFontStyle: italic ? "italic" : "normal",
     subtitleColor: readMpvColor(["options/sub-color", "sub-color"], "#ffffff"),
-    subtitleBorderColor: readMpvColor(["options/sub-border-color", "sub-border-color"], "#000000"),
+    subtitleBorderColor: readMpvColor(
+      ["options/sub-border-color", "sub-border-color"],
+      "#000000",
+    ),
     subtitleOutlineWidth: String(borderSize) + "px",
-    subtitleShadowColor: readMpvColor(["options/sub-shadow-color", "sub-shadow-color"], "rgba(0,0,0,0.9)"),
+    subtitleShadowColor: readMpvColor(
+      ["options/sub-shadow-color", "sub-shadow-color"],
+      "rgba(0,0,0,0.9)",
+    ),
     subtitleShadowOffset: String(shadowOffset) + "px",
-    subtitleShadowBlur: String(shadowBlur) + "px"
+    subtitleShadowBlur: String(shadowBlur) + "px",
   };
 }
 function normalizePopupThemePreference(value) {
-  const theme = String(value || "").trim().toLowerCase();
-  if (theme === "dark" || theme === "light" || theme === "inherit") return theme;
+  const theme = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (theme === "dark" || theme === "light" || theme === "inherit")
+    return theme;
   return "inherit";
 }
 function normalizeAppearanceHint(value) {
-  const theme = String(value || "").trim().toLowerCase();
+  const theme = String(value || "")
+    .trim()
+    .toLowerCase();
   if (theme === "dark" || theme === "light") return theme;
   return "";
 }
@@ -143,8 +189,14 @@ function appearanceHintFromThemeMaterial(value, systemHint) {
 }
 async function readMacOSAppearanceHint() {
   try {
-    const result = await utils.exec("/usr/bin/defaults", ["read", "-g", "AppleInterfaceStyle"], dataRoot());
-    const text = String((result && result.stdout) || "").trim().toLowerCase();
+    const result = await utils.exec(
+      "/usr/bin/defaults",
+      ["read", "-g", "AppleInterfaceStyle"],
+      dataRoot(),
+    );
+    const text = String((result && result.stdout) || "")
+      .trim()
+      .toLowerCase();
     return text === "dark" ? "dark" : "light";
   } catch (_) {
     return "";
@@ -152,7 +204,11 @@ async function readMacOSAppearanceHint() {
 }
 async function readIINAAppearanceHint() {
   try {
-    const result = await utils.exec("/usr/bin/defaults", ["read", "com.colliderli.iina", "themeMaterial"], dataRoot());
+    const result = await utils.exec(
+      "/usr/bin/defaults",
+      ["read", "com.colliderli.iina", "themeMaterial"],
+      dataRoot(),
+    );
     const raw = String((result && result.stdout) || "").trim();
     if (!raw) return "";
     const systemHint = Number(raw) === 4 ? await readMacOSAppearanceHint() : "";
@@ -167,17 +223,23 @@ function scheduleIINAAppearanceHintRefresh(force) {
   if (!force && now - iinaAppearanceHintLastRefreshAt < 5000) return;
   iinaAppearanceHintRefreshInFlight = true;
   iinaAppearanceHintLastRefreshAt = now;
-  readIINAAppearanceHint().then(hint => {
-    const next = normalizeAppearanceHint(hint);
-    if (next && next !== iinaAppearanceHint) {
-      iinaAppearanceHint = next;
-      if (typeof pushOverlayConfigForProfileChange === "function") pushOverlayConfigForProfileChange();
-    }
-  }).catch(error => {
-    debugVerbose("Could not read IINA appearance preference: " + compactError(error));
-  }).finally(() => {
-    iinaAppearanceHintRefreshInFlight = false;
-  });
+  readIINAAppearanceHint()
+    .then((hint) => {
+      const next = normalizeAppearanceHint(hint);
+      if (next && next !== iinaAppearanceHint) {
+        iinaAppearanceHint = next;
+        if (typeof pushOverlayConfigForProfileChange === "function")
+          pushOverlayConfigForProfileChange();
+      }
+    })
+    .catch((error) => {
+      debugVerbose(
+        "Could not read IINA appearance preference: " + compactError(error),
+      );
+    })
+    .finally(() => {
+      iinaAppearanceHintRefreshInFlight = false;
+    });
 }
 function overlayConfig() {
   const language = selectedLanguageModule();
@@ -196,21 +258,37 @@ function overlayConfig() {
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),
     scanLength: Math.max(1, prefNumber("scanLength", 24)),
-    hoverRequestTimeoutMs: Math.max(1500, prefNumber("hoverRequestTimeoutMs", 15000)),
+    hoverRequestTimeoutMs: Math.max(
+      1500,
+      prefNumber("hoverRequestTimeoutMs", 15000),
+    ),
     audioAutoPlay: prefBool("audioAutoPlay", false),
-    audioSources: normalizeAudioSources(pref("audioSourcesJson", DEFAULT_AUDIO_SOURCES_JSON)),
-    anki: typeof overlayAnkiConfig === "function" ? overlayAnkiConfig() : { enabled: false, configured: false },
-    etymologyCollapseDefault: String(pref("etymologyCollapseDefault", "collapsed") || "collapsed"),
-    wiktionaryEtymologyCollapseOverride: String(pref("wiktionaryEtymologyCollapseOverride", "collapsed") || "collapsed"),
+    audioSources: normalizeAudioSources(
+      pref("audioSourcesJson", DEFAULT_AUDIO_SOURCES_JSON),
+    ),
+    anki:
+      typeof overlayAnkiConfig === "function"
+        ? overlayAnkiConfig()
+        : { enabled: false, configured: false },
+    etymologyCollapseDefault: String(
+      pref("etymologyCollapseDefault", "collapsed") || "collapsed",
+    ),
+    wiktionaryEtymologyCollapseOverride: String(
+      pref("wiktionaryEtymologyCollapseOverride", "collapsed") || "collapsed",
+    ),
     customPopupCss: String(pref("customPopupCss", "") || ""),
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
-    overlayBridgePort
+    overlayBridgePort,
   };
 }
 function readCurrentSubtitle() {
   let sub = "";
-  try { sub = mpv.getString("sub-text") || ""; } catch (_) { sub = ""; }
+  try {
+    sub = mpv.getString("sub-text") || "";
+  } catch (_) {
+    sub = "";
+  }
   return cleanSubtitleText(sub);
 }
 function publishSubtitle(text) {
@@ -218,14 +296,34 @@ function publishSubtitle(text) {
   currentSubtitleLineId = ++subtitleLineSerial;
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
-  debugVerbose("publishSubtitle lineId=" + currentSubtitleLineId + " language=" + language.id + " activeDicts=" + dicts.length + " len=" + String(normalized || "").length + " text=" + JSON.stringify(String(normalized || "").slice(0, 80)));
-  postToOverlay("subtitle", { text: normalized, config: overlayConfig(), lineId: currentSubtitleLineId });
+  debugVerbose(
+    "publishSubtitle lineId=" +
+      currentSubtitleLineId +
+      " language=" +
+      language.id +
+      " activeDicts=" +
+      dicts.length +
+      " len=" +
+      String(normalized || "").length +
+      " text=" +
+      JSON.stringify(String(normalized || "").slice(0, 80)),
+  );
+  postToOverlay("subtitle", {
+    text: normalized,
+    config: overlayConfig(),
+    lineId: currentSubtitleLineId,
+  });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
   if (normalized && language.hasLookupText(normalized) && dicts.length) {
-    ensureBackendWorker(dicts, language).catch(error => {
-      debugLog("background worker warmup failed lineId=" + currentSubtitleLineId + ": " + compactError(error));
+    ensureBackendWorker(dicts, language).catch((error) => {
+      debugLog(
+        "background worker warmup failed lineId=" +
+          currentSubtitleLineId +
+          ": " +
+          compactError(error),
+      );
     });
   }
 }
@@ -236,18 +334,31 @@ function canHideNativeSubtitlesForCurrentLanguage() {
     const dicts = activeDictionaryPaths(language);
     if (dictionarySetupMessage(language, dicts)) return false;
     const ready = activeWorkerReady || readWorkerReady();
-    return !!ready && activeWorkerFingerprint === workerFingerprint(dicts, language) && ready.fingerprint === activeWorkerFingerprint;
-  } catch (_) { return false; }
+    return (
+      !!ready &&
+      activeWorkerFingerprint === workerFingerprint(dicts, language) &&
+      ready.fingerprint === activeWorkerFingerprint
+    );
+  } catch (_) {
+    return false;
+  }
 }
 function syncNativeSubtitleVisibility() {
   if (!enabled) return;
   try {
-    if (prefBool("hideNativeSubtitles", true) && canHideNativeSubtitlesForCurrentLanguage()) {
+    if (
+      prefBool("hideNativeSubtitles", true) &&
+      canHideNativeSubtitlesForCurrentLanguage()
+    ) {
       mpv.set("sub-visibility", false);
     } else if (nativeSubVisibilityBeforeEnable !== null) {
       mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
     }
-  } catch (error) { console.warn("Could not update native subtitle visibility: " + compactError(error)); }
+  } catch (error) {
+    console.warn(
+      "Could not update native subtitle visibility: " + compactError(error),
+    );
+  }
 }
 function pollSubtitle() {
   if (!enabled) return;
@@ -258,4 +369,6 @@ function pollSubtitle() {
   lastSubtitle = sub;
   publishSubtitle(sub);
 }
-function charsOf(text) { return Array.from(String(text || "")); }
+function charsOf(text) {
+  return Array.from(String(text || ""));
+}

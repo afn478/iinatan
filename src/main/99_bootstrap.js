@@ -1,8 +1,7 @@
-
 registerShortcut();
 rebuildMenu();
 scheduleIINAAppearanceHintRefresh(true);
-ensureBundledBackendInstalled().catch(error => {
+ensureBundledBackendInstalled().catch((error) => {
   debugWarn("lookup engine install check failed: " + compactError(error));
 });
 

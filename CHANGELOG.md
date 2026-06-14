@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added a Prettier JavaScript formatting workflow for project source and tests while leaving generated runtime files ignored.
 - Added profile-level AnkiConnect export with popup add/open actions, note type field mapping, duplicate detection, JPEG screenshots, configurable image quality, and configurable-bitrate subtitle sentence audio.
 
 ### Fixed
