@@ -43,6 +43,8 @@ assert(/id="ankiFieldList"/.test(managerHtml), 'Anki settings should render note
 assert(/serializeAnkiFieldTemplates/.test(managerHtml), 'Anki field templates should be saved with profile preferences');
 assert(/lapisTemplateForField/.test(managerHtml), 'Anki settings should attempt Lapis autofill');
 assert(/language !== 'ja' && language !== 'zh'/.test(managerHtml), 'Lapis autofill should explicitly include Chinese profiles');
+assert(!/selectiontext:\s*'\{popup-selection-text\}'/.test(managerHtml), 'Lapis autofill should not fill SelectionText by default');
+assert(!/selectedtext:\s*'\{popup-selection-text\}'/.test(managerHtml), 'Lapis autofill should not fill SelectedText by default');
 assert(/data-profile-pref="ankiDuplicateMode"/.test(managerHtml), 'Anki settings should expose duplicate behavior');
 assert(/data-profile-pref="ankiAudioFormat"/.test(managerHtml), 'Anki settings should expose sentence audio format');
 assert(/data-profile-pref="ankiAudioBitrateKbps"/.test(managerHtml), 'Anki settings should expose sentence audio bitrate');
