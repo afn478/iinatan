@@ -4220,6 +4220,7 @@ let ankiManagerStateCache = null;
 let ankiManagerRefreshInFlight = false;
 let ankiManagerRefreshSerial = 0;
 let ankiModelFieldCache = Object.create(null);
+let ankiActiveBridgeRequests = Object.create(null);
 
 const ANKI_CONNECT_VERSION = 6;
 const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
@@ -5245,19 +5246,42 @@ async function ankiCardStatusForContext(payload) {
 function postAnkiCardState(requestId, payload) {
   postToOverlay("anki-card-state", Object.assign({ requestId: String(requestId || "") }, payload || {}));
 }
+function ankiBridgeRequestKey(type, requestId) {
+  return String(type || "") + ":" + String(requestId || "");
+}
+function beginAnkiBridgeRequest(type, requestId, ackPayload) {
+  const key = ankiBridgeRequestKey(type, requestId);
+  if (requestId && ankiActiveBridgeRequests[key]) {
+    postAnkiCardState(requestId, Object.assign({ ok: true, ack: true }, ackPayload || {}));
+    return false;
+  }
+  if (requestId) ankiActiveBridgeRequests[key] = true;
+  postAnkiCardState(requestId, Object.assign({ ok: true, ack: true }, ackPayload || {}));
+  return true;
+}
+function finishAnkiBridgeRequest(type, requestId) {
+  const key = ankiBridgeRequestKey(type, requestId);
+  if (!requestId || !ankiActiveBridgeRequests[key]) return;
+  ankiActiveBridgeRequests[key] = "done";
+  setTimeout(() => { try { delete ankiActiveBridgeRequests[key]; } catch (_) {} }, 60000);
+}
 function handleBridgeAnkiCardStatus(payload) {
   const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : "";
+  if (!beginAnkiBridgeRequest("anki-card-status", requestId, { state: "checking" })) return;
   (async () => {
     try {
       const status = await ankiCardStatusForContext(payload);
       postAnkiCardState(requestId, status);
     } catch (error) {
       postAnkiCardState(requestId, { ok: false, state: "error", message: compactError(error) });
+    } finally {
+      finishAnkiBridgeRequest("anki-card-status", requestId);
     }
   })();
 }
 function handleBridgeAnkiCardOpen(payload) {
   const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : "";
+  if (!beginAnkiBridgeRequest("anki-card-open", requestId, { state: "opening", message: "Opening in Anki..." })) return;
   (async () => {
     try {
       const ids = payload && Array.isArray(payload.noteIds) ? payload.noteIds : [];
@@ -5275,11 +5299,14 @@ function handleBridgeAnkiCardOpen(payload) {
       postAnkiCardState(requestId, { ok: true, state: "opened", noteIds: ids, message: "Opened in Anki." });
     } catch (error) {
       postAnkiCardState(requestId, { ok: false, state: "error", message: compactError(error) });
+    } finally {
+      finishAnkiBridgeRequest("anki-card-open", requestId);
     }
   })();
 }
 function handleBridgeAnkiCardAdd(payload) {
   const requestId = payload && payload.requestId !== undefined ? String(payload.requestId) : "";
+  if (!beginAnkiBridgeRequest("anki-card-add", requestId, { state: "adding", message: "Adding Anki card..." })) return;
   (async () => {
     try {
       const prefs = ankiActiveProfilePreferences();
@@ -5310,6 +5337,8 @@ function handleBridgeAnkiCardAdd(payload) {
       postAnkiCardState(requestId, { ok: true, state: "added", noteId, message: "Added Anki card." });
     } catch (error) {
       postAnkiCardState(requestId, { ok: false, state: "error", message: compactError(error) });
+    } finally {
+      finishAnkiBridgeRequest("anki-card-add", requestId);
     }
   })();
 }
@@ -5336,9 +5365,6 @@ function initializeOverlay() {
 	  overlay.onMessage("lookup-popup-visibility", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("lookup-popup-visible", payload => { handleLookupPopupVisibility(payload); });
 	  overlay.onMessage("open-external-url", payload => { openExternalUrlFromOverlay(payload && payload.url !== undefined ? payload.url : payload); });
-	  overlay.onMessage("anki-card-status", payload => { handleBridgeAnkiCardStatus(payload); });
-	  overlay.onMessage("anki-card-add", payload => { handleBridgeAnkiCardAdd(payload); });
-	  overlay.onMessage("anki-card-open", payload => { handleBridgeAnkiCardOpen(payload); });
 	}
 function prepareRuntimeAfterProfileChange() {
   lookupBackendReadyForNativeHide = false;

@@ -650,6 +650,7 @@
     audioSourceMenu: null,
     ankiCardRequestSeq: 0,
     ankiCardContexts: Object.create(null),
+    pendingAnkiMessages: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -1721,20 +1722,14 @@
     }
     return false;
   }
-  function postIinaMessage(name, payload) {
-    try {
-      iina.postMessage(name, payload || {});
-      return true;
-    } catch (error) {
-      overlayDebug('iina.postMessage failed ' + String(error));
-      return false;
-    }
-  }
-  function sendBridgeMessageWhenReady(payload, timeoutMs, onFailure) {
+  function sendBridgeMessageWhenReady(payload, timeoutMs, onFailure, onSent) {
     const startedAt = Date.now();
     const timeout = Math.max(250, Number(timeoutMs || 2500) || 2500);
     const attempt = () => {
-      if (sendBridgeMessage(payload)) return;
+      if (sendBridgeMessage(payload)) {
+        if (typeof onSent === 'function') onSent();
+        return;
+      }
       if (Date.now() - startedAt >= timeout) {
         if (typeof onFailure === 'function') onFailure();
         return;
@@ -1990,6 +1985,71 @@
 	      return [];
 	    }
 	  }
+	  function clearPendingAnkiMessage(requestId) {
+	    const key = String(requestId || '');
+	    if (!key || !state.pendingAnkiMessages[key]) return;
+	    const pending = state.pendingAnkiMessages[key];
+	    if (pending.retryTimer) clearTimeout(pending.retryTimer);
+	    if (pending.finalTimer) clearTimeout(pending.finalTimer);
+	    delete state.pendingAnkiMessages[key];
+	  }
+	  function failPendingAnkiMessage(pending, message) {
+	    if (!pending || !pending.requestId) return;
+	    clearPendingAnkiMessage(pending.requestId);
+	    if (pending.button && pending.button.dataset && pending.button.dataset.ankiRequestId === pending.requestId) {
+	      if (pending.type === 'anki-card-status') setAnkiButtonState(pending.button, { state: 'ready', duplicate: false, noteIds: [], message: 'Add Anki card' });
+	      else setAnkiButtonState(pending.button, { state: 'error', message: message || 'Anki request timed out' });
+	    }
+	    if (pending.type !== 'anki-card-status') setStatus({ message: message || 'Anki request timed out', kind: 'error' });
+	  }
+	  function markPendingAnkiMessageAcked(requestId) {
+	    const pending = state.pendingAnkiMessages[String(requestId || '')];
+	    if (!pending) return;
+	    pending.acked = true;
+	    if (pending.retryTimer) {
+	      clearTimeout(pending.retryTimer);
+	      pending.retryTimer = null;
+	    }
+	  }
+	  function trackAnkiBridgeMessage(button, payload, type) {
+	    const requestId = String(payload && payload.requestId || '');
+	    if (!requestId) return false;
+	    clearPendingAnkiMessage(requestId);
+	    const pending = {
+	      requestId,
+	      button,
+	      payload,
+	      type,
+	      retries: 0,
+	      acked: false,
+	      retryTimer: null,
+	      finalTimer: null
+	    };
+	    state.pendingAnkiMessages[requestId] = pending;
+	    const retryDelay = type === 'anki-card-status' ? 700 : 900;
+	    const finalDelay = type === 'anki-card-status' ? 10000 : (type === 'anki-card-open' ? 14000 : 45000);
+	    const sendTimeout = type === 'anki-card-status' ? 1800 : 9000;
+	    const send = () => sendBridgeMessageWhenReady(payload, sendTimeout, () => {
+	      failPendingAnkiMessage(pending, 'Anki bridge unavailable');
+	    }, () => {
+	      if (pending.retryTimer) clearTimeout(pending.retryTimer);
+	      pending.retryTimer = setTimeout(() => {
+	        if (!state.pendingAnkiMessages[requestId] || pending.acked) return;
+	        if (pending.retries >= 1) {
+	          failPendingAnkiMessage(pending, 'Anki bridge did not respond');
+	          return;
+	        }
+	        pending.retries++;
+	        overlayDebug('retrying Anki bridge message type=' + String(type) + ' requestId=' + requestId);
+	        send();
+	      }, retryDelay);
+	    });
+	    pending.finalTimer = setTimeout(() => {
+	      if (!state.pendingAnkiMessages[requestId]) return;
+	      failPendingAnkiMessage(pending, type === 'anki-card-status' ? '' : 'Anki request timed out');
+	    }, finalDelay);
+	    return send();
+	  }
 	  function sendAnkiCardMessage(button, type) {
 	    const context = ankiContextForButton(button);
 	    if (!context) return false;
@@ -2008,10 +2068,7 @@
 	      duplicateKnown: button && button.dataset ? String(button.dataset.ankiDuplicateKnown || '') : '',
 	      at: Date.now()
 	    };
-	    if (postIinaMessage(type, payload)) return true;
-	    return sendBridgeMessageWhenReady(payload, type === 'anki-card-status' ? 1800 : 9000, () => {
-	      if (type !== 'anki-card-status') setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
-	    });
+	    return trackAnkiBridgeMessage(button, payload, type);
 	  }
 	  function requestAnkiCardStatus(button) {
 	    if (!button || button.dataset.ankiStatusRequested === 'true') return;
@@ -2973,6 +3030,12 @@
   function updateAnkiCardState(payload) {
     const requestId = String((payload && payload.requestId) || '');
     if (!requestId) return;
+    const isAck = !!(payload && payload.ack);
+    if (isAck) {
+      markPendingAnkiMessageAcked(requestId);
+      return;
+    }
+    clearPendingAnkiMessage(requestId);
     try {
       popupEl.querySelectorAll('.anki-button').forEach(button => {
         if (button.dataset.ankiRequestId !== requestId) return;
