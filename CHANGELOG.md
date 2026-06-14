@@ -9,8 +9,14 @@
 ### Fixed
 
 - Fixed Anki glossary fields so structured dictionary content is rendered as card-ready HTML instead of raw JSON, while keeping glossary-plain as extracted plaintext.
+- Aligned Anki glossary and glossary-first HTML with Yomitan's default glossary-single rendering, including single glossary datapoints and structured-content wrappers.
 - Fixed duplicate Anki book actions so they open the detected note in Anki instead of falling through to add, clear stale note IDs after deleted duplicates, and avoid first-click bridge warm-up stalls.
 - Fixed Anki add actions to recheck duplicates immediately before adding, acknowledge received bridge requests, retry one dropped first click, and stop pending UI states from hanging forever.
+- Fixed Anki duplicate add clicks so prevent-mode duplicates open the existing note by `nid`, and made duplicate checks tolerate case-only field-name differences.
+- Fixed Anki reveal actions so opening Anki's browser is fire-and-forget and cannot stall later popup add/open actions.
+- Fixed Anki bridge request IDs so recreated popup sessions can add more than one card per IINA session.
+- Fixed Anki button clicks so dynamically swapped icons remain IINA-clickable and add/open requests use the documented webview message channel before WebSocket fallback.
+- Changed Anki media filenames to use a short document-name prefix plus a hex suffix for screenshot and audio captures.
 - Removed SelectionText and SelectedText from Lapis Anki autofill defaults while keeping the looked-up text marker available for manual field mappings.
 
 ## 1.9.1 - 2026-06-14

@@ -180,11 +180,14 @@ assert(/anki-card-open/.test(overlaySource), 'Overlay should open duplicates fro
 assert(/duplicateKnown/.test(overlaySource), 'Overlay should reuse duplicate preflight state on add');
 assert(/pendingAnkiMessages/.test(overlaySource), 'Overlay should track pending Anki requests');
 assert(/markPendingAnkiMessageAcked/.test(overlaySource), 'Overlay should stop retrying Anki requests once acknowledged');
-assert(!/postIinaMessage\(type, payload\)/.test(overlaySource), 'Overlay Anki actions should not rely on native IINA messages before WebSocket fallback');
+assert(/postPluginMessage\(payload\)/.test(overlaySource), 'Overlay Anki actions should use IINA webview messaging before WebSocket fallback');
+assert(/sendBridgeMessageWhenReady\(payload/.test(overlaySource), 'Overlay Anki actions should keep a WebSocket fallback path');
 assert(/button\.dataset\.ankiAction === 'open'/.test(overlaySource), 'Overlay should use explicit open action state for duplicate book buttons');
 assert(/right-click to open existing/.test(overlaySource), 'Anki add-anyway mode should still expose open-existing behavior');
 
 const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
+assert(/overlay\.onMessage\("anki-card-add"/.test(lifecycleSource), 'Main overlay lifecycle should accept direct Anki add messages from the webview');
+assert(/overlay\.onMessage\("anki-card-open"/.test(lifecycleSource), 'Main overlay lifecycle should accept direct Anki reveal messages from the webview');
 assert(/function reloadOverlayForProfileChange\(\)/.test(lifecycleSource), 'Profile changes should be able to reload the overlay');
 assert(/function videoWindowAvailableForOverlayLoad\(\)/.test(lifecycleSource), 'Profile overlay reload should have a video-window availability guard');
 assert(/core\.window\.loaded/.test(lifecycleSource), 'Profile overlay reload should check IINA window availability before overlay.loadFile');

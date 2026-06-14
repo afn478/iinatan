@@ -11,13 +11,17 @@ function ensureOverlayBridge() {
       debugLog("overlay bridge state=" + String(state) + (error ? " error=" + compactError(error.message || error.description || error) : ""));
     });
     ws.onNewConnection((conn, info) => {
+      rememberOverlayBridgeConnection(conn);
       debugLog("overlay bridge connection=" + conn + " path=" + (info && info.path ? info.path : ""));
     });
     ws.onConnectionStateUpdate((conn, state, error) => {
+      if (/close|fail|error|cancel/i.test(String(state || ""))) forgetOverlayBridgeConnection(conn);
+      else rememberOverlayBridgeConnection(conn);
       debugLog("overlay bridge conn=" + conn + " state=" + String(state) + (error ? " error=" + compactError(error.message || error.description || error) : ""));
     });
 	    ws.onMessage((conn, message) => {
 	      try {
+	        rememberOverlayBridgeConnection(conn);
 	        const raw = message && typeof message.text === "function" ? String(message.text() || "") : "";
 	        debugVerbose("overlay bridge message=" + raw.slice(0, 200));
 	        let payload = raw;

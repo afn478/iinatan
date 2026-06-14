@@ -182,6 +182,8 @@ let lookupPopupLastSeq = 0;
 let lookupPopupSessionId = "";
 let overlayBridgeStarted = false;
 let overlayBridgePort = 19741;
+let overlayBridgeConnections = Object.create(null);
+let overlayBridgeLastConnection = null;
 let dictionaryManagerHandlerGeneration = 0;
 let dictionaryManagerActionInFlight = false;
 let debugLogSnapshot = null;
@@ -312,6 +314,42 @@ function scheduleDebugLogFlush() {
 }
 function postToOverlay(name, data) {
   try { overlay.postMessage(name, data || {}); } catch (error) { try { debugLog("overlay.postMessage failed for " + name + ": " + compactError(error)); } catch (_) {} console.warn("overlay.postMessage failed: " + compactError(error)); }
+}
+function rememberOverlayBridgeConnection(conn) {
+  if (conn === undefined || conn === null || conn === "") return;
+  const key = String(conn);
+  overlayBridgeConnections[key] = conn;
+  overlayBridgeLastConnection = conn;
+}
+function forgetOverlayBridgeConnection(conn) {
+  if (conn === undefined || conn === null || conn === "") return;
+  const key = String(conn);
+  delete overlayBridgeConnections[key];
+  if (String(overlayBridgeLastConnection) === key) {
+    const keys = Object.keys(overlayBridgeConnections);
+    overlayBridgeLastConnection = keys.length ? overlayBridgeConnections[keys[keys.length - 1]] : null;
+  }
+}
+function postToOverlayBridge(payload) {
+  if (!ws || typeof ws.sendText !== "function") return false;
+  const message = JSON.stringify(payload || {});
+  const targets = [];
+  if (overlayBridgeLastConnection !== null && overlayBridgeLastConnection !== undefined) targets.push(overlayBridgeLastConnection);
+  Object.keys(overlayBridgeConnections).forEach(key => {
+    const conn = overlayBridgeConnections[key];
+    if (targets.map(String).indexOf(String(conn)) < 0) targets.push(conn);
+  });
+  let sent = false;
+  targets.forEach(conn => {
+    try {
+      ws.sendText(conn, message);
+      sent = true;
+    } catch (error) {
+      debugVerbose("overlay bridge send failed conn=" + String(conn) + ": " + compactError(error));
+      forgetOverlayBridgeConnection(conn);
+    }
+  });
+  return sent;
 }
 function setOverlayStatus(message, kind, ttlMs) {
   if (statusTimer !== null) {
