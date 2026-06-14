@@ -428,6 +428,10 @@
 	    state.audioSourceMenu = null;
 	    try { if (menu && typeof menu.remove === 'function') menu.remove(); } catch (_) {}
 	  }
+	  function cancelHidePopupTimer() {
+	    if (state.hideTimer) clearTimeout(state.hideTimer);
+	    state.hideTimer = null;
+	  }
 	  function audioSourceMenuContainer() {
 	    try {
 	      if (document.body && typeof document.body.appendChild === 'function') return document.body;
@@ -491,6 +495,8 @@
 	    menu.addEventListener('contextmenu', menuEvent => {
 	      try { menuEvent.preventDefault(); menuEvent.stopPropagation(); } catch (_) {}
 	    });
+	    menu.addEventListener('mouseenter', cancelHidePopupTimer);
+	    menu.addEventListener('mouseleave', scheduleHidePopup);
 	    const container = audioSourceMenuContainer();
 	    const inPopup = container === popupEl;
 	    container.appendChild(menu);
@@ -855,7 +861,7 @@
   }
 
   function onCharEnter(ev) {
-    if (state.hideTimer) clearTimeout(state.hideTimer);
+    cancelHidePopupTimer();
     const target = ev.currentTarget;
     const rawPos = Number(target.dataset.pos || 0);
     const unit = lookupUnitForPosition(rawPos);
@@ -909,7 +915,7 @@
 	    try { iina.postMessage('open-external-url', { url }); } catch (_) {}
 	    overlayDebug("source link click url=" + JSON.stringify(url.slice(0, 180)) + " bridgeSent=" + String(sent));
 	  }
-	  popupEl.addEventListener('mouseenter', () => { if (state.hideTimer) clearTimeout(state.hideTimer); });
+	  popupEl.addEventListener('mouseenter', cancelHidePopupTimer);
 	  popupEl.addEventListener('mouseleave', scheduleHidePopup);
 	  popupEl.addEventListener('click', onPopupClick, true);
   function trapPopupWheel(ev) {

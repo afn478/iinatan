@@ -164,13 +164,18 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   });
   assert(menuOpened, 'Right-clicking an audio button should open the source menu');
   assert(menuPrevented, 'Audio source menu should suppress the native context menu');
-  const menu = context.__elements.popup.querySelector('.audio-source-menu');
+  const menu = context.__body.querySelector('.audio-source-menu');
   assert(menu, 'Audio source menu should be rendered');
+  assert(!context.__elements.popup.querySelector('.audio-source-menu'), 'Audio source menu should render outside the popup to avoid clipping');
   const items = menu.querySelectorAll('.audio-source-menu-item');
   assert(items.length === 3, 'Audio source menu should list configured sources');
   assert(items[0].textContent === 'JapanesePod101', 'Named audio sources should use their configured name');
   assert(items[1].textContent === 'languagepod101.com', 'Unnamed web audio sources should use a readable host label');
   assert(items[2].textContent === 'Local audio', 'The local Anki source should use a readable label');
+  context.__elements.popup.listeners.mouseleave({});
+  assert(overlay.state.hideTimer, 'Leaving the popup for the source menu should start the normal hide timer');
+  menu.listeners.mouseenter({});
+  assert(!overlay.state.hideTimer, 'Hovering the source menu should keep the popup open');
 
   const beforeMenuPlay = context.__sent.length;
   items[1].listeners.click({ preventDefault() {}, stopPropagation() {} });
@@ -178,7 +183,7 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   await new Promise(resolve => setTimeout(resolve, 5));
   assert(menuRequest.url.indexOf('languagepod101.com') >= 0, 'Choosing a menu item should play only that source');
   assert(played[played.length - 1] === menuRequest.url, 'Chosen direct audio source should be played');
-  assert(!context.__elements.popup.querySelector('.audio-source-menu'), 'Choosing a source should close the menu');
+  assert(!context.__body.querySelector('.audio-source-menu'), 'Choosing a source should close the menu');
 
   console.log('overlay audio tests passed');
 })().catch(error => {

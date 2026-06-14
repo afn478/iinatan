@@ -133,6 +133,7 @@ function makeOverlayContext(options) {
   };
   elements.popup.classList.add('hidden');
   const head = new FakeElement('head');
+  const body = new FakeElement('body');
   const rootStyle = {
     setProperty(name, value) { this[name] = String(value); }
   };
@@ -159,6 +160,7 @@ function makeOverlayContext(options) {
     WebSocket: FakeWebSocket,
     window: { innerWidth: 1280, innerHeight: 720, addEventListener() {} },
     document: {
+      body,
       head,
       documentElement: { style: rootStyle },
       addEventListener() {},
@@ -172,6 +174,7 @@ function makeOverlayContext(options) {
       postMessage() {}
     },
     __elements: elements,
+    __body: body,
     __head: head,
     __sent: sent,
     __handlers: handlers,
