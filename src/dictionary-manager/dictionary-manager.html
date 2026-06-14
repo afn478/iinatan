@@ -695,14 +695,16 @@
       saveAudioSources();
     }
     function addAudioSource() {
+      const firstSource = state.audioSources.length === 0;
       const source = {
         id: 'audio-source-' + String(++state.audioSourceSerial),
-        url: ''
+        url: firstSource ? DEFAULT_AUDIO_SOURCE_URL : ''
       };
       state.audioSources.push(source);
       renderAudioSources();
       const input = els.audioSourceList.querySelector('[data-id="' + source.id + '"] input');
       if (input && typeof input.focus === 'function') input.focus();
+      if (firstSource) saveAudioSources();
     }
     function updateAudioSourceUrl(id, value) {
       const source = state.audioSources.find(item => item.id === id);
