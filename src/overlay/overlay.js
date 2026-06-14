@@ -798,7 +798,33 @@
     return Number.isFinite(n) ? Math.max(0, n) : fallback;
   }
 
+  function isWordLookupMode(lang) {
+    return !!lang && (lang.lookupUnit === 'word' || lang.wordMode === 'latin-word' || lang.wordMode === 'korean-run');
+  }
+
+  function lookupSurfaceRange(stored, preview) {
+    if (!isWordLookupMode(activeLanguage())) return null;
+    const result = stored && stored.result ? stored.result : {};
+    const start = Number(result.lookupStart);
+    const end = Number(result.lookupEnd);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      const boundedStart = Math.max(0, start);
+      const boundedEnd = Math.min(state.chars.length, end);
+      const text = state.chars.slice(boundedStart, Math.max(boundedStart + 1, boundedEnd)).join('');
+      if (text) return { start: boundedStart, text };
+    }
+    if (preview && Number.isFinite(Number(preview.start)) && Number.isFinite(Number(preview.end)) && Number(preview.end) > Number(preview.start)) {
+      return { start: Math.max(0, Number(preview.start)), text: String(preview.text || '') };
+    }
+    return null;
+  }
+
   function activateStoredMatch(stored, preview) {
+    const surfaceRange = lookupSurfaceRange(stored, preview);
+    if (surfaceRange && surfaceRange.text) {
+      activateMatchRange(surfaceRange.start, surfaceRange.text);
+      return;
+    }
     const fallbackStart = preview && Number.isFinite(Number(preview.start)) ? Number(preview.start) : (state.currentPos || 0);
     const start = resultMatchStart(stored, fallbackStart);
     const matched = topMatchedText(stored) || (preview && preview.text) || '';

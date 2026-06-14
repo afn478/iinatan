@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.0 - 2026-06-14
+
+### Fixed
+
+- Non-Japanese word lookups now keep the subtitle hover highlight on the original surface word after deinflection, so filtered suffix letters no longer draw separate mini highlight boxes.
+
 ## 1.8.1 - 2026-06-13
 
 ### Fixed

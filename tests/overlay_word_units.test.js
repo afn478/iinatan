@@ -66,6 +66,37 @@ assert(lookupMessages().length === 2, 'Moving to a different word should dispatc
 assert(lookupMessages()[1].position === quicklyStart, 'Quickly lookup should be anchored at its word start');
 assert(overlay.state.currentAnchor === quicklyAnchor, 'Popup anchor should move for a different word');
 
+overlay.renderSubtitle('Witches gather', 10);
+const witchesEnd = 'Witches'.length;
+const beforeWitches = lookupMessages().length;
+enter(0);
+assert(lookupMessages().length === beforeWitches + 1, 'English deinflected word should dispatch one lookup from the word start');
+context.__handlers['line-lookup-result']({
+  lineId: 10,
+  position: 0,
+  ok: true,
+  result: {
+    ok: true,
+    text: 'Witches gather',
+    position: 0,
+    lookupStart: 0,
+    lookupEnd: witchesEnd,
+    matchStart: 0,
+    lookupText: 'witch',
+    candidateUsed: { text: 'witch', displayText: 'Witches', source: 'deinflection' },
+    language: 'en',
+    results: [{
+      matched: 'witch',
+      deinflected: 'witch',
+      term: { expression: 'witch', reading: '', glossaries: [{ dict: 'Test', glossary: 'plural witches' }] }
+    }]
+  }
+});
+assert(activeMatchPositions().join(',') === '0,1,2,3,4,5,6', 'English deinflected result should highlight the whole source word');
+enter(witchesEnd - 1);
+assert(lookupMessages().length === beforeWitches + 1, 'Hovering filtered suffix letters should stay in the same lookup unit');
+assert(activeMatchPositions().join(',') === '0,1,2,3,4,5,6', 'Filtered suffix letters should not split the active highlight');
+
 overlay.applyConfig({
   language: { id: 'fr', label: 'French', lookupUnit: 'word', wordMode: 'latin-word' },
   overlayBridgePort: 19741,
@@ -93,6 +124,29 @@ overlay.applyConfig({
   overlayBridgePort: 19741,
   scanLength: 24
 });
+overlay.renderSubtitle('魔法使い', 21);
+enter(0);
+context.__handlers['line-lookup-result']({
+  lineId: 21,
+  position: 0,
+  ok: true,
+  result: {
+    ok: true,
+    text: '魔法使い',
+    position: 0,
+    lookupStart: 0,
+    lookupEnd: 4,
+    matchStart: 0,
+    language: 'ja',
+    results: [{
+      matched: '魔法',
+      deinflected: '魔法',
+      term: { expression: '魔法', reading: '', glossaries: [{ dict: 'Test', glossary: 'magic' }] }
+    }]
+  }
+});
+assert(activeMatchPositions().join(',') === '0,1', 'Japanese successful prefix highlight should stay on the matched text');
+
 overlay.renderSubtitle('魔法使い', 2);
 const beforeJapanese = lookupMessages().length;
 enter(0);
