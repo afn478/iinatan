@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Required packaged release builds to include `CHANGELOG.md`.
+- GitHub release publishing now uses the matching `CHANGELOG.md` version section as the release notes.
+
+### Documentation
+
+- Linked the README release-package install path to the latest GitHub release.
+
 ## 1.9.0 - 2026-06-14
 
 ### Added

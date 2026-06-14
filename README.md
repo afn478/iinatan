@@ -31,7 +31,7 @@ For most users, the recommended option is the release package. Installing direct
 
 ### Install a Release Package (Recommended)
 
-Download an `.iinaplgz` release package and install it through IINA's plugin manager.
+Download `iinatan.iinaplgz` from the [latest version on GitHub](https://github.com/afn478/iinatan/releases/latest) and install it through IINA's plugin manager.
 
 ### Install From GitHub
 Use this only if you want the newest in-progress changes and are comfortable with occasional breakage.

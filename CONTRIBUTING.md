@@ -147,6 +147,7 @@ npm run pack
 - `README.md`
 - `LICENSE`
 - `package.json`
+- `CHANGELOG.md`
 - `bin/iina-hoshi-dicts`
 
 Optional documentation files included in release packages:
@@ -185,12 +186,14 @@ Release builds produce `dist/iinatan.iinaplgz`.
 
 The manual GitHub Actions workflow **macOS Apple Silicon build** regenerates runtime files, runs tests, compiles the bundled lookup engine, validates the installable root layout, packages `dist/iinatan.iinaplgz`, and uploads it as an artifact.
 
-To publish a release package from the workflow, set `publish_release=true` and provide a `release_tag`, such as `v1.6.0`.
+To publish a release package from the workflow, set `publish_release=true` and provide a `release_tag`, such as `v1.6.0`. The workflow extracts the matching version section from `CHANGELOG.md` and uses it as the GitHub Release notes. Missing or empty changelog sections fail the release job.
 
 When cutting a release, update `Info.json`:
 
 - `version`
 - `ghVersion`
+
+Also move the relevant `CHANGELOG.md` entries into the versioned section that matches the release tag without the leading `v`.
 
 IINA uses `ghRepo` and `ghVersion` for GitHub plugin update checks.
 

@@ -69,6 +69,14 @@ jobs:
           name: iinatan-plugin
           path: dist/iinatan.iinaplgz
 
+      - name: Prepare release notes
+        if: ${{ inputs.publish_release }}
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          test -n "$RELEASE_TAG"
+          python3 scripts/extract_release_notes.py "$RELEASE_TAG" > release-notes.md
+
       - name: Publish GitHub release
         if: ${{ inputs.publish_release }}
         env:
@@ -76,5 +84,9 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           test -n "$RELEASE_TAG"
-          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes "iinatan $RELEASE_TAG"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes-file release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes-file release-notes.md
+          fi
           gh release upload "$RELEASE_TAG" dist/iinatan.iinaplgz --clobber
