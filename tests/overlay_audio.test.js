@@ -167,11 +167,14 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   const menu = context.__body.querySelector('.audio-source-menu');
   assert(menu, 'Audio source menu should be rendered');
   assert(!context.__elements.popup.querySelector('.audio-source-menu'), 'Audio source menu should render outside the popup to avoid clipping');
+  assert(menu.getAttribute('data-clickable') === 'true', 'Floating audio source menus should be marked clickable for IINA');
   const items = menu.querySelectorAll('.audio-source-menu-item');
   assert(items.length === 3, 'Audio source menu should list configured sources');
   assert(items[0].textContent === 'JapanesePod101', 'Named audio sources should use their configured name');
   assert(items[1].textContent === 'languagepod101.com', 'Unnamed web audio sources should use a readable host label');
   assert(items[2].textContent === 'Local audio', 'The local Anki source should use a readable label');
+  items.forEach(item => assert(item.getAttribute('data-clickable') === 'true', 'Floating audio source menu items should be marked clickable for IINA'));
+  assert(!items[0].focused, 'Opening the audio source menu should not keep the first item highlighted by focus');
   context.__elements.popup.listeners.mouseleave({});
   assert(overlay.state.hideTimer, 'Leaving the popup for the source menu should start the normal hide timer');
   menu.listeners.mouseenter({});

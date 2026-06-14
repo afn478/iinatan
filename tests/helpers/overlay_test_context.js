@@ -25,10 +25,12 @@ class FakeElement {
     this.style = {};
     this.className = '';
     this.classList = new FakeClassList(this);
+    this.focused = false;
     this._textContent = '';
     this._innerHTML = '';
     this.id = '';
   }
+  focus() { this.focused = true; }
   set textContent(value) {
     this._textContent = String(value || '');
     if (this.tagName !== '#text') this.children = [];

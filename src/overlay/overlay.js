@@ -470,6 +470,7 @@
 	    menu.className = 'audio-source-menu';
 	    menu.setAttribute('role', 'menu');
 	    menu.setAttribute('aria-label', 'Audio sources');
+	    menu.setAttribute('data-clickable', 'true');
 	    sources.forEach((source, index) => {
 	      const label = audioSourceDisplayLabel(source, index);
 	      const item = document.createElement('button');
@@ -479,6 +480,7 @@
 	      item.title = source.url || label;
 	      item.dataset.audioSourceIndex = String(index);
 	      item.setAttribute('role', 'menuitem');
+	      item.setAttribute('data-clickable', 'true');
 	      item.addEventListener('click', clickEvent => {
 	        try { clickEvent.preventDefault(); clickEvent.stopPropagation(); } catch (_) {}
 	        hideAudioSourceMenu();
@@ -502,8 +504,6 @@
 	    container.appendChild(menu);
 	    state.audioSourceMenu = menu;
 	    placeAudioSourceMenu(menu, button, event, inPopup);
-	    const firstItem = menu.querySelector('.audio-source-menu-item');
-	    try { if (firstItem && typeof firstItem.focus === 'function') firstItem.focus(); } catch (_) {}
 	    return true;
 	  }
 	  function nodeHref(node) {

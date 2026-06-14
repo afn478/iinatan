@@ -308,7 +308,7 @@
       cursor: pointer;
     }
     .audio-source-menu-item:hover,
-    .audio-source-menu-item:focus {
+    .audio-source-menu-item:focus-visible {
       outline: none;
       background: var(--popup-chip-bg);
     }
