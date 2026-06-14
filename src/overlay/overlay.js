@@ -4048,16 +4048,32 @@
           compareTextKey(entryReading) === compareTextKey(header.reading || "");
         if (!repeatsHeader) {
           const entryAudio = audioDataForEntry(entry);
+          const entryAnki = registerAnkiCardContext(
+            buildAnkiCardContext(stored, entry, null),
+          );
+          const entryAudioHtml = entryAudio
+            ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading)
+            : "";
+          const entryAnkiHtml = entryAnki
+            ? renderAnkiButtonHtml(entryAnki.contextId)
+            : "";
+          const entryActionHtml =
+            entryAudioHtml || entryAnkiHtml
+              ? '<span class="dict-term-actions">' +
+                entryAnkiHtml +
+                entryAudioHtml +
+                "</span>"
+              : "";
           html +=
-            '<div class="dict-term"><span class="dict-term-text">' +
+            '<div class="dict-term' +
+            (entryActionHtml ? " has-actions" : "") +
+            '"><span class="dict-term-text">' +
             renderHeadwordStackHtml(entryHeadword, entryReading, {
               termClass: "dict-headword",
               readingClass: "dict-reading",
             }) +
             "</span>" +
-            (entryAudio
-              ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading)
-              : "") +
+            entryActionHtml +
             "</div>";
         }
       }

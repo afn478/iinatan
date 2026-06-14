@@ -28,11 +28,78 @@ const overlayAnkiExports = [
   "state",
   "applyConfig",
   "bindPopupAnkiButtons",
+  "renderStoredLookup",
   "setAnkiButtonState",
+  "showPopup",
   "updateAnkiCardState",
 ];
 
 (async () => {
+  const { context: renderContext, overlay: renderOverlay } = loadOverlayForTest(
+    overlayAnkiExports,
+    {
+      autoOpenWebSocket: false,
+    },
+  );
+  renderOverlay.applyConfig({
+    overlayBridgePort: 19741,
+    anki: { enabled: true, configured: true, duplicateMode: "prevent" },
+  });
+  renderOverlay.showPopup(
+    renderContext.document.createElement("span"),
+    "猫",
+    '<div class="loading">Loading...</div>',
+  );
+  renderOverlay.renderStoredLookup({
+    ok: true,
+    position: 0,
+    result: {
+      ok: true,
+      language: "ja",
+      text: "猫と犬",
+      lookupStart: 0,
+      lookupEnd: 1,
+      results: [
+        {
+          matched: "猫",
+          deinflected: "猫",
+          term: { expression: "猫", reading: "ねこ", glossaries: [] },
+        },
+        {
+          matched: "犬",
+          deinflected: "犬",
+          term: { expression: "犬", reading: "いぬ", glossaries: [] },
+        },
+      ],
+    },
+  });
+  const renderedHeadHtml =
+    renderContext.__elements.popup.children[0]._innerHTML;
+  const renderedBodyHtml =
+    renderContext.__elements.popup.children[1]._innerHTML;
+  const headContextIds = Array.from(
+    renderedHeadHtml.matchAll(/data-anki-context-id="([^"]+)"/g),
+  ).map((match) => match[1]);
+  const bodyContextIds = Array.from(
+    renderedBodyHtml.matchAll(/data-anki-context-id="([^"]+)"/g),
+  ).map((match) => match[1]);
+  assert(
+    headContextIds.length === 1,
+    "Lookup result header should render its own Anki add button",
+  );
+  assert(
+    bodyContextIds.length === 1,
+    "Subsequent popup entries should render their own Anki add buttons",
+  );
+  assert(
+    renderOverlay.state.ankiCardContexts[headContextIds[0]].expression === "猫",
+    "Header Anki button should use the header entry headword",
+  );
+  assert(
+    renderOverlay.state.ankiCardContexts[bodyContextIds[0]].expression === "犬",
+    "Subsequent entry Anki buttons should use their own headword",
+  );
+
   const { context, overlay } = loadOverlayForTest(overlayAnkiExports, {
     autoOpenWebSocket: false,
   });

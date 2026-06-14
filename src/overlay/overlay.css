@@ -228,7 +228,8 @@
     .dict { color: var(--popup-muted); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
-    .dict-term { position: relative; min-width: 0; min-height: 28px; padding-right: 38px; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
+    .dict-term { position: relative; min-width: 0; min-height: 28px; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
+    .dict-term.has-actions { padding-right: 66px; }
     .dict-term-text { display: block; min-width: 0; }
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 650; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
@@ -259,7 +260,7 @@
       pointer-events: auto;
     }
     .audio-button:hover, .anki-button:hover { color: var(--popup-heading); border-color: var(--popup-border); background: var(--popup-chip-bg); }
-    .dict-term .audio-button { position: absolute; top: 1px; right: 0; margin: 0; }
+    .dict-term-actions { position: absolute; top: 1px; right: 0; display: inline-flex; align-items: center; gap: 5px; }
     .audio-button[data-audio-state="loading"] { opacity: 0.72; }
     .audio-button[data-audio-state="loading"] .audio-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .audio-button[data-audio-state="missing"] { color: var(--popup-error); border-color: var(--popup-error-border); }

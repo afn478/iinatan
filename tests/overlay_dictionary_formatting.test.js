@@ -1056,16 +1056,14 @@ assert(
   "Secondary entry headwords should match the main popup headword size",
 );
 assert(
-  /\.dict-term \{[^}]*position: relative;[^}]*padding-right: 38px;[^}]*\}/.test(
-    css,
-  ),
-  "Secondary entry headword rows should reserve space for the speaker button",
+  /\.dict-term\.has-actions \{[^}]*padding-right: 66px;[^}]*\}/.test(css),
+  "Secondary entry headword rows should reserve space for action buttons",
 );
 assert(
-  /\.dict-term \.audio-button \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*\}/.test(
+  /\.dict-term-actions \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*display: inline-flex;[^}]*\}/.test(
     css,
   ),
-  "Secondary entry speaker buttons should be pinned to the row top-right",
+  "Secondary entry action buttons should be pinned to the row top-right",
 );
 assert(
   /\.dict-reading \{[^}]*display: block;[^}]*margin: 0 0 2px;[^}]*text-align: center;[^}]*\}/.test(

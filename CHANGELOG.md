@@ -17,6 +17,7 @@
 - Fixed Anki reveal actions so opening Anki's browser is fire-and-forget and cannot stall later popup add/open actions.
 - Fixed Anki bridge request IDs so recreated popup sessions can add more than one card per IINA session.
 - Fixed Anki button clicks so dynamically swapped icons remain IINA-clickable and add/open requests use the documented webview message channel before WebSocket fallback.
+- Fixed secondary popup entries so each visible headword gets its own Anki add button with that entry's headword.
 - Changed Anki media filenames to use a short document-name prefix plus a hex suffix for screenshot and audio captures.
 - Removed SelectionText and SelectedText from Lapis Anki autofill defaults while keeping the looked-up text marker available for manual field mappings.
 
