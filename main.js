@@ -12,6 +12,143 @@ const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, 
 
 const VERSION = "1.9.0";
 const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
+const RECOMMENDED_JAPANESE_DICTIONARIES = [
+  {
+    id: "jitendex-ja-en",
+    title: "Jitendex",
+    category: "Terms",
+    language: "Japanese",
+    description: "Japanese-English dictionary with structured JMdict data, examples, notes, and links.",
+    homepage: "https://jitendex.org",
+    downloadUrl: RECOMMENDED_JITENDEX_URL,
+    filename: "jitendex-yomitan.zip",
+    titlePrefixes: ["Jitendex"]
+  },
+  {
+    id: "jmnedict-ja",
+    title: "JMnedict",
+    category: "Terms",
+    language: "Japanese",
+    description: "Japanese proper names from the Electronic Dictionary Research and Development Group.",
+    homepage: "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
+    downloadUrl: "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip",
+    filename: "JMnedict.zip",
+    titlePrefixes: ["JMnedict"]
+  },
+  {
+    id: "bccwj-suw-luw-combined",
+    title: "BCCWJ SUW/LUW Combined",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Frequency ranks from the Balanced Corpus of Contemporary Written Japanese.",
+    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#bccwj-suw-luw-combined",
+    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/BCCWJ_SUW_LUW_combined.zip",
+    filename: "BCCWJ_SUW_LUW_combined.zip",
+    titlePrefixes: ["BCCWJ"]
+  },
+  {
+    id: "jpdb-v2-kana",
+    title: "JPDB v2.2 Kana",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Kana-aware frequency ranks from the JPDB corpus.",
+    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#jpdb-v22-frequency",
+    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/JPDB_v2.2_Frequency_Kana.zip",
+    filename: "JPDB_v2.2_Frequency_Kana.zip",
+    titlePrefixes: ["JPDBv2", "JPDB v2.2"]
+  },
+  {
+    id: "jiten-global-frequency",
+    title: "Jiten Global",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Global Yomitan frequency dictionary generated from the Jiten media database.",
+    homepage: "https://jiten.moe/other",
+    downloadUrl: "https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan",
+    downloadUrlAliases: ["https://api.jiten.moe/api/frequency-list/download"],
+    filename: "jiten-global-yomitan.zip",
+    titlePrefixes: ["Jiten"]
+  }
+];
+const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
+  ja: RECOMMENDED_JAPANESE_DICTIONARIES,
+  en: [
+    {
+      id: "wty-en-en",
+      title: "wty-en-en",
+      category: "Terms",
+      language: "English",
+      description: "English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/en/en/wty-en-en.zip",
+      filename: "wty-en-en.zip",
+      titlePrefixes: ["wty-en-en"]
+    }
+  ],
+  de: [
+    {
+      id: "wty-de-en",
+      title: "wty-de-en",
+      category: "Terms",
+      language: "German",
+      description: "German to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/de/en/wty-de-en.zip",
+      filename: "wty-de-en.zip",
+      titlePrefixes: ["wty-de-en"]
+    }
+  ],
+  fr: [
+    {
+      id: "wty-fr-en",
+      title: "wty-fr-en",
+      category: "Terms",
+      language: "French",
+      description: "French to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/fr/en/wty-fr-en.zip",
+      filename: "wty-fr-en.zip",
+      titlePrefixes: ["wty-fr-en"]
+    }
+  ],
+  zh: [
+    {
+      id: "cc-cedict-zh-en",
+      title: "CC-CEDICT",
+      category: "Terms",
+      language: "Chinese",
+      description: "Chinese-English dictionary provided by the CC-CEDICT project.",
+      homepage: "https://github.com/MarvNC/cc-cedict-yomitan",
+      downloadUrl: "https://github.com/MarvNC/cc-cedict-yomitan/releases/latest/download/CC-CEDICT.zip",
+      filename: "CC-CEDICT.zip",
+      titlePrefixes: ["CC-CEDICT"]
+    },
+    {
+      id: "wty-zh-en",
+      title: "wty-zh-en",
+      category: "Terms",
+      language: "Chinese",
+      description: "Chinese to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/zh/en/wty-zh-en.zip",
+      filename: "wty-zh-en.zip",
+      titlePrefixes: ["wty-zh-en"]
+    }
+  ],
+  ko: [
+    {
+      id: "wty-ko-en",
+      title: "wty-ko-en",
+      category: "Terms",
+      language: "Korean",
+      description: "Korean to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/ko/en/wty-ko-en.zip",
+      filename: "wty-ko-en.zip",
+      titlePrefixes: ["wty-ko-en"]
+    }
+  ]
+};
 
 let enabled = false;
 let initialized = false;
@@ -2192,6 +2329,82 @@ function dictionaryDirs() {
   const manifest = readManifest();
   return orderedDictionaryDirs(unorderedDictionaryDirs(), manifest);
 }
+function recommendedDictionariesByLanguage() {
+  if (typeof RECOMMENDED_DICTIONARIES_BY_LANGUAGE !== "undefined" && RECOMMENDED_DICTIONARIES_BY_LANGUAGE) return RECOMMENDED_DICTIONARIES_BY_LANGUAGE;
+  return { ja: RECOMMENDED_JAPANESE_DICTIONARIES };
+}
+function recommendedDictionaryItemsForLanguage(language) {
+  const groups = recommendedDictionariesByLanguage();
+  const key = String(language || "ja");
+  return Array.isArray(groups[key]) ? groups[key] : [];
+}
+function allRecommendedDictionaryItems() {
+  const groups = recommendedDictionariesByLanguage();
+  const out = [];
+  Object.keys(groups).forEach(language => {
+    if (Array.isArray(groups[language])) groups[language].forEach(item => out.push(item));
+  });
+  return out;
+}
+function recommendedDictionaryById(id) {
+  const key = String(id || "");
+  for (const item of allRecommendedDictionaryItems()) {
+    if (item && item.id === key) return item;
+  }
+  return null;
+}
+function normalizeRecommendedDictionaryUrl(url) {
+  return String(url || "").trim().replace(/\?.*$/, "");
+}
+function recommendedDictionaryUrlMatches(item, dict) {
+  const installedUrl = normalizeRecommendedDictionaryUrl(dict && dict.downloadUrl);
+  if (!installedUrl) return false;
+  const urls = [item && item.downloadUrl].concat((item && Array.isArray(item.downloadUrlAliases)) ? item.downloadUrlAliases : []);
+  return urls.some(url => normalizeRecommendedDictionaryUrl(url) === installedUrl);
+}
+function recommendedDictionaryTitlePrefixMatches(title, prefix) {
+  const value = String(title || "").trim().toLowerCase();
+  const needle = String(prefix || "").trim().toLowerCase();
+  if (!value || !needle || value.indexOf(needle) !== 0) return false;
+  const next = value.charAt(needle.length);
+  return !next || !/[a-z0-9]/.test(next);
+}
+function recommendedDictionaryTitleMatches(item, dict) {
+  const prefixes = (item && Array.isArray(item.titlePrefixes) && item.titlePrefixes.length) ? item.titlePrefixes : [item && item.title];
+  const title = String((dict && dict.title) || "");
+  const name = String((dict && dict.name) || "");
+  return prefixes.some(prefix => recommendedDictionaryTitlePrefixMatches(title, prefix) || recommendedDictionaryTitlePrefixMatches(name, prefix));
+}
+function recommendedDictionaryMatchesInstalled(item, dict) {
+  return !!(item && dict && (recommendedDictionaryUrlMatches(item, dict) || recommendedDictionaryTitleMatches(item, dict)));
+}
+function recommendedDictionaryInstalledMatches(item, dicts) {
+  const seen = Object.create(null);
+  const out = [];
+  (dicts || []).forEach(dict => {
+    if (!recommendedDictionaryMatchesInstalled(item, dict)) return;
+    const key = String((dict && dict.path) || (dict && dict.name) || (dict && dict.title) || "");
+    if (key && seen[key]) return;
+    if (key) seen[key] = true;
+    out.push(dict);
+  });
+  return out;
+}
+function recommendedDictionaryInstalled(item, dicts) {
+  return recommendedDictionaryInstalledMatches(item, dicts).length > 0;
+}
+function recommendedDictionariesForLanguage(language, dicts) {
+  return recommendedDictionaryItemsForLanguage(language).map(item => ({
+    id: item.id,
+    title: item.title,
+    category: item.category || "",
+    language: item.language || "Japanese",
+    description: item.description || "",
+    homepage: item.homepage || "",
+    downloadUrl: item.downloadUrl,
+    installed: recommendedDictionaryInstalled(item, dicts)
+  }));
+}
 function disabledDictionaryMap(manifest) { return activeProfileDisabledMap(manifest || readManifest()); }
 function dictionaryCompatibilityDetails(language, installed) {
   const lang = language || selectedLanguageModule();
@@ -2315,6 +2528,54 @@ function removeDictionaryReferencesFromManifest(manifest, names) {
   });
   return normalizeManifestShape(normalized);
 }
+function replaceDictionaryReferencesInProfile(profile, removeMap, replacementName) {
+  if (!profile || typeof profile !== "object") return;
+  const replacement = String(replacementName || "").trim();
+  const seen = Object.create(null);
+  const order = [];
+  normalizeDictionaryOrder(profile.dictionaryOrder).forEach(name => {
+    const nextName = removeMap[name] && replacement ? replacement : name;
+    if (nextName && !seen[nextName]) {
+      seen[nextName] = true;
+      order.push(nextName);
+    }
+  });
+  profile.dictionaryOrder = order;
+  const disabled = normalizeDisabledMap(profile.disabled);
+  let replacementDisabled = !!(replacement && disabled[replacement]);
+  Object.keys(disabled).forEach(name => {
+    if (removeMap[name]) {
+      replacementDisabled = replacementDisabled || !!disabled[name];
+      delete disabled[name];
+    }
+  });
+  if (replacement && replacementDisabled) disabled[replacement] = true;
+  profile.disabled = disabled;
+}
+function replaceDictionaryReferencesInManifest(manifest, names, replacementName) {
+  const normalized = normalizeManifestShape(manifest);
+  const replacement = String(replacementName || "").trim();
+  const removeMap = dictionaryRemovalNameMap(names);
+  Object.keys(normalized.dictionaries || {}).forEach(key => {
+    const entry = normalized.dictionaries[key] || {};
+    if (key !== replacement && (removeMap[key] || removeMap[entry.title] || removeMap[entry.name])) delete normalized.dictionaries[key];
+  });
+  Object.keys(normalized.profiles || {}).forEach(id => {
+    replaceDictionaryReferencesInProfile(normalized.profiles[id], removeMap, replacement);
+  });
+  normalized.dictionaryOrder = normalizeDictionaryOrder(normalized.dictionaryOrder).map(name => removeMap[name] && replacement ? replacement : name);
+  normalized.dictionaryOrder = normalizeDictionaryOrder(normalized.dictionaryOrder);
+  normalized.disabled = normalizeDisabledMap(normalized.disabled);
+  let replacementDisabled = !!(replacement && normalized.disabled[replacement]);
+  Object.keys(normalized.disabled).forEach(name => {
+    if (removeMap[name]) {
+      replacementDisabled = replacementDisabled || !!normalized.disabled[name];
+      delete normalized.disabled[name];
+    }
+  });
+  if (replacement && replacementDisabled) normalized.disabled[replacement] = true;
+  return normalizeManifestShape(normalized);
+}
 function installedDictionaryByName(name) {
   const requested = String(name || "").trim();
   if (!requested) return null;
@@ -2366,6 +2627,44 @@ async function deleteDictionary(name) {
   deleteDictionaryPathInBackground(removedPath, dict.name);
   showOSD("Deleted dictionary: " + dict.name);
   return dict;
+}
+async function replaceRecommendedDictionaryMatches(item, replacementName, matches) {
+  const replacement = String(replacementName || "").trim();
+  if (!item || !replacement) return [];
+  const replacementPath = safeInstalledDictionaryPath(pathJoin(dictRoot(), replacement));
+  const seen = Object.create(null);
+  const stale = [];
+  (Array.isArray(matches) ? matches : []).forEach(dict => {
+    if (!dict || !dict.path) return;
+    const dictPath = safeInstalledDictionaryPath(dict.path);
+    if (dictPath === replacementPath || seen[dictPath]) return;
+    seen[dictPath] = true;
+    stale.push(Object.assign({}, dict, { path: dictPath }));
+  });
+  if (!stale.length) return [];
+  const names = [];
+  stale.forEach(dict => {
+    [dict.name, dict.title].forEach(name => {
+      const key = String(name || "").trim();
+      if (key && key !== replacement) names.push(key);
+    });
+  });
+  lookupCache = Object.create(null);
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  await stopBackendWorker().catch(error => {
+    debugWarn("recommended dictionary replacement could not stop worker before cleanup: " + compactError(error));
+  });
+  await execChecked("/bin/mkdir", ["-p", deletedDictionaryRoot()]);
+  for (const dict of stale) {
+    const removedPath = deletedDictionaryPath(dict.name || dict.title || item.title);
+    await execChecked("/bin/mv", ["--", dict.path, removedPath]);
+    deleteDictionaryPathInBackground(removedPath, dict.name || dict.title || item.title);
+  }
+  writeManifest(replaceDictionaryReferencesInManifest(readManifest(), names, replacement));
+  rebuildMenu();
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  return stale;
 }
 function ensureDictionaryInActiveProfileOrder(manifest, name) {
   const dictName = String(name || "").trim();
@@ -2934,22 +3233,32 @@ async function testFilePickerApiFromMenu() {
   if (!invalid.length) alert("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".");
   else alert("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "));
 }
-async function getRecommendedDictionaries() {
+async function getRecommendedDictionaries(id) {
+  const requestedId = id ? String(id) : "jitendex-ja-en";
+  const item = recommendedDictionaryById(requestedId);
+  if (!item) throw new Error("Unknown recommended dictionary: " + requestedId);
+  const title = item.title || "Recommended dictionary";
+  const downloadUrl = item.downloadUrl || "";
+  if (!downloadUrl) throw new Error("Recommended dictionary has no download URL: " + title);
   let taskId = null;
   try {
     await ensureDataDirs();
-    taskId = startOverlayTask("recommended-dictionary", "Downloading recommended dictionaries", "Downloading dictionary...");
-    const dest = pathJoin(downloadRoot(), "jitendex-yomitan.zip");
-    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Downloading Jitendex...", detail: RECOMMENDED_JITENDEX_URL });
-    await http.download(RECOMMENDED_JITENDEX_URL, dest);
-    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Download complete. Importing...", detail: dest });
+    const previousMatches = recommendedDictionaryInstalledMatches(item, dictionaryDirs());
+    taskId = startOverlayTask("recommended-dictionary", "Downloading " + title, "Downloading dictionary...");
+    const dest = pathJoin(downloadRoot(), item.filename || (item.id + ".zip"));
+    updateOverlayTask(taskId, { title: "Downloading " + title, message: "Downloading " + title + "...", detail: downloadUrl });
+    await http.download(downloadUrl, dest);
+    updateOverlayTask(taskId, { title: "Downloading " + title, message: "Download complete. Importing...", detail: dest });
     const result = await importDictionaryZip(dest, taskId);
-    const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
-    finishOverlayTask(taskId, true, msg, "You can now hover Japanese subtitles for dictionary popups.");
+    const importedTitle = titleFromImportResult(result, dest);
+    const replaced = await replaceRecommendedDictionaryMatches(item, importedTitle, previousMatches);
+    const msg = (replaced.length ? "Updated " : "Added ") + importedTitle + " (" + (result.term_count || 0) + " terms).";
+    finishOverlayTask(taskId, true, msg, "The dictionary is now available for lookup popups.");
+    return result;
   } catch (error) {
-    const msg = "Could not download recommended dictionaries.";
+    const msg = "Could not download " + title + ".";
     finishOverlayTask(taskId, false, msg, compactError(error));
-    alert(msg + " Details: " + compactError(error));
+    throw error;
   }
 }
 function homePathFromDataRoot() {
@@ -4052,12 +4361,8 @@ function dictionaryManagerState() {
   const disabled = disabledDictionaryMap(manifest);
   const dicts = dictionaryDirs();
   const activeProfile = activeDictionaryProfile(manifest);
-  const hasJitendex = dicts.some(dict => {
-    const title = String((dict && dict.title) || "").toLowerCase();
-    const name = String((dict && dict.name) || "").toLowerCase();
-    const url = String((dict && dict.downloadUrl) || "");
-    return title.indexOf("jitendex") >= 0 || name.indexOf("jitendex") >= 0 || url === RECOMMENDED_JITENDEX_URL;
-  });
+  const profilePreferences = normalizeProfilePreferences(activeProfile.preferences);
+  const lookupLanguage = String(profilePreferences.lookupLanguage || pref("lookupLanguage", "ja"));
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -4080,20 +4385,11 @@ function dictionaryManagerState() {
     profiles: profileSummaries(manifest),
     profilePreferenceKeys: PROFILE_PREFERENCE_KEYS.slice(),
     profilePreferenceDefaults: Object.assign({}, PROFILE_PREFERENCE_DEFAULTS),
-    profilePreferences: normalizeProfilePreferences(activeProfile.preferences),
+    profilePreferences,
     globalSettings: readGlobalSettingsSnapshot(),
     globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
-    lookupLanguage: pref("lookupLanguage", "ja"),
-    recommendedDictionaries: [
-      {
-        id: "jitendex-ja-en",
-        title: "Jitendex",
-        language: "Japanese",
-        description: "JMdict-based Japanese-English dictionary with structured Yomitan data.",
-        downloadUrl: RECOMMENDED_JITENDEX_URL,
-        installed: hasJitendex
-      }
-    ]
+    lookupLanguage,
+    recommendedDictionaries: recommendedDictionariesForLanguage(lookupLanguage, dicts)
   };
 }
 function postDictionaryManagerState() {
@@ -4214,8 +4510,11 @@ function registerDictionaryManagerHandlers() {
     if (!name) return;
     runDictionaryManagerAction("Deleting dictionary", () => deleteDictionary(String(name)));
   });
-  onMessage("dictionary-manager-download-recommended", () => {
-    runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
+  onMessage("dictionary-manager-download-recommended", payload => {
+    const requestedId = payload && payload.id;
+    const item = recommendedDictionaryById(requestedId);
+    const label = "Downloading " + ((item && item.title) || "recommended dictionary");
+    runDictionaryManagerAction(label, () => getRecommendedDictionaries(requestedId));
   });
   onMessage("dictionary-manager-import-zip", () => {
     runDictionaryManagerZipImport();

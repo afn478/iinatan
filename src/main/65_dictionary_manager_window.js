@@ -14,12 +14,8 @@ function dictionaryManagerState() {
   const disabled = disabledDictionaryMap(manifest);
   const dicts = dictionaryDirs();
   const activeProfile = activeDictionaryProfile(manifest);
-  const hasJitendex = dicts.some(dict => {
-    const title = String((dict && dict.title) || "").toLowerCase();
-    const name = String((dict && dict.name) || "").toLowerCase();
-    const url = String((dict && dict.downloadUrl) || "");
-    return title.indexOf("jitendex") >= 0 || name.indexOf("jitendex") >= 0 || url === RECOMMENDED_JITENDEX_URL;
-  });
+  const profilePreferences = normalizeProfilePreferences(activeProfile.preferences);
+  const lookupLanguage = String(profilePreferences.lookupLanguage || pref("lookupLanguage", "ja"));
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -42,20 +38,11 @@ function dictionaryManagerState() {
     profiles: profileSummaries(manifest),
     profilePreferenceKeys: PROFILE_PREFERENCE_KEYS.slice(),
     profilePreferenceDefaults: Object.assign({}, PROFILE_PREFERENCE_DEFAULTS),
-    profilePreferences: normalizeProfilePreferences(activeProfile.preferences),
+    profilePreferences,
     globalSettings: readGlobalSettingsSnapshot(),
     globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
-    lookupLanguage: pref("lookupLanguage", "ja"),
-    recommendedDictionaries: [
-      {
-        id: "jitendex-ja-en",
-        title: "Jitendex",
-        language: "Japanese",
-        description: "JMdict-based Japanese-English dictionary with structured Yomitan data.",
-        downloadUrl: RECOMMENDED_JITENDEX_URL,
-        installed: hasJitendex
-      }
-    ]
+    lookupLanguage,
+    recommendedDictionaries: recommendedDictionariesForLanguage(lookupLanguage, dicts)
   };
 }
 function postDictionaryManagerState() {
@@ -176,8 +163,11 @@ function registerDictionaryManagerHandlers() {
     if (!name) return;
     runDictionaryManagerAction("Deleting dictionary", () => deleteDictionary(String(name)));
   });
-  onMessage("dictionary-manager-download-recommended", () => {
-    runDictionaryManagerAction("Downloading recommended dictionaries", () => getRecommendedDictionaries());
+  onMessage("dictionary-manager-download-recommended", payload => {
+    const requestedId = payload && payload.id;
+    const item = recommendedDictionaryById(requestedId);
+    const label = "Downloading " + ((item && item.title) || "recommended dictionary");
+    runDictionaryManagerAction(label, () => getRecommendedDictionaries(requestedId));
   });
   onMessage("dictionary-manager-import-zip", () => {
     runDictionaryManagerZipImport();

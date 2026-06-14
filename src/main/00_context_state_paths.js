@@ -12,6 +12,143 @@ const { core, mpv, event, overlay, menu, input, ws, preferences, console, file, 
 
 const VERSION = "1.9.0";
 const RECOMMENDED_JITENDEX_URL = "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
+const RECOMMENDED_JAPANESE_DICTIONARIES = [
+  {
+    id: "jitendex-ja-en",
+    title: "Jitendex",
+    category: "Terms",
+    language: "Japanese",
+    description: "Japanese-English dictionary with structured JMdict data, examples, notes, and links.",
+    homepage: "https://jitendex.org",
+    downloadUrl: RECOMMENDED_JITENDEX_URL,
+    filename: "jitendex-yomitan.zip",
+    titlePrefixes: ["Jitendex"]
+  },
+  {
+    id: "jmnedict-ja",
+    title: "JMnedict",
+    category: "Terms",
+    language: "Japanese",
+    description: "Japanese proper names from the Electronic Dictionary Research and Development Group.",
+    homepage: "https://github.com/yomidevs/jmdict-yomitan?tab=readme-ov-file#jmnedict-for-yomitan",
+    downloadUrl: "https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip",
+    filename: "JMnedict.zip",
+    titlePrefixes: ["JMnedict"]
+  },
+  {
+    id: "bccwj-suw-luw-combined",
+    title: "BCCWJ SUW/LUW Combined",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Frequency ranks from the Balanced Corpus of Contemporary Written Japanese.",
+    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#bccwj-suw-luw-combined",
+    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/BCCWJ_SUW_LUW_combined.zip",
+    filename: "BCCWJ_SUW_LUW_combined.zip",
+    titlePrefixes: ["BCCWJ"]
+  },
+  {
+    id: "jpdb-v2-kana",
+    title: "JPDB v2.2 Kana",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Kana-aware frequency ranks from the JPDB corpus.",
+    homepage: "https://github.com/Kuuuube/yomitan-dictionaries?tab=readme-ov-file#jpdb-v22-frequency",
+    downloadUrl: "https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/JPDB_v2.2_Frequency_Kana.zip",
+    filename: "JPDB_v2.2_Frequency_Kana.zip",
+    titlePrefixes: ["JPDBv2", "JPDB v2.2"]
+  },
+  {
+    id: "jiten-global-frequency",
+    title: "Jiten Global",
+    category: "Frequency",
+    language: "Japanese",
+    description: "Global Yomitan frequency dictionary generated from the Jiten media database.",
+    homepage: "https://jiten.moe/other",
+    downloadUrl: "https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan",
+    downloadUrlAliases: ["https://api.jiten.moe/api/frequency-list/download"],
+    filename: "jiten-global-yomitan.zip",
+    titlePrefixes: ["Jiten"]
+  }
+];
+const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
+  ja: RECOMMENDED_JAPANESE_DICTIONARIES,
+  en: [
+    {
+      id: "wty-en-en",
+      title: "wty-en-en",
+      category: "Terms",
+      language: "English",
+      description: "English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/en/en/wty-en-en.zip",
+      filename: "wty-en-en.zip",
+      titlePrefixes: ["wty-en-en"]
+    }
+  ],
+  de: [
+    {
+      id: "wty-de-en",
+      title: "wty-de-en",
+      category: "Terms",
+      language: "German",
+      description: "German to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/de/en/wty-de-en.zip",
+      filename: "wty-de-en.zip",
+      titlePrefixes: ["wty-de-en"]
+    }
+  ],
+  fr: [
+    {
+      id: "wty-fr-en",
+      title: "wty-fr-en",
+      category: "Terms",
+      language: "French",
+      description: "French to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/fr/en/wty-fr-en.zip",
+      filename: "wty-fr-en.zip",
+      titlePrefixes: ["wty-fr-en"]
+    }
+  ],
+  zh: [
+    {
+      id: "cc-cedict-zh-en",
+      title: "CC-CEDICT",
+      category: "Terms",
+      language: "Chinese",
+      description: "Chinese-English dictionary provided by the CC-CEDICT project.",
+      homepage: "https://github.com/MarvNC/cc-cedict-yomitan",
+      downloadUrl: "https://github.com/MarvNC/cc-cedict-yomitan/releases/latest/download/CC-CEDICT.zip",
+      filename: "CC-CEDICT.zip",
+      titlePrefixes: ["CC-CEDICT"]
+    },
+    {
+      id: "wty-zh-en",
+      title: "wty-zh-en",
+      category: "Terms",
+      language: "Chinese",
+      description: "Chinese to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/zh/en/wty-zh-en.zip",
+      filename: "wty-zh-en.zip",
+      titlePrefixes: ["wty-zh-en"]
+    }
+  ],
+  ko: [
+    {
+      id: "wty-ko-en",
+      title: "wty-ko-en",
+      category: "Terms",
+      language: "Korean",
+      description: "Korean to English dictionary created from Wiktionary data.",
+      homepage: "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+      downloadUrl: "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/ko/en/wty-ko-en.zip",
+      filename: "wty-ko-en.zip",
+      titlePrefixes: ["wty-ko-en"]
+    }
+  ]
+};
 
 let enabled = false;
 let initialized = false;

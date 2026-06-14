@@ -357,6 +357,82 @@ function dictionaryDirs() {
   const manifest = readManifest();
   return orderedDictionaryDirs(unorderedDictionaryDirs(), manifest);
 }
+function recommendedDictionariesByLanguage() {
+  if (typeof RECOMMENDED_DICTIONARIES_BY_LANGUAGE !== "undefined" && RECOMMENDED_DICTIONARIES_BY_LANGUAGE) return RECOMMENDED_DICTIONARIES_BY_LANGUAGE;
+  return { ja: RECOMMENDED_JAPANESE_DICTIONARIES };
+}
+function recommendedDictionaryItemsForLanguage(language) {
+  const groups = recommendedDictionariesByLanguage();
+  const key = String(language || "ja");
+  return Array.isArray(groups[key]) ? groups[key] : [];
+}
+function allRecommendedDictionaryItems() {
+  const groups = recommendedDictionariesByLanguage();
+  const out = [];
+  Object.keys(groups).forEach(language => {
+    if (Array.isArray(groups[language])) groups[language].forEach(item => out.push(item));
+  });
+  return out;
+}
+function recommendedDictionaryById(id) {
+  const key = String(id || "");
+  for (const item of allRecommendedDictionaryItems()) {
+    if (item && item.id === key) return item;
+  }
+  return null;
+}
+function normalizeRecommendedDictionaryUrl(url) {
+  return String(url || "").trim().replace(/\?.*$/, "");
+}
+function recommendedDictionaryUrlMatches(item, dict) {
+  const installedUrl = normalizeRecommendedDictionaryUrl(dict && dict.downloadUrl);
+  if (!installedUrl) return false;
+  const urls = [item && item.downloadUrl].concat((item && Array.isArray(item.downloadUrlAliases)) ? item.downloadUrlAliases : []);
+  return urls.some(url => normalizeRecommendedDictionaryUrl(url) === installedUrl);
+}
+function recommendedDictionaryTitlePrefixMatches(title, prefix) {
+  const value = String(title || "").trim().toLowerCase();
+  const needle = String(prefix || "").trim().toLowerCase();
+  if (!value || !needle || value.indexOf(needle) !== 0) return false;
+  const next = value.charAt(needle.length);
+  return !next || !/[a-z0-9]/.test(next);
+}
+function recommendedDictionaryTitleMatches(item, dict) {
+  const prefixes = (item && Array.isArray(item.titlePrefixes) && item.titlePrefixes.length) ? item.titlePrefixes : [item && item.title];
+  const title = String((dict && dict.title) || "");
+  const name = String((dict && dict.name) || "");
+  return prefixes.some(prefix => recommendedDictionaryTitlePrefixMatches(title, prefix) || recommendedDictionaryTitlePrefixMatches(name, prefix));
+}
+function recommendedDictionaryMatchesInstalled(item, dict) {
+  return !!(item && dict && (recommendedDictionaryUrlMatches(item, dict) || recommendedDictionaryTitleMatches(item, dict)));
+}
+function recommendedDictionaryInstalledMatches(item, dicts) {
+  const seen = Object.create(null);
+  const out = [];
+  (dicts || []).forEach(dict => {
+    if (!recommendedDictionaryMatchesInstalled(item, dict)) return;
+    const key = String((dict && dict.path) || (dict && dict.name) || (dict && dict.title) || "");
+    if (key && seen[key]) return;
+    if (key) seen[key] = true;
+    out.push(dict);
+  });
+  return out;
+}
+function recommendedDictionaryInstalled(item, dicts) {
+  return recommendedDictionaryInstalledMatches(item, dicts).length > 0;
+}
+function recommendedDictionariesForLanguage(language, dicts) {
+  return recommendedDictionaryItemsForLanguage(language).map(item => ({
+    id: item.id,
+    title: item.title,
+    category: item.category || "",
+    language: item.language || "Japanese",
+    description: item.description || "",
+    homepage: item.homepage || "",
+    downloadUrl: item.downloadUrl,
+    installed: recommendedDictionaryInstalled(item, dicts)
+  }));
+}
 function disabledDictionaryMap(manifest) { return activeProfileDisabledMap(manifest || readManifest()); }
 function dictionaryCompatibilityDetails(language, installed) {
   const lang = language || selectedLanguageModule();
@@ -480,6 +556,54 @@ function removeDictionaryReferencesFromManifest(manifest, names) {
   });
   return normalizeManifestShape(normalized);
 }
+function replaceDictionaryReferencesInProfile(profile, removeMap, replacementName) {
+  if (!profile || typeof profile !== "object") return;
+  const replacement = String(replacementName || "").trim();
+  const seen = Object.create(null);
+  const order = [];
+  normalizeDictionaryOrder(profile.dictionaryOrder).forEach(name => {
+    const nextName = removeMap[name] && replacement ? replacement : name;
+    if (nextName && !seen[nextName]) {
+      seen[nextName] = true;
+      order.push(nextName);
+    }
+  });
+  profile.dictionaryOrder = order;
+  const disabled = normalizeDisabledMap(profile.disabled);
+  let replacementDisabled = !!(replacement && disabled[replacement]);
+  Object.keys(disabled).forEach(name => {
+    if (removeMap[name]) {
+      replacementDisabled = replacementDisabled || !!disabled[name];
+      delete disabled[name];
+    }
+  });
+  if (replacement && replacementDisabled) disabled[replacement] = true;
+  profile.disabled = disabled;
+}
+function replaceDictionaryReferencesInManifest(manifest, names, replacementName) {
+  const normalized = normalizeManifestShape(manifest);
+  const replacement = String(replacementName || "").trim();
+  const removeMap = dictionaryRemovalNameMap(names);
+  Object.keys(normalized.dictionaries || {}).forEach(key => {
+    const entry = normalized.dictionaries[key] || {};
+    if (key !== replacement && (removeMap[key] || removeMap[entry.title] || removeMap[entry.name])) delete normalized.dictionaries[key];
+  });
+  Object.keys(normalized.profiles || {}).forEach(id => {
+    replaceDictionaryReferencesInProfile(normalized.profiles[id], removeMap, replacement);
+  });
+  normalized.dictionaryOrder = normalizeDictionaryOrder(normalized.dictionaryOrder).map(name => removeMap[name] && replacement ? replacement : name);
+  normalized.dictionaryOrder = normalizeDictionaryOrder(normalized.dictionaryOrder);
+  normalized.disabled = normalizeDisabledMap(normalized.disabled);
+  let replacementDisabled = !!(replacement && normalized.disabled[replacement]);
+  Object.keys(normalized.disabled).forEach(name => {
+    if (removeMap[name]) {
+      replacementDisabled = replacementDisabled || !!normalized.disabled[name];
+      delete normalized.disabled[name];
+    }
+  });
+  if (replacement && replacementDisabled) normalized.disabled[replacement] = true;
+  return normalizeManifestShape(normalized);
+}
 function installedDictionaryByName(name) {
   const requested = String(name || "").trim();
   if (!requested) return null;
@@ -531,6 +655,44 @@ async function deleteDictionary(name) {
   deleteDictionaryPathInBackground(removedPath, dict.name);
   showOSD("Deleted dictionary: " + dict.name);
   return dict;
+}
+async function replaceRecommendedDictionaryMatches(item, replacementName, matches) {
+  const replacement = String(replacementName || "").trim();
+  if (!item || !replacement) return [];
+  const replacementPath = safeInstalledDictionaryPath(pathJoin(dictRoot(), replacement));
+  const seen = Object.create(null);
+  const stale = [];
+  (Array.isArray(matches) ? matches : []).forEach(dict => {
+    if (!dict || !dict.path) return;
+    const dictPath = safeInstalledDictionaryPath(dict.path);
+    if (dictPath === replacementPath || seen[dictPath]) return;
+    seen[dictPath] = true;
+    stale.push(Object.assign({}, dict, { path: dictPath }));
+  });
+  if (!stale.length) return [];
+  const names = [];
+  stale.forEach(dict => {
+    [dict.name, dict.title].forEach(name => {
+      const key = String(name || "").trim();
+      if (key && key !== replacement) names.push(key);
+    });
+  });
+  lookupCache = Object.create(null);
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  await stopBackendWorker().catch(error => {
+    debugWarn("recommended dictionary replacement could not stop worker before cleanup: " + compactError(error));
+  });
+  await execChecked("/bin/mkdir", ["-p", deletedDictionaryRoot()]);
+  for (const dict of stale) {
+    const removedPath = deletedDictionaryPath(dict.name || dict.title || item.title);
+    await execChecked("/bin/mv", ["--", dict.path, removedPath]);
+    deleteDictionaryPathInBackground(removedPath, dict.name || dict.title || item.title);
+  }
+  writeManifest(replaceDictionaryReferencesInManifest(readManifest(), names, replacement));
+  rebuildMenu();
+  if (typeof postDictionaryManagerState === "function") postDictionaryManagerState();
+  return stale;
 }
 function ensureDictionaryInActiveProfileOrder(manifest, name) {
   const dictName = String(name || "").trim();

@@ -15,6 +15,27 @@ const context = {
   Date,
   VERSION: '1.6.0',
   activeWorkerFingerprint: 'old-worker',
+  RECOMMENDED_JAPANESE_DICTIONARIES: [
+    {
+      id: 'jitendex-ja-en',
+      title: 'Jitendex',
+      downloadUrl: 'https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip',
+      titlePrefixes: ['Jitendex']
+    },
+    {
+      id: 'jmnedict-ja',
+      title: 'JMnedict',
+      downloadUrl: 'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip',
+      titlePrefixes: ['JMnedict']
+    },
+    {
+      id: 'jiten-global-frequency',
+      title: 'Jiten Global',
+      downloadUrl: 'https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan',
+      downloadUrlAliases: ['https://api.jiten.moe/api/frequency-list/download'],
+      titlePrefixes: ['Jiten']
+    }
+  ],
   dictRoot() { return '/data/dictionaries'; },
   manifestPath() { return '/data/manifest.json'; },
   dataRoot() { return '/data'; },
@@ -43,6 +64,25 @@ const context = {
     write(p, value) { storage[p] = String(value); },
     list() { return []; }
   }
+};
+context.RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
+  ja: context.RECOMMENDED_JAPANESE_DICTIONARIES,
+  en: [
+    {
+      id: 'wty-en-en',
+      title: 'wty-en-en',
+      downloadUrl: 'https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/en/en/wty-en-en.zip',
+      titlePrefixes: ['wty-en-en']
+    }
+  ],
+  de: [
+    {
+      id: 'wty-de-en',
+      title: 'wty-de-en',
+      downloadUrl: 'https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/de/en/wty-de-en.zip',
+      titlePrefixes: ['wty-de-en']
+    }
+  ]
 };
 
 storage['/data/manifest.json'] = JSON.stringify({ dictionaries: {}, disabled: { Existing: true } });
@@ -167,6 +207,68 @@ context.runBackendJson = async function runBackendJson(args) {
   assert(moveCall && moveCall[2][1] === '/data/dictionaries/Latin Dict', 'dictionary delete should move the installed dictionary out of the active folder');
   assert(moveCall[2][2].indexOf('/data/deleted-dictionaries/Latin Dict-') === 0, 'dictionary delete should move the dictionary to the holding folder');
   assert(calls.some(call => call[0] === 'exec' && call[1] === '/bin/rm' && call[2][0] === '-rf' && call[2][2] === moveCall[2][2]), 'dictionary delete should clean up the moved dictionary directory in the background');
+
+  const jitendex = context.recommendedDictionaryById('jitendex-ja-en');
+  const jiten = context.recommendedDictionaryById('jiten-global-frequency');
+  assert(context.recommendedDictionaryMatchesInstalled(jitendex, { title: 'Jitendex.org [2026-06-06]' }), 'Jitendex recommendation should match installed Jitendex titles');
+  assert(!context.recommendedDictionaryMatchesInstalled(jiten, { title: 'Jitendex.org [2026-06-06]' }), 'Jiten recommendation should not match Jitendex titles');
+  assert(context.recommendedDictionaryMatchesInstalled(jiten, { title: 'Jiten', downloadUrl: 'https://api.jiten.moe/api/frequency-list/download' }), 'Jiten recommendation should match its canonical download URL without query parameters');
+  assert(
+    JSON.stringify(context.recommendedDictionariesForLanguage('en', []).map(item => item.id)) === JSON.stringify(['wty-en-en']),
+    'English profiles should only show English recommended dictionaries'
+  );
+  assert(
+    JSON.stringify(context.recommendedDictionariesForLanguage('de', []).map(item => item.id)) === JSON.stringify(['wty-de-en']),
+    'German profiles should only show German recommended dictionaries'
+  );
+
+  storage['/data/manifest.json'] = JSON.stringify({
+    dictionaries: {
+      'JMnedict [2026-04-29]': { title: 'JMnedict [2026-04-29]', termCount: 600000 },
+      'JMnedict [2026-06-14]': { title: 'JMnedict [2026-06-14]', termCount: 667587 },
+      'Keep Dict': { title: 'Keep Dict', termCount: 2 }
+    },
+    dictionaryOrder: ['JMnedict [2026-04-29]', 'Keep Dict', 'JMnedict [2026-06-14]'],
+    activeProfileId: 'default',
+    profiles: {
+      default: {
+        id: 'default',
+        name: 'Default',
+        dictionaryOrder: ['JMnedict [2026-04-29]', 'Keep Dict', 'JMnedict [2026-06-14]'],
+        disabled: {},
+        preferences: {}
+      },
+      french: {
+        id: 'french',
+        name: 'French',
+        dictionaryOrder: ['JMnedict [2026-04-29]'],
+        disabled: { 'JMnedict [2026-04-29]': true },
+        preferences: { lookupLanguage: 'fr' }
+      }
+    }
+  });
+  calls.length = 0;
+  const replaced = await context.replaceRecommendedDictionaryMatches(
+    context.recommendedDictionaryById('jmnedict-ja'),
+    'JMnedict [2026-06-14]',
+    [
+      {
+        name: 'JMnedict [2026-04-29]',
+        title: 'JMnedict [2026-04-29]',
+        path: '/data/dictionaries/JMnedict [2026-04-29]'
+      }
+    ]
+  );
+  manifest = JSON.parse(storage['/data/manifest.json']);
+  assert(replaced.length === 1, 'Recommended dictionary replacement should report stale dictionaries');
+  assert(!manifest.dictionaries['JMnedict [2026-04-29]'], 'Recommended dictionary replacement should remove stale manifest entries');
+  assert(manifest.dictionaries['JMnedict [2026-06-14]'], 'Recommended dictionary replacement should preserve the new manifest entry');
+  assert(
+    JSON.stringify(manifest.profiles.default.dictionaryOrder) === JSON.stringify(['JMnedict [2026-06-14]', 'Keep Dict']),
+    'Recommended dictionary replacement should preserve order position and remove duplicate new entries'
+  );
+  assert(manifest.profiles.french.disabled['JMnedict [2026-06-14]'], 'Recommended dictionary replacement should migrate disabled state in other profiles');
+  assert(calls.some(call => call[0] === 'exec' && call[1] === '/bin/mv' && call[2][1] === '/data/dictionaries/JMnedict [2026-04-29]'), 'Recommended dictionary replacement should move stale dictionary files aside');
   console.log('dictionary import manifest tests passed');
 })().catch(error => {
   console.error(error);

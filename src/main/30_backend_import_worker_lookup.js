@@ -339,22 +339,32 @@ async function testFilePickerApiFromMenu() {
   if (!invalid.length) alert("File picker returned " + selected.length + " valid ZIP" + (selected.length === 1 ? "" : "s") + ".");
   else alert("File picker returned invalid path(s): " + invalid.map(result => result.message).join("; "));
 }
-async function getRecommendedDictionaries() {
+async function getRecommendedDictionaries(id) {
+  const requestedId = id ? String(id) : "jitendex-ja-en";
+  const item = recommendedDictionaryById(requestedId);
+  if (!item) throw new Error("Unknown recommended dictionary: " + requestedId);
+  const title = item.title || "Recommended dictionary";
+  const downloadUrl = item.downloadUrl || "";
+  if (!downloadUrl) throw new Error("Recommended dictionary has no download URL: " + title);
   let taskId = null;
   try {
     await ensureDataDirs();
-    taskId = startOverlayTask("recommended-dictionary", "Downloading recommended dictionaries", "Downloading dictionary...");
-    const dest = pathJoin(downloadRoot(), "jitendex-yomitan.zip");
-    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Downloading Jitendex...", detail: RECOMMENDED_JITENDEX_URL });
-    await http.download(RECOMMENDED_JITENDEX_URL, dest);
-    updateOverlayTask(taskId, { title: "Downloading recommended dictionaries", message: "Download complete. Importing...", detail: dest });
+    const previousMatches = recommendedDictionaryInstalledMatches(item, dictionaryDirs());
+    taskId = startOverlayTask("recommended-dictionary", "Downloading " + title, "Downloading dictionary...");
+    const dest = pathJoin(downloadRoot(), item.filename || (item.id + ".zip"));
+    updateOverlayTask(taskId, { title: "Downloading " + title, message: "Downloading " + title + "...", detail: downloadUrl });
+    await http.download(downloadUrl, dest);
+    updateOverlayTask(taskId, { title: "Downloading " + title, message: "Download complete. Importing...", detail: dest });
     const result = await importDictionaryZip(dest, taskId);
-    const msg = "Added " + result.title + " (" + (result.term_count || 0) + " terms).";
-    finishOverlayTask(taskId, true, msg, "You can now hover Japanese subtitles for dictionary popups.");
+    const importedTitle = titleFromImportResult(result, dest);
+    const replaced = await replaceRecommendedDictionaryMatches(item, importedTitle, previousMatches);
+    const msg = (replaced.length ? "Updated " : "Added ") + importedTitle + " (" + (result.term_count || 0) + " terms).";
+    finishOverlayTask(taskId, true, msg, "The dictionary is now available for lookup popups.");
+    return result;
   } catch (error) {
-    const msg = "Could not download recommended dictionaries.";
+    const msg = "Could not download " + title + ".";
     finishOverlayTask(taskId, false, msg, compactError(error));
-    alert(msg + " Details: " + compactError(error));
+    throw error;
   }
 }
 function homePathFromDataRoot() {
