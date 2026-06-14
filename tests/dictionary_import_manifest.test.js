@@ -111,6 +111,11 @@ assert(manifest.profiles.default.dictionaryOrder.includes('Latin Dict'), 'import
 assert(manifest.dictionaryOrder.includes('Latin Dict'), 'legacy dictionaryOrder mirror should stay in sync');
 assert(manifest.profiles.default.preferences.audioAutoPlay === false, 'word audio auto-play should default off per profile');
 assert(JSON.parse(manifest.profiles.default.preferences.audioSourcesJson)[0].url === 'http://127.0.0.1:5050/?term={term}&reading={reading}', 'word audio sources should default to the local Anki audio server');
+assert(manifest.profiles.default.preferences.ankiEnabled === false, 'Anki export should default off per profile');
+assert(manifest.profiles.default.preferences.ankiConnectUrl === 'http://127.0.0.1:8765', 'AnkiConnect should default to localhost per profile');
+assert(manifest.profiles.default.preferences.ankiAudioBitrateKbps === 96, 'Anki sentence audio bitrate should default per profile');
+assert(manifest.profiles.default.preferences.ankiImageQuality === 85, 'Anki screenshot JPEG quality should default per profile');
+assert(manifest.profiles.default.preferences.ankiDuplicateCheck === true, 'Anki duplicate checking should default on per profile');
 
 assert(JSON.parse(context.normalizeAudioSourcesJsonPreference('', true))[0].url === 'http://127.0.0.1:5050/?term={term}&reading={reading}', 'missing audio source settings should receive the default source');
 assert(context.normalizeAudioSourcesJsonPreference('[]', false) === '[]', 'explicitly empty audio source lists should stay empty');

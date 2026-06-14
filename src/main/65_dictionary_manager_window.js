@@ -42,6 +42,7 @@ function dictionaryManagerState() {
     globalSettings: readGlobalSettingsSnapshot(),
     globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
     lookupLanguage,
+    anki: typeof dictionaryManagerAnkiState === "function" ? dictionaryManagerAnkiState(profilePreferences) : null,
     recommendedDictionaries: recommendedDictionariesForLanguage(lookupLanguage, dicts)
   };
 }
@@ -142,10 +143,14 @@ function registerDictionaryManagerHandlers() {
   onMessage("dictionary-manager-ready", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("", "info", false);
+    if (typeof refreshDictionaryManagerAnkiState === "function") refreshDictionaryManagerAnkiState();
   });
   onMessage("dictionary-manager-refresh", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("Dictionary list refreshed.", "info", false);
+  });
+  onMessage("dictionary-manager-anki-refresh", payload => {
+    if (typeof refreshDictionaryManagerAnkiState === "function") refreshDictionaryManagerAnkiState(payload && payload.preferences);
   });
   onMessage("dictionary-manager-set-enabled", payload => {
     const name = payload && payload.name;
@@ -207,8 +212,16 @@ function registerDictionaryManagerHandlers() {
   });
   onMessage("dictionary-manager-update-profile-preferences", payload => {
     try {
+      const beforePrefs = normalizeProfilePreferences(activeDictionaryProfile(readManifest()).preferences);
       updateDictionaryProfilePreferences(payload && payload.profileId, payload && payload.preferences);
       postDictionaryManagerStatus("Profile settings saved.", "info", false);
+      const nextPrefs = normalizeProfilePreferences((payload && payload.preferences) || {});
+      if (
+        typeof refreshDictionaryManagerAnkiState === "function" &&
+        (beforePrefs.ankiConnectUrl !== nextPrefs.ankiConnectUrl || beforePrefs.ankiModelName !== nextPrefs.ankiModelName)
+      ) {
+        refreshDictionaryManagerAnkiState(payload && payload.preferences);
+      }
     } catch (error) {
       const msg = "Saving profile settings failed: " + compactError(error);
       debugError(msg);

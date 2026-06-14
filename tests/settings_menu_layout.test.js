@@ -14,6 +14,12 @@ assert(info.preferenceDefaults.popupTheme === 'inherit', 'Popup theme should def
 assert(Object.prototype.hasOwnProperty.call(info.preferenceDefaults, 'customPopupCss'), 'Custom popup CSS preference should exist');
 assert(info.preferenceDefaults.audioAutoPlay === false, 'Word audio auto-play should default off');
 assert(/127\.0\.0\.1:5050/.test(info.preferenceDefaults.audioSourcesJson), 'Word audio should default to the local Anki audio server');
+assert(info.preferenceDefaults.ankiEnabled === false, 'Anki export should default off');
+assert(info.preferenceDefaults.ankiConnectUrl === 'http://127.0.0.1:8765', 'AnkiConnect should default to the local AnkiConnect server');
+assert(info.preferenceDefaults.ankiAudioFormat === 'mp3', 'Sentence audio should default to MP3');
+assert(info.preferenceDefaults.ankiAudioBitrateKbps === 96, 'Sentence audio bitrate should default to 96 kbps');
+assert(info.preferenceDefaults.ankiImageQuality === 85, 'Screenshot JPEG quality should default to 85 percent');
+assert(info.preferenceDefaults.ankiDuplicateCheck === true, 'Anki duplicate checking should default on');
 
 const preferencesHtml = fs.readFileSync(path.join(root, 'preferences.html'), 'utf8');
 assert(!/data-pref=/.test(preferencesHtml), 'IINA preferences page should not own profile settings');
@@ -28,6 +34,19 @@ assert(/data-profile-pref="audioAutoPlay"/.test(managerHtml), 'Settings manager 
 assert(/id="audioSourceList"/.test(managerHtml), 'Settings manager should expose the word audio source list');
 assert(/moveAudioSourceBefore/.test(managerHtml), 'Audio source priorities should support drag reordering');
 assert(/audioSourcesJson/.test(managerHtml), 'Audio source priorities should be saved with profile preferences');
+assert(/data-tab="anki"/.test(managerHtml), 'Settings manager should expose an Anki tab');
+assert(/id="ankiModelName" data-profile-pref="ankiModelName"/.test(managerHtml), 'Anki settings should expose the note type dropdown');
+assert(/id="ankiDeckName" data-profile-pref="ankiDeckName"/.test(managerHtml), 'Anki settings should expose the deck dropdown');
+assert(/id="ankiConnectUrl" data-profile-pref="ankiConnectUrl"/.test(managerHtml), 'Anki settings should expose the AnkiConnect URL');
+assert(/id="ankiReachability"/.test(managerHtml), 'Anki settings should show AnkiConnect reachability');
+assert(/id="ankiFieldList"/.test(managerHtml), 'Anki settings should render note fields dynamically');
+assert(/serializeAnkiFieldTemplates/.test(managerHtml), 'Anki field templates should be saved with profile preferences');
+assert(/lapisTemplateForField/.test(managerHtml), 'Anki settings should attempt Lapis autofill');
+assert(/language !== 'ja' && language !== 'zh'/.test(managerHtml), 'Lapis autofill should explicitly include Chinese profiles');
+assert(/data-profile-pref="ankiDuplicateMode"/.test(managerHtml), 'Anki settings should expose duplicate behavior');
+assert(/data-profile-pref="ankiAudioFormat"/.test(managerHtml), 'Anki settings should expose sentence audio format');
+assert(/data-profile-pref="ankiAudioBitrateKbps"/.test(managerHtml), 'Anki settings should expose sentence audio bitrate');
+assert(/data-profile-pref="ankiImageQuality"/.test(managerHtml), 'Anki settings should expose screenshot JPEG quality');
 const addAudioSourceSource = managerHtml.slice(managerHtml.indexOf('function addAudioSource()'), managerHtml.indexOf('function updateAudioSourceUrl'));
 assert(/firstSource\s*=\s*state\.audioSources\.length\s*===\s*0/.test(addAudioSourceSource), 'Adding audio sources should distinguish empty lists from custom additions');
 assert(/url:\s*firstSource\s*\?\s*DEFAULT_AUDIO_SOURCE_URL\s*:\s*''/.test(addAudioSourceSource), 'The first audio source after deleting all sources should restore the local Anki source');
@@ -119,11 +138,38 @@ assert(/dictionary-manager-delete/.test(managerBridgeSource), 'Dictionary manage
 assert(/dictionary-manager-rename-profile/.test(managerBridgeSource), 'Settings manager should handle profile rename commands');
 assert(/dictionary-manager-delete-profile/.test(managerBridgeSource), 'Settings manager should handle profile delete commands');
 assert(/dictionary-manager-update-global-settings/.test(managerBridgeSource), 'Settings manager should handle global import settings');
+assert(/dictionary-manager-anki-refresh/.test(managerBridgeSource), 'Settings manager should refresh AnkiConnect state');
 assert(/deleteDictionary\(String\(name\)\)/.test(managerBridgeSource), 'Dictionary manager delete commands should remove installed dictionaries');
 assert(/function runDictionaryManagerZipImport\(\)/.test(managerBridgeSource), 'Dictionary ZIP import should use a picker-aware action path');
 assert(!/postDictionaryManagerStatus\("Opening ZIP picker\.\.\."/.test(managerBridgeSource), 'ZIP picker opening status should be transient webview state only');
 assert(/Dictionary import cancelled\./.test(managerBridgeSource), 'Dictionary manager should acknowledge cancelled ZIP imports');
 assert(!/runDictionaryManagerAction\("Importing dictionary"/.test(managerBridgeSource), 'ZIP import should not enter busy state before file selection');
+
+const ankiSource = fs.readFileSync(path.join(root, 'src/main/55_anki_integration.js'), 'utf8');
+assert(/function ankiTemplatesNeedMedia/.test(ankiSource), 'Anki integration should check templates before media capture');
+assert(/needs\.screenshot/.test(ankiSource), 'Anki integration should gate screenshot capture on mapped screenshot fields');
+assert(/needs\.sentenceAudio/.test(ankiSource), 'Anki integration should gate subtitle audio capture on mapped audio fields');
+assert(/Promise\.all\(jobs\)/.test(ankiSource), 'Anki integration should capture screenshot and sentence audio in parallel when both are needed');
+assert(/mpv\.command\("screenshot-to-file"/.test(ankiSource), 'Anki integration should capture screenshots through mpv');
+assert(/screenshot-jpeg-quality/.test(ankiSource), 'Anki screenshots should set JPEG quality for capture');
+assert(/"-ss"/.test(ankiSource) && /"-t"/.test(ankiSource) && /"-map"/.test(ankiSource), 'Sentence audio extraction should use fast bounded audio-only ffmpeg arguments');
+assert(/normalizeAnkiAudioBitrateKbps/.test(ankiSource) && /"-b:a"/.test(ankiSource), 'Sentence audio extraction should use the configured bitrate');
+assert(/"-nostdin"/.test(ankiSource) && /"-loglevel"/.test(ankiSource), 'Sentence audio extraction should suppress unnecessary ffmpeg work and output');
+assert(/ankiModelFieldCache/.test(ankiSource), 'Anki integration should cache note field names for repeated popup actions');
+assert(/guiBrowse/.test(ankiSource), 'Anki duplicate handling should be able to open existing notes');
+assert(/allowDuplicate/.test(ankiSource), 'Anki duplicate settings should be passed to addNote');
+
+const overlayBridgeSource = fs.readFileSync(path.join(root, 'src/main/50_overlay_bridge_pause.js'), 'utf8');
+assert(/anki-card-status/.test(overlayBridgeSource), 'Overlay bridge should handle Anki status checks');
+assert(/anki-card-add/.test(overlayBridgeSource), 'Overlay bridge should handle Anki add requests');
+assert(/anki-card-open/.test(overlayBridgeSource), 'Overlay bridge should handle Anki open-existing requests');
+
+const overlaySource = fs.readFileSync(path.join(root, 'src/overlay/overlay.js'), 'utf8');
+assert(/class="anki-button"/.test(overlaySource), 'Overlay should render an Anki action button');
+assert(/anki-card-status/.test(overlaySource), 'Overlay should request duplicate status for Anki buttons');
+assert(/anki-card-open/.test(overlaySource), 'Overlay should open duplicates from the Anki button');
+assert(/duplicateKnown/.test(overlaySource), 'Overlay should reuse duplicate preflight state on add');
+assert(/right-click to open existing/.test(overlaySource), 'Anki add-anyway mode should still expose open-existing behavior');
 
 const lifecycleSource = fs.readFileSync(path.join(root, 'src/main/60_overlay_lifecycle_toggle.js'), 'utf8');
 assert(/function reloadOverlayForProfileChange\(\)/.test(lifecycleSource), 'Profile changes should be able to reload the overlay');

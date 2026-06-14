@@ -28,6 +28,11 @@ const context = {
   debugError() {},
   alert() {},
   postDictionaryManagerState() {},
+  readManifest() { return { activeProfileId: 'default', profiles: { default: { preferences: {} } } }; },
+  activeDictionaryProfile() { return { preferences: {} }; },
+  normalizeProfilePreferences(prefs) {
+    return Object.assign({ ankiConnectUrl: 'http://127.0.0.1:8765', ankiModelName: '' }, prefs || {});
+  },
   updateDictionaryProfilePreferences(profileId, preferences) {
     updates.push({ profileId, preferences });
   },

@@ -233,7 +233,14 @@
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 650; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
     .dict-headword rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 650; line-height: 1.1; -webkit-user-select: none; }
-    .audio-button {
+    .head-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex: 0 0 auto;
+      margin: 1px 0 0 auto;
+    }
+    .audio-button, .anki-button {
       position: relative;
       display: inline-flex;
       align-items: center;
@@ -241,7 +248,7 @@
       flex: 0 0 auto;
       width: 26px;
       height: 26px;
-      margin: 1px 0 0 auto;
+      margin: 0;
       border: 1px solid var(--popup-divider);
       border-radius: 999px;
       padding: 0;
@@ -251,7 +258,7 @@
       cursor: pointer;
       pointer-events: auto;
     }
-    .audio-button:hover { color: var(--popup-heading); border-color: var(--popup-border); background: var(--popup-chip-bg); }
+    .audio-button:hover, .anki-button:hover { color: var(--popup-heading); border-color: var(--popup-border); background: var(--popup-chip-bg); }
     .dict-term .audio-button { position: absolute; top: 1px; right: 0; margin: 0; }
     .audio-button[data-audio-state="loading"] { opacity: 0.72; }
     .audio-button[data-audio-state="loading"] .audio-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
@@ -273,6 +280,32 @@
       font-size: 10px;
       font-weight: 900;
       line-height: 1;
+    }
+    .anki-icon {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .anki-button[data-anki-state="checking"],
+    .anki-button[data-anki-state="adding"] { opacity: 0.72; }
+    .anki-button[data-anki-state="checking"] .anki-icon,
+    .anki-button[data-anki-state="adding"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
+    .anki-button[data-anki-state="duplicate"] {
+      color: var(--popup-heading);
+      border-color: var(--popup-border);
+      background: var(--popup-chip-bg);
+    }
+    .anki-button[data-anki-state="added"] {
+      color: #2f9e44;
+      border-color: rgba(47, 158, 68, 0.42);
+    }
+    .anki-button[data-anki-state="error"] {
+      color: var(--popup-error);
+      border-color: var(--popup-error-border);
     }
     .audio-icon {
       display: block;

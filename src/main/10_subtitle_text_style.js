@@ -199,6 +199,7 @@ function overlayConfig() {
     hoverRequestTimeoutMs: Math.max(1500, prefNumber("hoverRequestTimeoutMs", 15000)),
     audioAutoPlay: prefBool("audioAutoPlay", false),
     audioSources: normalizeAudioSources(pref("audioSourcesJson", DEFAULT_AUDIO_SOURCES_JSON)),
+    anki: typeof overlayAnkiConfig === "function" ? overlayAnkiConfig() : { enabled: false, configured: false },
     etymologyCollapseDefault: String(pref("etymologyCollapseDefault", "collapsed") || "collapsed"),
     wiktionaryEtymologyCollapseOverride: String(pref("wiktionaryEtymologyCollapseOverride", "collapsed") || "collapsed"),
     customPopupCss: String(pref("customPopupCss", "") || ""),

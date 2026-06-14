@@ -28,6 +28,12 @@ function ensureOverlayBridge() {
 	          handleBridgeLookup(payload);
 	        } else if (payload && typeof payload === "object" && payload.type === "audio-source") {
 	          handleBridgeAudioSource(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "anki-card-status") {
+	          handleBridgeAnkiCardStatus(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "anki-card-add") {
+	          handleBridgeAnkiCardAdd(payload);
+	        } else if (payload && typeof payload === "object" && payload.type === "anki-card-open") {
+	          handleBridgeAnkiCardOpen(payload);
 	        } else if (payload && typeof payload === "object" && payload.type === "open-url") {
 	          openExternalUrlFromOverlay(payload.url);
 	        } else if (payload && typeof payload === "object" && payload.type === "overlay-log") {

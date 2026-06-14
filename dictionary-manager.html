@@ -207,7 +207,7 @@
       border-color: var(--danger);
       background: var(--danger-hover);
     }
-    .dictionary-list, .recommended-list, .audio-source-list {
+    .dictionary-list, .recommended-list, .audio-source-list, .anki-field-list {
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
@@ -252,7 +252,7 @@
       color: var(--muted);
       text-align: center;
     }
-    .dictionary-row, .recommended-row, .audio-source-row {
+    .dictionary-row, .recommended-row, .audio-source-row, .anki-field-row {
       display: grid;
       align-items: center;
       gap: 8px;
@@ -266,10 +266,13 @@
     .audio-source-row {
       grid-template-columns: 34px minmax(0, 1fr) auto;
     }
+    .anki-field-row {
+      grid-template-columns: minmax(120px, 0.36fr) minmax(0, 1fr) 210px;
+    }
     .recommended-row {
       grid-template-columns: minmax(0, 1fr) auto;
     }
-    .dictionary-row:last-child, .recommended-row:last-child, .audio-source-row:last-child { border-bottom: 0; }
+    .dictionary-row:last-child, .recommended-row:last-child, .audio-source-row:last-child, .anki-field-row:last-child { border-bottom: 0; }
     .dictionary-row.drag-over, .audio-source-row.drag-over { background: var(--row-hover); }
     .dictionary-row.dragging, .audio-source-row.dragging { opacity: 0.46; }
     .drag-handle {
@@ -285,6 +288,43 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .anki-url-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 7px;
+      align-items: center;
+    }
+    .anki-status-pill {
+      min-width: 116px;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      background: rgba(128, 128, 128, 0.08);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .anki-status-pill.reachable {
+      border-color: rgba(52, 199, 89, 0.42);
+      color: #248a3d;
+    }
+    .anki-status-pill.error {
+      border-color: var(--danger-border);
+      color: var(--danger);
+    }
+    .anki-field-name {
+      min-width: 0;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .anki-field-template {
+      width: 100%;
+      min-width: 0;
+    }
+    .anki-marker-select {
+      width: 100%;
+      min-width: 0;
     }
     .row-actions {
       display: flex;
@@ -309,6 +349,10 @@
       }
       .audio-source-row {
         grid-template-columns: 34px minmax(0, 1fr);
+      }
+      .anki-url-row,
+      .anki-field-row {
+        grid-template-columns: minmax(0, 1fr);
       }
       .dictionary-row .row-actions {
         grid-column: 3;
@@ -337,6 +381,7 @@
   <main>
     <nav class="tabs" aria-label="Settings sections">
       <button class="tab active" type="button" data-tab="profile">Profile</button>
+      <button class="tab" type="button" data-tab="anki">Anki</button>
       <button class="tab" type="button" data-tab="popup">Popup</button>
       <button class="tab" type="button" data-tab="dictionaries">Dictionaries</button>
       <button class="tab" type="button" data-tab="advanced">Advanced</button>
@@ -377,6 +422,77 @@
         <button id="addAudioSource" type="button">Add source</button>
       </div>
       <section id="audioSourceList" class="audio-source-list"></section>
+    </section>
+
+    <section class="panel" data-panel="anki">
+      <h2>Anki Export</h2>
+      <h3>Note</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="ankiModelName">Note type</label>
+          <select id="ankiModelName" data-profile-pref="ankiModelName"></select>
+          <small>Fields below follow the selected note type from AnkiConnect.</small>
+        </div>
+        <div class="field">
+          <label for="ankiDeckName">Deck</label>
+          <select id="ankiDeckName" data-profile-pref="ankiDeckName"></select>
+        </div>
+        <div class="field">
+          <label for="ankiConnectUrl">AnkiConnect URL</label>
+          <div class="anki-url-row">
+            <input id="ankiConnectUrl" data-profile-pref="ankiConnectUrl" type="url" placeholder="http://127.0.0.1:8765">
+            <span id="ankiReachability" class="anki-status-pill">Not checked</span>
+            <button id="ankiRefresh" type="button" data-busy-control="true">Refresh</button>
+          </div>
+          <small>Anki must be open with the AnkiConnect add-on installed.</small>
+        </div>
+        <label class="check-field"><input data-profile-pref="ankiEnabled" type="checkbox"><span>Show Anki add button in popups</span></label>
+      </div>
+
+      <h3>Fields</h3>
+      <section id="ankiFieldList" class="anki-field-list"></section>
+
+      <h3>Duplicates And Media</h3>
+      <div class="form-grid">
+        <label class="check-field"><input data-profile-pref="ankiDuplicateCheck" type="checkbox"><span>Check for duplicates before adding</span></label>
+        <div class="field">
+          <label for="ankiDuplicateMode">When duplicate exists</label>
+          <select id="ankiDuplicateMode" data-profile-pref="ankiDuplicateMode">
+            <option value="prevent">Open existing note</option>
+            <option value="allow">Allow adding anyway</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ankiDuplicateScope">Duplicate scope</label>
+          <select id="ankiDuplicateScope" data-profile-pref="ankiDuplicateScope">
+            <option value="deck">Selected deck</option>
+            <option value="collection">Whole collection</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ankiAudioFormat">Sentence audio format</label>
+          <select id="ankiAudioFormat" data-profile-pref="ankiAudioFormat">
+            <option value="mp3">MP3</option>
+            <option value="opus">Opus</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="ankiAudioBitrateKbps">Sentence audio bitrate (kbps)</label>
+          <input id="ankiAudioBitrateKbps" data-profile-pref="ankiAudioBitrateKbps" type="number" min="24" max="320" step="8">
+        </div>
+        <div class="field">
+          <label for="ankiImageQuality">Screenshot JPEG quality (%)</label>
+          <input id="ankiImageQuality" data-profile-pref="ankiImageQuality" type="number" min="1" max="100" step="1">
+        </div>
+        <div class="field">
+          <label for="ankiSentenceAudioPaddingMs">Sentence audio padding (ms)</label>
+          <input id="ankiSentenceAudioPaddingMs" data-profile-pref="ankiSentenceAudioPaddingMs" type="number" min="0" max="2000" step="50">
+        </div>
+        <div class="field">
+          <label for="ankiTags">Tags</label>
+          <input id="ankiTags" data-profile-pref="ankiTags" type="text" placeholder="iinatan anime">
+        </div>
+      </div>
     </section>
 
     <section class="panel" data-panel="popup">
@@ -557,7 +673,10 @@
       activeTab: 'profile',
       recommendedDialogOpen: false,
       rendering: false,
-      audioSourceSerial: 0
+      audioSourceSerial: 0,
+      anki: null,
+      ankiFieldTemplates: {},
+      ankiLastModelName: ''
     };
 
     const els = {
@@ -572,6 +691,12 @@
       closeRecommended: document.getElementById('closeRecommended'),
       recommendedDialogBackdrop: document.getElementById('recommendedDialogBackdrop'),
       addAudioSource: document.getElementById('addAudioSource'),
+      ankiModelName: document.getElementById('ankiModelName'),
+      ankiDeckName: document.getElementById('ankiDeckName'),
+      ankiConnectUrl: document.getElementById('ankiConnectUrl'),
+      ankiReachability: document.getElementById('ankiReachability'),
+      ankiRefresh: document.getElementById('ankiRefresh'),
+      ankiFieldList: document.getElementById('ankiFieldList'),
       status: document.getElementById('status'),
       dictionaryList: document.getElementById('dictionaryList'),
       audioSourceList: document.getElementById('audioSourceList'),
@@ -636,7 +761,7 @@
     }
     function updateBusyState() {
       const disabled = !!state.busy;
-      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource, els.openRecommended].forEach(button => {
+      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource, els.openRecommended, els.ankiRefresh].forEach(button => {
         button.disabled = disabled;
       });
       els.openRecommended.disabled = disabled || !state.recommendedDictionaries.length;
@@ -734,6 +859,213 @@
     }
     function syncAudioSourcesFromProfile() {
       state.audioSources = normalizeAudioSources(profileValue('audioSourcesJson'));
+    }
+    function normalizeAnkiFieldTemplates(value) {
+      let raw = value;
+      if (typeof raw === 'string') {
+        const text = raw.trim();
+        if (!text) return {};
+        try { raw = JSON.parse(text); } catch (_) { return {}; }
+      }
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      const out = {};
+      Object.keys(raw).forEach(key => {
+        const field = String(key || '').trim();
+        if (!field) return;
+        out[field] = String(raw[key] === undefined || raw[key] === null ? '' : raw[key]);
+      });
+      return out;
+    }
+    function serializeAnkiFieldTemplates(templates) {
+      const out = {};
+      Object.keys(templates || {}).forEach(key => {
+        const field = String(key || '').trim();
+        if (!field) return;
+        out[field] = String(templates[key] === undefined || templates[key] === null ? '' : templates[key]);
+      });
+      return JSON.stringify(out);
+    }
+    function syncAnkiFieldTemplatesFromProfile() {
+      const next = normalizeAnkiFieldTemplates(profileValue('ankiFieldTemplatesJson'));
+      state.ankiFieldTemplates = next;
+      state.ankiLastModelName = String(profileValue('ankiModelName') || '');
+    }
+    function normalizeAnkiFieldKey(value) {
+      return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    function lapisTemplateForField(fieldName, language) {
+      const key = normalizeAnkiFieldKey(fieldName);
+      const isChinese = String(language || '') === 'zh';
+      const map = {
+        expression: '{expression}',
+        word: '{expression}',
+        term: '{expression}',
+        expressionfurigana: '{furigana-plain}',
+        expressionreading: '{reading}',
+        reading: '{reading}',
+        expressionaudio: '{audio}',
+        selectiontext: '{popup-selection-text}',
+        selectedtext: '{popup-selection-text}',
+        maindefinition: '{selected-glossary}',
+        definition: '{selected-glossary}',
+        sentence: '{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}',
+        sentencetext: '{sentence}',
+        sentenceaudio: '{sentence-audio}',
+        subtitleaudio: '{sentence-audio}',
+        picture: '{screenshot}',
+        image: '{screenshot}',
+        screenshot: '{screenshot}',
+        glossary: '{glossary}',
+        fulldefinition: '{glossary}',
+        fullglossary: '{glossary}',
+        iswordandsentencecard: 'x',
+        isclickcard: 'x',
+        frequency: '{frequencies}',
+        freqsort: '{frequency-harmonic-rank}',
+        miscinfo: '{document-title} {timestamp}',
+        source: '{document-title}',
+        sourcetitle: '{document-title}'
+      };
+      if (!isChinese) {
+        map.pitchposition = '{pitch-accent-positions}';
+        map.pitchpositions = '{pitch-accent-positions}';
+        map.pitchcategories = '{pitch-accent-categories}';
+      }
+      return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null;
+    }
+    function maybeAutofillAnkiFieldTemplates() {
+      const anki = state.anki || {};
+      const modelName = String(profileValue('ankiModelName') || anki.modelName || '');
+      const language = String(profileValue('lookupLanguage') || anki.lookupLanguage || 'ja');
+      const fields = Array.isArray(anki.fields) ? anki.fields : [];
+      if (!fields.length || !/lapis/i.test(modelName) || (language !== 'ja' && language !== 'zh')) return false;
+      let changed = false;
+      fields.forEach(field => {
+        if (String(state.ankiFieldTemplates[field] || '').trim()) return;
+        const template = lapisTemplateForField(field, language);
+        if (template === null) return;
+        state.ankiFieldTemplates[field] = template;
+        changed = true;
+      });
+      return changed;
+    }
+    function optionList(select, values, selectedValue, emptyLabel) {
+      select.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = emptyLabel;
+      select.appendChild(empty);
+      const seen = Object.create(null);
+      (Array.isArray(values) ? values : []).forEach(value => {
+        const text = String(value || '').trim();
+        if (!text || seen[text]) return;
+        seen[text] = true;
+        const option = document.createElement('option');
+        option.value = text;
+        option.textContent = text;
+        select.appendChild(option);
+      });
+      if (selectedValue && !seen[selectedValue]) {
+        const option = document.createElement('option');
+        option.value = selectedValue;
+        option.textContent = selectedValue;
+        select.appendChild(option);
+      }
+      select.value = selectedValue || '';
+    }
+    function insertMarkerIntoInput(input, marker) {
+      const value = String(input.value || '');
+      const start = Number.isFinite(input.selectionStart) ? input.selectionStart : value.length;
+      const end = Number.isFinite(input.selectionEnd) ? input.selectionEnd : start;
+      input.value = value.slice(0, start) + marker + value.slice(end);
+      const next = start + marker.length;
+      try {
+        input.focus();
+        input.setSelectionRange(next, next);
+      } catch (_) {}
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    function renderAnkiReachability() {
+      const anki = state.anki || {};
+      const message = String(anki.message || (anki.checking ? 'Checking...' : 'Not checked'));
+      els.ankiReachability.textContent = anki.reachable ? 'Reachable' : (anki.checking ? 'Checking' : 'Unavailable');
+      els.ankiReachability.title = message;
+      els.ankiReachability.className = 'anki-status-pill' + (anki.reachable ? ' reachable' : (message && !anki.checking && !/not checked/i.test(message) ? ' error' : ''));
+    }
+    function renderAnkiControls() {
+      const anki = state.anki || {};
+      const modelName = String(profileValue('ankiModelName') || '');
+      const deckName = String(profileValue('ankiDeckName') || '');
+      optionList(els.ankiModelName, anki.modelNames || [], modelName, 'Select note type');
+      optionList(els.ankiDeckName, anki.deckNames || [], deckName, 'Select deck');
+      renderAnkiReachability();
+      const changed = maybeAutofillAnkiFieldTemplates();
+      renderAnkiFields();
+      if (changed && !state.rendering) saveProfilePreferences();
+    }
+    function renderAnkiFields() {
+      els.ankiFieldList.innerHTML = '';
+      const anki = state.anki || {};
+      const fields = Array.isArray(anki.fields) ? anki.fields : [];
+      const markers = Array.isArray(anki.markers) ? anki.markers : [];
+      if (!String(profileValue('ankiModelName') || '').trim()) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'Select a note type to configure fields.';
+        els.ankiFieldList.appendChild(empty);
+        return;
+      }
+      if (!fields.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = anki.reachable ? 'No fields were returned for this note type.' : 'Connect to AnkiConnect to load note fields.';
+        els.ankiFieldList.appendChild(empty);
+        return;
+      }
+      fields.forEach(fieldName => {
+        const row = document.createElement('div');
+        row.className = 'anki-field-row';
+        const label = document.createElement('div');
+        label.className = 'anki-field-name';
+        label.textContent = fieldName;
+        row.appendChild(label);
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'anki-field-template';
+        input.value = state.ankiFieldTemplates[fieldName] || '';
+        input.placeholder = '{expression}';
+        input.dataset.busyControl = 'true';
+        input.disabled = state.busy;
+        input.addEventListener('change', () => {
+          state.ankiFieldTemplates[fieldName] = input.value;
+          saveProfilePreferences();
+        });
+        row.appendChild(input);
+
+        const select = document.createElement('select');
+        select.className = 'anki-marker-select';
+        select.dataset.busyControl = 'true';
+        select.disabled = state.busy;
+        const first = document.createElement('option');
+        first.value = '';
+        first.textContent = 'Insert marker';
+        select.appendChild(first);
+        markers.forEach(marker => {
+          const option = document.createElement('option');
+          option.value = marker.marker;
+          option.textContent = marker.marker + ' - ' + marker.label;
+          select.appendChild(option);
+        });
+        select.addEventListener('change', () => {
+          if (!select.value) return;
+          insertMarkerIntoInput(input, select.value);
+          select.value = '';
+        });
+        row.appendChild(select);
+
+        els.ankiFieldList.appendChild(row);
+      });
     }
     function saveAudioSources() {
       saveProfilePreferences();
@@ -837,6 +1169,7 @@
         prefs[key] = readControlValue(control, state.profilePreferenceDefaults[key]);
       });
       prefs.audioSourcesJson = serializeAudioSources(state.audioSources);
+      prefs.ankiFieldTemplatesJson = serializeAnkiFieldTemplates(state.ankiFieldTemplates);
       return prefs;
     }
     function collectGlobalSettings() {
@@ -887,6 +1220,7 @@
         setControlValue(control, globalValue(control.dataset.globalSetting));
       });
       syncAudioSourcesFromProfile();
+      syncAnkiFieldTemplatesFromProfile();
       state.rendering = false;
     }
     function renderRecommended() {
@@ -1130,6 +1464,7 @@
       renderRecommended();
       renderDictionaries();
       renderAudioSources();
+      renderAnkiControls();
       renderTabs();
       renderRecommendedDialog();
       updateBusyState();
@@ -1142,6 +1477,9 @@
       });
     });
     els.addAudioSource.addEventListener('click', addAudioSource);
+    els.ankiRefresh.addEventListener('click', () => {
+      command('dictionary-manager-anki-refresh', { preferences: collectProfilePreferences() }, 'Checking AnkiConnect...', { busy: false, clearAfterMs: 3000 });
+    });
     els.openRecommended.addEventListener('click', openRecommendedDialog);
     els.closeRecommended.addEventListener('click', closeRecommendedDialog);
     els.recommendedDialogBackdrop.addEventListener('click', event => {
@@ -1189,9 +1527,15 @@
         state.profilePreferenceDefaults = (payload && payload.profilePreferenceDefaults && typeof payload.profilePreferenceDefaults === 'object') ? Object.assign({}, payload.profilePreferenceDefaults) : {};
         state.globalSettings = (payload && payload.globalSettings && typeof payload.globalSettings === 'object') ? Object.assign({}, payload.globalSettings) : {};
         state.globalSettingDefaults = (payload && payload.globalSettingDefaults && typeof payload.globalSettingDefaults === 'object') ? Object.assign({}, payload.globalSettingDefaults) : {};
+        state.anki = (payload && payload.anki && typeof payload.anki === 'object') ? Object.assign({}, payload.anki) : null;
         state.activeProfileId = String((payload && payload.activeProfileId) || 'default');
         state.activeProfileName = String((payload && payload.activeProfileName) || 'Profile 1');
         render();
+      });
+      bridge.onMessage('dictionary-manager-anki-state', payload => {
+        state.anki = (payload && typeof payload === 'object') ? Object.assign({}, payload) : null;
+        renderAnkiControls();
+        updateBusyState();
       });
       bridge.onMessage('dictionary-manager-status', payload => {
         setStatus(

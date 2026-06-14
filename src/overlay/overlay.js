@@ -24,6 +24,12 @@
 	      scanLength: 24,
 	      audioAutoPlay: false,
 	      audioSources: [],
+	      anki: {
+	        enabled: false,
+	        configured: false,
+	        duplicateCheck: true,
+	        duplicateMode: 'prevent'
+	      },
 	      etymologyCollapseDefault: 'collapsed',
 	      wiktionaryEtymologyCollapseOverride: 'collapsed',
 	      customPopupCss: '',
@@ -54,6 +60,8 @@
     audioSourceRequestSeq: 0,
     pendingAudioSourceRequests: Object.create(null),
     audioSourceMenu: null,
+    ankiCardRequestSeq: 0,
+    ankiCardContexts: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -238,6 +246,25 @@
 	  }
 	  function activeAudioSources() {
 	    return normalizeAudioSources(state.config && state.config.audioSources);
+	  }
+	  function normalizeAnkiConfig(config) {
+	    const raw = config && typeof config === 'object' ? config : {};
+	    return {
+	      enabled: !!raw.enabled,
+	      configured: !!raw.configured,
+	      duplicateCheck: raw.duplicateCheck !== false,
+	      duplicateMode: String(raw.duplicateMode || 'prevent') === 'allow' ? 'allow' : 'prevent',
+	      duplicateScope: String(raw.duplicateScope || 'deck') === 'collection' ? 'collection' : 'deck',
+	      deckName: String(raw.deckName || ''),
+	      modelName: String(raw.modelName || '')
+	    };
+	  }
+	  function activeAnkiConfig() {
+	    return normalizeAnkiConfig(state.config && state.config.anki);
+	  }
+	  function ankiEnabledForPopup() {
+	    const config = activeAnkiConfig();
+	    return !!(config.enabled && config.configured);
 	  }
 	  function audioSourceDisplayLabel(source, index) {
 	    const name = normalizeWhitespace(source && source.name || '');
@@ -785,10 +812,11 @@
 
   function applyConfig(config) {
     const previousAudioSignature = audioSourcesSignature(activeAudioSources());
-    state.config = Object.assign({}, state.config, config || {});
-    state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
-    state.config.audioSources = normalizeAudioSources(state.config.audioSources);
-    if (previousAudioSignature !== audioSourcesSignature(state.config.audioSources)) {
+	    state.config = Object.assign({}, state.config, config || {});
+	    state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+	    state.config.audioSources = normalizeAudioSources(state.config.audioSources);
+	    state.config.anki = normalizeAnkiConfig(state.config.anki);
+	    if (previousAudioSignature !== audioSourcesSignature(state.config.audioSources)) {
       state.audioCache = Object.create(null);
     }
     ensurePopupThemeHintListener();
@@ -1247,6 +1275,7 @@
     Object.keys(state.pendingLookupRequests || {}).forEach(k => cancelPendingLookupRequest(k));
     state.pendingLookupTimers = Object.create(null);
     state.pendingLookupRequests = Object.create(null);
+    state.ankiCardContexts = Object.create(null);
     clearActiveMatch();
   }
 
@@ -1256,6 +1285,106 @@
 	    const audioReading = String(reading || '').trim();
 	    const key = audioTermReadingKey(audioTerm, audioReading);
 	    return '<button type="button" class="audio-button" data-audio-key="' + escapeHtml(key) + '" data-audio-term="' + escapeHtml(audioTerm) + '" data-audio-reading="' + escapeHtml(audioReading) + '" title="Play audio" aria-label="Play audio"><svg class="audio-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="audio-speaker-body" d="M3 9v6h4l5 4V5L7 9H3z"></path><path class="audio-wave" d="M16 8.5a5 5 0 0 1 0 7"></path><path class="audio-wave" d="M19 5a9 9 0 0 1 0 14"></path></svg></button>';
+	  }
+	  function ankiIconSvg(kind) {
+	    if (kind === 'book') return '<svg class="anki-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H7a3 3 0 0 0-3 3V5.5z"></path><path d="M7 18h13"></path><path d="M7 6h9"></path></svg>';
+	    if (kind === 'check') return '<svg class="anki-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.2 4.2L19 7"></path></svg>';
+	    if (kind === 'error') return '<svg class="anki-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v8"></path><path d="M12 18h.01"></path><path d="M4.5 20h15L12 4 4.5 20z"></path></svg>';
+	    return '<svg class="anki-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>';
+	  }
+	  function renderAnkiButtonHtml(contextId) {
+	    if (!contextId || !ankiEnabledForPopup()) return '';
+	    return '<button type="button" class="anki-button" data-anki-context-id="' + escapeHtml(contextId) + '" data-anki-state="ready" title="Add Anki card" aria-label="Add Anki card">' + ankiIconSvg('plus') + '</button>';
+	  }
+	  function setAnkiButtonState(button, status) {
+	    if (!button) return;
+	    const stateName = String((status && status.state) || 'ready');
+	    const duplicate = !!(status && status.duplicate);
+	    const config = activeAnkiConfig();
+	    button.dataset.ankiState = stateName;
+	    if (Array.isArray(status && status.noteIds)) button.dataset.ankiNoteIds = JSON.stringify(status.noteIds);
+	    if (stateName === 'duplicate' && duplicate) {
+	      button.dataset.ankiDuplicateKnown = 'duplicate';
+	      if (config.duplicateMode === 'allow') {
+	        button.innerHTML = ankiIconSvg('plus');
+	        button.title = 'Duplicate found. Click to add anyway; right-click to open existing note.';
+	        button.setAttribute('aria-label', 'Add duplicate Anki card');
+	      } else {
+	        button.innerHTML = ankiIconSvg('book');
+	        button.title = 'Duplicate found. Open existing note in Anki.';
+	        button.setAttribute('aria-label', 'Open existing Anki note');
+	      }
+	    } else if (stateName === 'added') {
+	      button.dataset.ankiDuplicateKnown = '';
+	      button.innerHTML = ankiIconSvg('check');
+	      button.title = 'Added to Anki';
+	      button.setAttribute('aria-label', 'Added to Anki');
+	    } else if (stateName === 'error') {
+	      button.dataset.ankiDuplicateKnown = '';
+	      button.innerHTML = ankiIconSvg('error');
+	      button.title = String((status && status.message) || 'Anki add failed');
+	      button.setAttribute('aria-label', 'Anki add failed');
+	    } else {
+	      button.dataset.ankiDuplicateKnown = stateName === 'ready' ? 'ready' : '';
+	      button.innerHTML = ankiIconSvg('plus');
+	      button.title = String((status && status.message) || 'Add Anki card');
+	      button.setAttribute('aria-label', 'Add Anki card');
+	    }
+	  }
+	  function ankiContextForButton(button) {
+	    const contextId = button && button.dataset ? button.dataset.ankiContextId : '';
+	    return contextId ? state.ankiCardContexts[contextId] : null;
+	  }
+	  function noteIdsForButton(button) {
+	    try {
+	      const ids = JSON.parse(String(button && button.dataset ? button.dataset.ankiNoteIds || '[]' : '[]'));
+	      return Array.isArray(ids) ? ids : [];
+	    } catch (_) {
+	      return [];
+	    }
+	  }
+	  function sendAnkiCardMessage(button, type) {
+	    const context = ankiContextForButton(button);
+	    if (!context) return false;
+	    const requestId = 'anki-' + String(++state.ankiCardRequestSeq);
+	    button.dataset.ankiRequestId = requestId;
+	    if (type !== 'anki-card-open') {
+	      button.dataset.ankiState = type === 'anki-card-add' ? 'adding' : 'checking';
+	    }
+	    return sendBridgeMessage({
+	      type,
+	      requestId,
+	      context,
+	      noteIds: noteIdsForButton(button),
+	      duplicateKnown: button && button.dataset ? String(button.dataset.ankiDuplicateKnown || '') : '',
+	      at: Date.now()
+	    });
+	  }
+	  function requestAnkiCardStatus(button) {
+	    if (!button || button.dataset.ankiStatusRequested === 'true') return;
+	    button.dataset.ankiStatusRequested = 'true';
+	    if (!sendAnkiCardMessage(button, 'anki-card-status')) setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
+	  }
+	  function bindPopupAnkiButtons() {
+	    try {
+	      popupEl.querySelectorAll('.anki-button').forEach(button => {
+	        if (button.dataset.ankiBound !== 'true') {
+	          button.dataset.ankiBound = 'true';
+	          button.addEventListener('click', event => {
+	            try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+	            const duplicate = button.dataset.ankiState === 'duplicate';
+	            const config = activeAnkiConfig();
+	            const type = duplicate && config.duplicateMode !== 'allow' ? 'anki-card-open' : 'anki-card-add';
+	            if (!sendAnkiCardMessage(button, type)) setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
+	          });
+	          button.addEventListener('contextmenu', event => {
+	            try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+	            if (!sendAnkiCardMessage(button, 'anki-card-open')) setAnkiButtonState(button, { state: 'error', message: 'Anki bridge unavailable' });
+	          });
+	        }
+	        requestAnkiCardStatus(button);
+	      });
+	    } catch (_) {}
 	  }
 	  function bindPopupAudioButtons() {
 	    try {
@@ -1273,32 +1402,35 @@
 	      });
 	    } catch (_) {}
 	  }
-	  function renderPopupHead(heading, reading, secondaryText, audioData) {
+	  function renderPopupHead(heading, reading, secondaryText, audioData, ankiData) {
 	    const audioHtml = audioData ? renderAudioButtonHtml(audioData.term, audioData.reading) : '';
+	    const ankiHtml = ankiData ? renderAnkiButtonHtml(ankiData.contextId) : '';
+	    const actionHtml = audioHtml || ankiHtml ? '<div class="head-actions">' + audioHtml + ankiHtml + '</div>' : '';
 	    return '<div class="head-main"><div class="head-title">' +
 	      renderHeadwordStackHtml(heading || '', reading || '', { termClass: 'term', readingClass: 'reading' }) + '</div>' +
-	      audioHtml + '</div>' +
+	      actionHtml + '</div>' +
 	      (secondaryText ? '<div class="lookup-source">' + escapeHtml(secondaryText) + '</div>' : '');
 	  }
 	  function showPopup(anchor, heading, bodyHtml) {
 	    hideAudioSourceMenu();
 	    state.currentAnchor = anchor || null;
-	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '', null) + '</div><div class="body">' + bodyHtml + '</div>';
+	    popupEl.innerHTML = '<div class="head">' + renderPopupHead(heading || '', '', '', null, null) + '</div><div class="body">' + bodyHtml + '</div>';
 	    markPopupClickable();
 	    popupEl.classList.remove('hidden');
 	    setLookupPopupVisibility(true);
 	    placePopup(anchor);
 	  }
-	  function setPopupBody(bodyHtml, heading, reading, secondaryText, audioData) {
+	  function setPopupBody(bodyHtml, heading, reading, secondaryText, audioData, ankiData) {
 	    hideAudioSourceMenu();
 	    const head = popupEl.querySelector('.head');
 	    const body = popupEl.querySelector('.body');
 	    if (head && heading !== undefined) {
-	      head.innerHTML = renderPopupHead(heading || '', reading || '', secondaryText || '', audioData || null);
+	      head.innerHTML = renderPopupHead(heading || '', reading || '', secondaryText || '', audioData || null, ankiData || null);
 	    }
     if (body) body.innerHTML = bodyHtml;
     markPopupClickable();
     bindPopupAudioButtons();
+    bindPopupAnkiButtons();
     if (state.currentAnchor && !popupEl.classList.contains('hidden')) placePopup(state.currentAnchor);
   }
   function markPopupClickable() {
@@ -2013,6 +2145,37 @@
 	    if (!expression) return null;
 	    return { term: expression, reading: String(term.reading || '') };
 	  }
+	  function buildAnkiCardContext(stored, entry, header) {
+	    if (!ankiEnabledForPopup() || !entry) return null;
+	    const result = stored && stored.result ? stored.result : {};
+	    const expression = (header && header.heading) || displayHeadwordForEntry(entry);
+	    const reading = (header && header.reading) || displayReadingForTerm(entry.term || {}, expression);
+	    const surface = lookupSurfaceForResult(result, entry);
+	    return {
+	      lineId: state.lineId,
+	      position: stored && stored.position !== undefined ? stored.position : state.currentPos,
+	      sentence: state.text || '',
+	      expression,
+	      heading: expression,
+	      reading,
+	      surface,
+	      entry,
+	      result: {
+	        text: result.text || state.text || '',
+	        language: result.language || (state.config && state.config.lookupLanguage) || '',
+	        lookupStart: result.lookupStart,
+	        lookupEnd: result.lookupEnd,
+	        lookupText: result.lookupText,
+	        candidateUsed: result.candidateUsed || null
+	      }
+	    };
+	  }
+	  function registerAnkiCardContext(context) {
+	    if (!context) return null;
+	    const contextId = String(state.lineId) + ':' + String(context.position === undefined || context.position === null ? '' : context.position) + ':' + String(++state.ankiCardRequestSeq);
+	    state.ankiCardContexts[contextId] = context;
+	    return { contextId };
+	  }
 	  function maybeAutoPlayEntryAudio(stored, entry) {
 	    if (!state.config || !state.config.audioAutoPlay) return;
 	    const data = audioDataForEntry(entry);
@@ -2040,6 +2203,7 @@
 	    const first = entries[0];
 	    const header = displayHeaderForResult(result, first);
 	    const headerAudio = audioDataForEntry(first);
+	    const headerAnki = registerAnkiCardContext(buildAnkiCardContext(stored, first, header));
 	    if (state.currentPos !== null && state.currentPos !== undefined) {
 	      activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
 	    }
@@ -2073,7 +2237,7 @@
       if (Array.isArray(entry.trace) && entry.trace.length) html += '<div class="trace">' + escapeHtml(entry.trace.map(t => t.name || '').filter(Boolean).join(' → ')) + '</div>';
       html += '</div>';
     });
-	    setPopupBody(html, header.heading, header.reading, header.secondary, headerAudio);
+	    setPopupBody(html, header.heading, header.reading, header.secondary, headerAudio, headerAnki);
 	    maybeAutoPlayEntryAudio(stored, first);
 	  }
 
@@ -2147,6 +2311,18 @@
     statusEl.className = payload.kind === 'error' ? 'error' : '';
     statusEl.classList.remove('hidden');
   }
+  function updateAnkiCardState(payload) {
+    const requestId = String((payload && payload.requestId) || '');
+    if (!requestId) return;
+    try {
+      popupEl.querySelectorAll('.anki-button').forEach(button => {
+        if (button.dataset.ankiRequestId !== requestId) return;
+        setAnkiButtonState(button, payload || {});
+      });
+    } catch (_) {}
+    if (payload && payload.ok === false && payload.message) setStatus({ message: payload.message, kind: 'error' });
+    else if (payload && payload.state === 'added') setStatus({ message: payload.message || 'Added Anki card.', kind: 'info' });
+  }
 
   iina.onMessage('config', payload => applyConfig(payload));
   iina.onMessage('enabled', payload => {
@@ -2159,7 +2335,7 @@
     renderSubtitle(payload && payload.text ? payload.text : '', payload && payload.lineId ? payload.lineId : 0);
   });
   iina.onMessage('line-lookup-reset', payload => {
-    if (!payload || Number(payload.lineId || 0) === state.lineId) { state.lookupByPos = Object.create(null); state.progress = null; state.audioAutoPlayed = Object.create(null); }
+    if (!payload || Number(payload.lineId || 0) === state.lineId) { state.lookupByPos = Object.create(null); state.progress = null; state.audioAutoPlayed = Object.create(null); state.ankiCardContexts = Object.create(null); }
   });
   iina.onMessage('line-lookup-progress', payload => {
     if (!payload || Number(payload.lineId || 0) !== state.lineId) return;
@@ -2200,6 +2376,7 @@
   });
   iina.onMessage('status', setStatus);
   iina.onMessage('task-status', setTaskStatus);
+  iina.onMessage('anki-card-state', updateAnkiCardState);
 
   document.addEventListener('click', event => {
     const menu = state.audioSourceMenu;
