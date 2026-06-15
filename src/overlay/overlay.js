@@ -64,6 +64,7 @@
     ankiCardRequestSeq: 0,
     ankiCardContexts: Object.create(null),
     pendingAnkiMessages: Object.create(null),
+    pendingAnkiStatusTimers: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
     charByPos: Object.create(null),
@@ -2154,6 +2155,68 @@
       return [];
     }
   }
+  function popupContainsNode(node) {
+    let current = node;
+    while (current) {
+      if (current === popupEl) return true;
+      current = current.parentNode || current.host || null;
+    }
+    return false;
+  }
+  function selectionIsInsidePopup(selection) {
+    if (!selection) return false;
+    if (selection.anchorNode || selection.focusNode)
+      return (
+        popupContainsNode(selection.anchorNode) &&
+        popupContainsNode(selection.focusNode)
+      );
+    if (
+      selection.rangeCount > 0 &&
+      typeof selection.getRangeAt === "function"
+    ) {
+      for (let i = 0; i < selection.rangeCount; i++) {
+        const range = selection.getRangeAt(i);
+        if (!range || !popupContainsNode(range.commonAncestorContainer))
+          return false;
+      }
+      return true;
+    }
+    return false;
+  }
+  function popupSelectionText() {
+    let selection = null;
+    try {
+      if (window && typeof window.getSelection === "function")
+        selection = window.getSelection();
+      else if (document && typeof document.getSelection === "function")
+        selection = document.getSelection();
+    } catch (_) {
+      selection = null;
+    }
+    if (!selection || selection.isCollapsed) return "";
+    const text = normalizeWhitespace(
+      typeof selection.toString === "function" ? selection.toString() : "",
+    );
+    if (!text || !selectionIsInsidePopup(selection)) return "";
+    return text;
+  }
+  function cachePopupSelectionForAnkiButton(button) {
+    if (!button || !button.dataset) return;
+    button.dataset.ankiPopupSelectionText = popupSelectionText();
+  }
+  function ankiPayloadContext(context, button) {
+    const selected =
+      popupSelectionText() ||
+      normalizeWhitespace(
+        button && button.dataset
+          ? button.dataset.ankiPopupSelectionText || ""
+          : "",
+      );
+    if (button && button.dataset) button.dataset.ankiPopupSelectionText = "";
+    return Object.assign({}, context || {}, {
+      popupSelectionText: selected,
+    });
+  }
   function clearPendingAnkiMessage(requestId) {
     const key = String(requestId || "");
     if (!key || !state.pendingAnkiMessages[key]) return;
@@ -2199,6 +2262,15 @@
       pending.retryTimer = null;
     }
   }
+  function clearPendingAnkiStatusForButton(button) {
+    const key =
+      button && button.dataset
+        ? String(button.dataset.ankiContextId || "")
+        : "";
+    if (!key || !state.pendingAnkiStatusTimers[key]) return;
+    clearTimeout(state.pendingAnkiStatusTimers[key]);
+    delete state.pendingAnkiStatusTimers[key];
+  }
   function completeAnkiOpenAfterSend(pending) {
     if (!pending || !pending.requestId) return;
     clearPendingAnkiMessage(pending.requestId);
@@ -2231,6 +2303,7 @@
     };
     state.pendingAnkiMessages[requestId] = pending;
     const retryDelay = type === "anki-card-status" ? 700 : 900;
+    const maxRetries = type === "anki-card-status" ? 0 : 1;
     const finalDelay =
       type === "anki-card-status"
         ? 10000
@@ -2240,7 +2313,7 @@
     const sendTimeout = type === "anki-card-status" ? 1800 : 9000;
     const retryIfUnacked = () => {
       if (!state.pendingAnkiMessages[requestId] || pending.acked) return;
-      if (pending.retries >= 1) {
+      if (pending.retries >= maxRetries) {
         failPendingAnkiMessage(pending, "Anki bridge did not respond");
         return;
       }
@@ -2251,26 +2324,14 @@
           " requestId=" +
           requestId,
       );
-      postPluginMessage(payload);
       send();
     };
-    const directSent = postPluginMessage(payload);
-    if (directSent && type === "anki-card-open") {
-      completeAnkiOpenAfterSend(pending);
-    } else if (directSent) {
-      pending.retryTimer = setTimeout(retryIfUnacked, retryDelay);
-    }
     const send = () =>
       sendBridgeMessageWhenReady(
         payload,
         sendTimeout,
         () => {
-          if (
-            !state.pendingAnkiMessages[requestId] ||
-            pending.acked ||
-            directSent
-          )
-            return;
+          if (!state.pendingAnkiMessages[requestId] || pending.acked) return;
           failPendingAnkiMessage(pending, "Anki bridge unavailable");
         },
         () => {
@@ -2289,11 +2350,21 @@
         type === "anki-card-status" ? "" : "Anki request timed out",
       );
     }, finalDelay);
+    const directSent = postPluginMessage(payload);
+    if (directSent && type === "anki-card-open") {
+      completeAnkiOpenAfterSend(pending);
+      return true;
+    }
+    if (directSent) {
+      pending.retryTimer = setTimeout(retryIfUnacked, retryDelay);
+      return true;
+    }
     return send();
   }
   function sendAnkiCardMessage(button, type) {
     const context = ankiContextForButton(button);
     if (!context) return false;
+    if (type !== "anki-card-status") clearPendingAnkiStatusForButton(button);
     if (button.dataset.ankiState === "adding" && type === "anki-card-add") {
       setStatus({ message: "Adding Anki card...", kind: "info" });
       return true;
@@ -2312,7 +2383,7 @@
       type,
       requestId,
       popupSessionId: state.popupSessionId,
-      context,
+      context: ankiPayloadContext(context, button),
       noteIds: noteIdsForButton(button),
       duplicateKnown:
         button && button.dataset
@@ -2325,17 +2396,37 @@
   function requestAnkiCardStatus(button) {
     if (!button || button.dataset.ankiStatusRequested === "true") return;
     button.dataset.ankiStatusRequested = "true";
-    if (!sendAnkiCardMessage(button, "anki-card-status"))
-      setAnkiButtonState(button, {
-        state: "error",
-        message: "Anki bridge unavailable",
-      });
+    const key =
+      button && button.dataset
+        ? String(button.dataset.ankiContextId || "")
+        : "";
+    if (!key) return;
+    state.pendingAnkiStatusTimers[key] = setTimeout(() => {
+      delete state.pendingAnkiStatusTimers[key];
+      if (!popupContainsNode(button)) return;
+      if (
+        button.dataset.ankiState === "adding" ||
+        button.dataset.ankiState === "opening"
+      )
+        return;
+      if (!sendAnkiCardMessage(button, "anki-card-status"))
+        setAnkiButtonState(button, {
+          state: "error",
+          message: "Anki bridge unavailable",
+        });
+    }, 220);
   }
   function bindPopupAnkiButtons() {
     try {
       popupEl.querySelectorAll(".anki-button").forEach((button) => {
         if (button.dataset.ankiBound !== "true") {
           button.dataset.ankiBound = "true";
+          button.addEventListener("pointerdown", () => {
+            cachePopupSelectionForAnkiButton(button);
+          });
+          button.addEventListener("mousedown", () => {
+            cachePopupSelectionForAnkiButton(button);
+          });
           button.addEventListener("click", (event) => {
             try {
               event.preventDefault();

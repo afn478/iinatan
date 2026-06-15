@@ -125,6 +125,16 @@ const overlayAnkiExports = [
   };
 
   const addButton = makeAnkiButton(context, "ctx1");
+  const selectedPopupText = context.document.createTextNode("cat; feline");
+  context.__elements.popup.appendChild(selectedPopupText);
+  context.window.getSelection = () => ({
+    isCollapsed: false,
+    anchorNode: selectedPopupText,
+    focusNode: selectedPopupText,
+    toString() {
+      return "  cat;   feline  ";
+    },
+  });
   overlay.bindPopupAnkiButtons();
   clickButton(addButton);
   assert(
@@ -143,33 +153,22 @@ const overlayAnkiExports = [
     "Direct Anki add messages should include the popup session ID",
   );
   assert(
+    postedAdd.payload.context.popupSelectionText === "cat; feline",
+    "Anki add requests should include manually selected popup text",
+  );
+  assert(
     !context.__sent.some((message) => message.type === "anki-card-add"),
     "Anki add should keep the WebSocket send as a bridge fallback while the socket is connecting",
   );
   context.__openSocket();
-  await wait(120);
-  const sentStatus = context.__sent.find(
-    (message) => message.type === "anki-card-status",
-  );
-  if (sentStatus)
-    overlay.updateAnkiCardState({
-      requestId: sentStatus.requestId,
-      ok: true,
-      ack: true,
-      state: "checking",
-    });
-  if (sentStatus)
-    overlay.updateAnkiCardState({
-      requestId: sentStatus.requestId,
-      ok: true,
-      state: "ready",
-      duplicate: false,
-      noteIds: [],
-    });
+  await wait(930);
   const sentAdd = context.__sent.find(
     (message) => message.type === "anki-card-add",
   );
-  assert(sentAdd, "Anki add should send once the bridge socket opens");
+  assert(
+    sentAdd,
+    "Anki add should use the WebSocket fallback when the direct post is not acknowledged",
+  );
   assert(
     sentAdd.requestId === postedAdd.payload.requestId,
     "Bridge fallback should reuse the direct Anki request ID",
@@ -177,6 +176,10 @@ const overlayAnkiExports = [
   assert(
     sentAdd.popupSessionId === overlay.state.popupSessionId,
     "Anki add requests should include the popup session ID",
+  );
+  assert(
+    sentAdd.context.popupSelectionText === "cat; feline",
+    "Anki bridge fallback should preserve manually selected popup text",
   );
   overlay.updateAnkiCardState({
     requestId: sentAdd.requestId,
@@ -261,7 +264,10 @@ const overlayAnkiExports = [
   const firstRetryAdd = retryContext.__sent.find(
     (message) => message.type === "anki-card-add",
   );
-  assert(firstRetryAdd, "Anki add should send over the WebSocket bridge");
+  assert(
+    !firstRetryAdd,
+    "Anki add should wait for a direct acknowledgement before using the WebSocket fallback",
+  );
   clickButton(retryButton);
   await wait(20);
   assert(
@@ -269,20 +275,16 @@ const overlayAnkiExports = [
       .length === 1,
     "Clicking again while an Anki add is in flight should not enqueue another add",
   );
-  await wait(980);
+  await wait(930);
   const addRetries = retryContext.__sent.filter(
     (message) => message.type === "anki-card-add",
   );
   assert(
-    addRetries.length === 2,
-    "Anki add should retry once when the bridge does not acknowledge receipt",
-  );
-  assert(
-    addRetries[0].requestId === addRetries[1].requestId,
-    "Anki add retry should keep the same request ID",
+    addRetries.length === 1,
+    "Anki add should fall back to one WebSocket send when the direct post is not acknowledged",
   );
   retryOverlay.updateAnkiCardState({
-    requestId: firstRetryAdd.requestId,
+    requestId: addRetries[0].requestId,
     ok: true,
     ack: true,
     state: "adding",
@@ -290,11 +292,11 @@ const overlayAnkiExports = [
   await wait(980);
   assert(
     retryContext.__sent.filter((message) => message.type === "anki-card-add")
-      .length === 2,
-    "Anki add should stop retrying after an acknowledgement",
+      .length === 1,
+    "Anki add should not keep retrying after an acknowledgement",
   );
   retryOverlay.updateAnkiCardState({
-    requestId: firstRetryAdd.requestId,
+    requestId: addRetries[0].requestId,
     ok: true,
     state: "added",
     message: "Added Anki card.",
@@ -343,8 +345,8 @@ const overlayAnkiExports = [
     (message) => message.type === "anki-card-add",
   );
   assert(
-    socketAdd,
-    "Anki add should send before receiving bridge socket replies",
+    !socketAdd,
+    "Anki add should not use the WebSocket bridge before the direct post times out",
   );
   const socket = socketContext.__sockets[socketContext.__sockets.length - 1];
   assert(
@@ -354,7 +356,7 @@ const overlayAnkiExports = [
   socket.onmessage({
     data: JSON.stringify({
       type: "anki-card-state",
-      requestId: socketAdd.requestId,
+      requestId: socketPostedAdd.payload.requestId,
       ok: true,
       ack: true,
       state: "adding",
@@ -363,7 +365,7 @@ const overlayAnkiExports = [
   socket.onmessage({
     data: JSON.stringify({
       type: "anki-card-state",
-      requestId: socketAdd.requestId,
+      requestId: socketPostedAdd.payload.requestId,
       popupSessionId: "stale-popup",
       ok: true,
       state: "added",
@@ -378,8 +380,8 @@ const overlayAnkiExports = [
   socket.onmessage({
     data: JSON.stringify({
       type: "anki-card-state",
-      requestId: socketAdd.requestId,
-      popupSessionId: socketAdd.popupSessionId,
+      requestId: socketPostedAdd.payload.requestId,
+      popupSessionId: socketPostedAdd.payload.popupSessionId,
       ok: true,
       state: "added",
       noteId: 24680,
@@ -440,9 +442,12 @@ const overlayAnkiExports = [
   const openMessage = openContext.__sent.find(
     (message) => message.type === "anki-card-open",
   );
-  assert(openMessage, "Duplicate book buttons should send an open request");
   assert(
-    openMessage.noteIds[0] === 12345,
+    !openMessage,
+    "Duplicate book buttons should not need the WebSocket bridge after a direct open post",
+  );
+  assert(
+    postedOpenMessage.payload.noteIds[0] === 12345,
     "Duplicate open requests should include the detected note ID",
   );
   assert(
@@ -463,18 +468,51 @@ const overlayAnkiExports = [
     "Duplicate open status should clear after its short confirmation",
   );
   openOverlay.updateAnkiCardState({
-    requestId: openMessage.requestId,
+    requestId: postedOpenMessage.payload.requestId,
     ok: true,
     ack: true,
     state: "opening",
   });
   openOverlay.updateAnkiCardState({
-    requestId: openMessage.requestId,
+    requestId: postedOpenMessage.payload.requestId,
     ok: true,
     state: "opened",
     noteIds: [12345],
     message: "Opened in Anki.",
   });
+
+  const { context: outsideSelectionContext, overlay: outsideSelectionOverlay } =
+    loadOverlayForTest(overlayAnkiExports);
+  outsideSelectionOverlay.applyConfig({
+    overlayBridgePort: 19741,
+    anki: { enabled: true, configured: true, duplicateMode: "prevent" },
+  });
+  outsideSelectionOverlay.state.ankiCardContexts.ctxOutside =
+    overlay.state.ankiCardContexts.ctx1;
+  const outsideSelectionButton = makeAnkiButton(
+    outsideSelectionContext,
+    "ctxOutside",
+  );
+  const outsideSelectedText =
+    outsideSelectionContext.document.createTextNode("outside");
+  outsideSelectionContext.__body.appendChild(outsideSelectedText);
+  outsideSelectionContext.window.getSelection = () => ({
+    isCollapsed: false,
+    anchorNode: outsideSelectedText,
+    focusNode: outsideSelectedText,
+    toString() {
+      return "outside";
+    },
+  });
+  outsideSelectionOverlay.bindPopupAnkiButtons();
+  clickButton(outsideSelectionButton);
+  const outsideSelectionAdd = outsideSelectionContext.__posted.find(
+    (message) => message.name === "anki-card-add",
+  );
+  assert(
+    outsideSelectionAdd.payload.context.popupSelectionText === "",
+    "Anki add requests should ignore selections outside the dictionary popup",
+  );
 
   const { context: staleContext, overlay: staleOverlay } =
     loadOverlayForTest(overlayAnkiExports);
@@ -533,29 +571,30 @@ const overlayAnkiExports = [
   staleContext.__posted.length = 0;
   clickButton(staleButton);
   await wait(20);
-  const addMessage = staleContext.__sent.find(
-    (message) => message.type === "anki-card-add",
+  const addMessage = staleContext.__posted.find(
+    (message) => message.name === "anki-card-add",
   );
   assert(
     addMessage,
-    "Ready buttons should send an add request after a deleted duplicate disappears",
+    "Ready buttons should post an add request after a deleted duplicate disappears",
   );
   assert(
-    addMessage.duplicateKnown === "ready",
+    addMessage.payload.duplicateKnown === "ready",
     "Ready add requests should not report a known duplicate",
   );
   assert(
-    Array.isArray(addMessage.noteIds) && addMessage.noteIds.length === 0,
+    Array.isArray(addMessage.payload.noteIds) &&
+      addMessage.payload.noteIds.length === 0,
     "Ready add requests should not send stale note IDs",
   );
   staleOverlay.updateAnkiCardState({
-    requestId: addMessage.requestId,
+    requestId: addMessage.payload.requestId,
     ok: true,
     ack: true,
     state: "adding",
   });
   staleOverlay.updateAnkiCardState({
-    requestId: addMessage.requestId,
+    requestId: addMessage.payload.requestId,
     ok: true,
     state: "added",
     message: "Added Anki card.",
@@ -571,18 +610,19 @@ const overlayAnkiExports = [
     overlay.state.ankiCardContexts.ctx1;
   const passiveButton = makeAnkiButton(passiveContext, "ctxPassive");
   passiveOverlay.bindPopupAnkiButtons();
-  const passiveStatus = passiveContext.__sent.find(
-    (message) => message.type === "anki-card-status",
+  await wait(260);
+  const passiveStatus = passiveContext.__posted.find(
+    (message) => message.name === "anki-card-status",
   );
   assert(passiveStatus, "Anki buttons should request passive status checks");
   passiveOverlay.updateAnkiCardState({
-    requestId: passiveStatus.requestId,
+    requestId: passiveStatus.payload.requestId,
     ok: true,
     ack: true,
     state: "checking",
   });
   passiveOverlay.updateAnkiCardState({
-    requestId: passiveStatus.requestId,
+    requestId: passiveStatus.payload.requestId,
     ok: false,
     state: "error",
     message:
@@ -600,21 +640,21 @@ const overlayAnkiExports = [
   passiveContext.__posted.length = 0;
   clickButton(passiveButton);
   await wait(20);
-  const deliberateAdd = passiveContext.__sent.find(
-    (message) => message.type === "anki-card-add",
+  const deliberateAdd = passiveContext.__posted.find(
+    (message) => message.name === "anki-card-add",
   );
   assert(
     deliberateAdd,
     "Errored Anki buttons should still allow explicit adds",
   );
   passiveOverlay.updateAnkiCardState({
-    requestId: deliberateAdd.requestId,
+    requestId: deliberateAdd.payload.requestId,
     ok: true,
     ack: true,
     state: "adding",
   });
   passiveOverlay.updateAnkiCardState({
-    requestId: deliberateAdd.requestId,
+    requestId: deliberateAdd.payload.requestId,
     ok: false,
     state: "error",
     message:

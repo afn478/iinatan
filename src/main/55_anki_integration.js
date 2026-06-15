@@ -3,11 +3,25 @@ let ankiManagerRefreshInFlight = false;
 let ankiManagerRefreshSerial = 0;
 let ankiModelFieldCache = Object.create(null);
 let ankiActiveBridgeRequests = Object.create(null);
+let ankiConnectVersionCache = {
+  key: "",
+  version: null,
+  expiresAt: 0,
+  promise: null,
+};
+let ankiStatusCache = Object.create(null);
+let ankiStatusInFlight = Object.create(null);
+let ankiStatusQueueTail = Promise.resolve();
+let ankiStatusQueuedCount = 0;
 
 const ANKI_CONNECT_VERSION = 6;
 const ANKI_CONNECT_RECONNECT_ATTEMPTS = 3;
 const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
 const ANKI_MEDIA_DOCUMENT_STEM_MAX_LENGTH = 14;
+const ANKI_CONNECT_VERSION_CACHE_MS = 30000;
+const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
+const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
+const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 4;
 
 function ankiActiveProfilePreferences(overrides) {
   const manifest = readManifest();
@@ -90,7 +104,7 @@ function ankiMarkerDefinitions(language) {
     { marker: "{reading}", label: "Reading" },
     { marker: "{furigana}", label: "Headword ruby" },
     { marker: "{furigana-plain}", label: "Furigana text" },
-    { marker: "{popup-selection-text}", label: "Looked-up text" },
+    { marker: "{popup-selection-text}", label: "Popup selection" },
     { marker: "{sentence}", label: "Subtitle sentence" },
     { marker: "{cloze-prefix}", label: "Cloze before word" },
     { marker: "{cloze-body}", label: "Cloze word" },
@@ -264,9 +278,8 @@ async function ankiConnectInvokeCurlOnce(payload, url, timeout) {
     );
   } finally {
     try {
-      Promise.resolve(
-        utils.exec("/bin/rm", ["-f", requestPath], dataRoot()),
-      ).catch((_) => {});
+      if (typeof file.delete === "function" && file.exists(requestPath))
+        file.delete(requestPath);
     } catch (_) {}
   }
   if (!result || result.status !== 0) {
@@ -328,12 +341,56 @@ async function ankiConnectInvoke(action, params, options) {
   }
   throw lastError || new Error("AnkiConnect request failed.");
 }
-async function ankiRequireConnectable(prefs) {
-  const version = await ankiConnectInvoke(
-    "version",
-    {},
-    { url: prefs.ankiConnectUrl },
+function ankiConnectVersionCacheKey(prefs) {
+  return safeAnkiConnectUrl(prefs && prefs.ankiConnectUrl);
+}
+async function ankiCachedConnectVersion(prefs) {
+  const key = ankiConnectVersionCacheKey(prefs);
+  if (!key) throw new Error("Invalid AnkiConnect URL.");
+  const now = Date.now();
+  if (
+    ankiConnectVersionCache.key === key &&
+    ankiConnectVersionCache.version !== null &&
+    ankiConnectVersionCache.expiresAt > now
+  )
+    return ankiConnectVersionCache.version;
+  if (ankiConnectVersionCache.key === key && ankiConnectVersionCache.promise)
+    return ankiConnectVersionCache.promise;
+  const promise = ankiConnectInvoke("version", {}, { url: key }).then(
+    (version) => {
+      ankiConnectVersionCache = {
+        key,
+        version,
+        expiresAt: Date.now() + ANKI_CONNECT_VERSION_CACHE_MS,
+        promise: null,
+      };
+      return version;
+    },
   );
+  ankiConnectVersionCache = {
+    key,
+    version: null,
+    expiresAt: 0,
+    promise,
+  };
+  try {
+    return await promise;
+  } catch (error) {
+    if (
+      ankiConnectVersionCache.key === key &&
+      ankiConnectVersionCache.promise === promise
+    )
+      ankiConnectVersionCache = {
+        key: "",
+        version: null,
+        expiresAt: 0,
+        promise: null,
+      };
+    throw error;
+  }
+}
+async function ankiRequireConnectable(prefs) {
+  const version = await ankiCachedConnectVersion(prefs);
   if (version === undefined || version === null)
     throw new Error("AnkiConnect did not return a version.");
 }
@@ -1340,6 +1397,9 @@ function ankiCardContextFromPayload(payload) {
   const surface = ankiNormalizeWhitespace(
     raw.surface || ankiLookupSurface(raw, entry) || expression,
   );
+  const popupSelectionText = ankiNormalizeWhitespace(
+    raw.popupSelectionText || raw.selectionText || raw.selectedText || "",
+  );
   const position = Number(
     raw.position !== undefined
       ? raw.position
@@ -1362,6 +1422,7 @@ function ankiCardContextFromPayload(payload) {
     reading,
     sentence,
     surface,
+    popupSelectionText,
     position: Number.isFinite(position) ? position : 0,
     clozePrefix: cloze.prefix,
     clozeBody: cloze.body,
@@ -1424,7 +1485,8 @@ function ankiMarkerValue(marker, context, media) {
     );
   if (key === "furigana")
     return ankiFuriganaHtml(context.expression, context.reading);
-  if (key === "popup-selection-text") return ankiEscapeHtml(context.surface);
+  if (key === "popup-selection-text")
+    return ankiEscapeHtml(context.popupSelectionText);
   if (key === "sentence") return ankiEscapeHtml(context.sentence);
   if (key === "cloze-prefix") return ankiEscapeHtml(context.clozePrefix);
   if (key === "cloze-body") return ankiEscapeHtml(context.clozeBody);
@@ -2023,6 +2085,85 @@ async function ankiConfiguredFieldNames(prefs) {
     return Object.keys(ankiFieldTemplatesFromPrefs(prefs));
   }
 }
+function ankiStableJson(value) {
+  if (Array.isArray(value))
+    return "[" + value.map((item) => ankiStableJson(item)).join(",") + "]";
+  if (value && typeof value === "object") {
+    return (
+      "{" +
+      Object.keys(value)
+        .sort()
+        .map((key) => JSON.stringify(key) + ":" + ankiStableJson(value[key]))
+        .join(",") +
+      "}"
+    );
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+function ankiPassiveStatusCacheKey(prefs, fields) {
+  return [
+    safeAnkiConnectUrl(prefs && prefs.ankiConnectUrl),
+    String((prefs && prefs.ankiDeckName) || ""),
+    String((prefs && prefs.ankiModelName) || ""),
+    String((prefs && prefs.ankiDuplicateScope) || ""),
+    String((prefs && prefs.ankiDuplicateMode) || ""),
+    ankiStableJson(fields || {}),
+  ].join("\n");
+}
+function ankiCloneStatusPayload(payload) {
+  const out = Object.assign({}, payload || {});
+  if (Array.isArray(out.noteIds)) out.noteIds = out.noteIds.slice();
+  return out;
+}
+function ankiRememberPassiveStatus(key, payload) {
+  if (!key || !payload) return;
+  ankiStatusCache[key] = {
+    expiresAt: Date.now() + ANKI_PASSIVE_STATUS_CACHE_MS,
+    payload: ankiCloneStatusPayload(payload),
+  };
+  const keys = Object.keys(ankiStatusCache);
+  if (keys.length <= ANKI_PASSIVE_STATUS_CACHE_LIMIT) return;
+  keys
+    .sort(
+      (a, b) =>
+        Number(ankiStatusCache[a] && ankiStatusCache[a].expiresAt) -
+        Number(ankiStatusCache[b] && ankiStatusCache[b].expiresAt),
+    )
+    .slice(0, keys.length - ANKI_PASSIVE_STATUS_CACHE_LIMIT)
+    .forEach((oldKey) => {
+      try {
+        delete ankiStatusCache[oldKey];
+      } catch (_) {}
+    });
+}
+function ankiCachedPassiveStatus(key) {
+  const cached = key ? ankiStatusCache[key] : null;
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    try {
+      delete ankiStatusCache[key];
+    } catch (_) {}
+    return null;
+  }
+  return ankiCloneStatusPayload(cached.payload);
+}
+function ankiPassiveStatusQueueBusyPayload() {
+  return {
+    ok: true,
+    state: "ready",
+    duplicate: false,
+    noteIds: [],
+    message: "Add Anki card",
+  };
+}
+function ankiRunQueuedPassiveStatus(task) {
+  ankiStatusQueuedCount++;
+  const run = ankiStatusQueueTail.catch(() => {}).then(task);
+  ankiStatusQueueTail = run.catch(() => {});
+  return run.finally(() => {
+    ankiStatusQueuedCount = Math.max(0, ankiStatusQueuedCount - 1);
+  });
+}
 async function ankiCardStatusForContext(payload) {
   const prefs = ankiActiveProfilePreferences();
   if (!ankiProfileConfigured(prefs))
@@ -2031,28 +2172,47 @@ async function ankiCardStatusForContext(payload) {
       state: "disabled",
       message: "Anki export is not configured.",
     };
-  await ankiRequireConnectable(prefs);
   const templates = ankiFieldTemplatesFromPrefs(prefs);
   const context = ankiCardContextFromPayload(payload);
   const fields = renderAnkiFields(templates, context, {});
-  const fieldNames = await ankiConfiguredFieldNames(prefs);
-  const duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
-  if (duplicates.length) {
+  const cacheKey = ankiPassiveStatusCacheKey(prefs, fields);
+  const cached = ankiCachedPassiveStatus(cacheKey);
+  if (cached) return cached;
+  if (ankiStatusInFlight[cacheKey])
+    return ankiCloneStatusPayload(await ankiStatusInFlight[cacheKey]);
+  if (ankiStatusQueuedCount >= ANKI_PASSIVE_STATUS_QUEUE_LIMIT)
+    return ankiPassiveStatusQueueBusyPayload();
+  const task = ankiRunQueuedPassiveStatus(async () => {
+    await ankiRequireConnectable(prefs);
+    const fieldNames = await ankiConfiguredFieldNames(prefs);
+    const duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
+    if (duplicates.length)
+      return {
+        ok: true,
+        state: "duplicate",
+        duplicate: true,
+        noteIds: duplicates,
+        message: "Duplicate found.",
+      };
     return {
       ok: true,
-      state: "duplicate",
-      duplicate: true,
-      noteIds: duplicates,
-      message: "Duplicate found.",
+      state: "ready",
+      duplicate: false,
+      noteIds: [],
+      message: "Ready to add.",
     };
+  });
+  ankiStatusInFlight[cacheKey] = task;
+  try {
+    const status = await task;
+    if (status && status.ok !== false)
+      ankiRememberPassiveStatus(cacheKey, status);
+    return ankiCloneStatusPayload(status);
+  } finally {
+    try {
+      delete ankiStatusInFlight[cacheKey];
+    } catch (_) {}
   }
-  return {
-    ok: true,
-    state: "ready",
-    duplicate: false,
-    noteIds: [],
-    message: "Ready to add.",
-  };
 }
 function postAnkiCardState(requestId, payload) {
   const message = Object.assign(

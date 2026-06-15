@@ -582,6 +582,59 @@ async function testAnkiBridgeActions() {
   );
 }
 
+async function testPassiveAnkiStatusCoalesces() {
+  setActiveAnkiPrefs(
+    makeConfiguredAnkiPrefs({
+      ankiConnectUrl: "http://127.0.0.1:18765",
+      ankiDuplicateCheck: true,
+    }),
+  );
+  const previousInvoke = context.ankiConnectInvoke;
+  const calls = [];
+  context.ankiConnectInvoke = async (action, params, options) => {
+    calls.push({ action, params, options });
+    if (action === "version") return 6;
+    if (action === "modelFieldNames") return ["Front", "Back"];
+    if (action === "canAddNotesWithErrorDetail") {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return [{ canAdd: true, error: null }];
+    }
+    return null;
+  };
+  const payload = {
+    requestId: "status-coalesce-a",
+    popupSessionId: "status-coalesce",
+    context: {
+      expression: "猫",
+      entry: { term: { expression: "猫", glossaries: [{ glossary: "cat" }] } },
+    },
+  };
+  const [first, second] = await Promise.all([
+    context.ankiCardStatusForContext(payload),
+    context.ankiCardStatusForContext(
+      Object.assign({}, payload, { requestId: "status-coalesce-b" }),
+    ),
+  ]);
+  assert(
+    first.state === "ready" && second.state === "ready",
+    "Coalesced passive Anki status checks should resolve normally",
+  );
+  assert(
+    calls.filter((call) => call.action === "canAddNotesWithErrorDetail")
+      .length === 1,
+    "Identical passive Anki status checks should share one duplicate probe",
+  );
+  await context.ankiCardStatusForContext(
+    Object.assign({}, payload, { requestId: "status-coalesce-c" }),
+  );
+  assert(
+    calls.filter((call) => call.action === "canAddNotesWithErrorDetail")
+      .length === 1,
+    "Recent passive Anki status checks should be served from cache",
+  );
+  context.ankiConnectInvoke = previousInvoke;
+}
+
 const prefs = context.normalizeProfilePreferences({
   ankiConnectUrl: "ftp://example.invalid",
   ankiConnectTimeoutSeconds: 999,
@@ -743,6 +796,7 @@ assert(
 const rendered = context.renderAnkiFields(
   {
     Expression: "{expression}",
+    SelectionText: "{popup-selection-text}",
     Sentence: "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
     SentenceAudio: "{sentence-audio}",
     ExpressionAudio: "{audio}",
@@ -762,6 +816,10 @@ const rendered = context.renderAnkiFields(
 assert(
   rendered.Expression === "猫",
   "Expression marker should render the headword",
+);
+assert(
+  rendered.SelectionText === "",
+  "Popup selection marker should stay empty when no popup text was manually selected",
 );
 assert(
   rendered.Sentence === "私は<b>猫</b>です。",
@@ -795,6 +853,33 @@ assert(
 assert(
   rendered.MiscInfo === "猫の映画 1:23",
   "Document metadata markers should render together",
+);
+
+const popupSelectionContext = context.ankiCardContextFromPayload({
+  context: {
+    sentence: "私は猫です。",
+    position: 2,
+    expression: "猫",
+    reading: "ねこ",
+    surface: "猫",
+    popupSelectionText: "cat; feline",
+    entry,
+    result: {
+      text: "私は猫です。",
+      lookupStart: 2,
+      lookupEnd: 3,
+      language: "ja",
+    },
+  },
+});
+const popupSelectionRendered = context.renderAnkiFields(
+  { SelectionText: "{popup-selection-text}" },
+  popupSelectionContext,
+  {},
+);
+assert(
+  popupSelectionRendered.SelectionText === "cat; feline",
+  "Popup selection marker should render manually selected popup text",
 );
 
 const singleGlossaryDatapointEntry = {
@@ -1016,6 +1101,7 @@ assert(
 testAnkiConnectRetries()
   .then(testAnkiBridgeRecoversAfterConnectTimeout)
   .then(testAnkiBridgeActions)
+  .then(testPassiveAnkiStatusCoalesces)
   .then(() => {
     console.log("anki integration tests passed");
   })

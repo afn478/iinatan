@@ -157,12 +157,12 @@ assert(
   "Lapis autofill should explicitly include Chinese profiles",
 );
 assert(
-  !/selectiontext:\s*'\{popup-selection-text\}'/.test(managerHtml),
-  "Lapis autofill should not fill SelectionText by default",
+  /selectiontext:\s*'\{popup-selection-text\}'/.test(managerHtml),
+  "Lapis autofill should fill SelectionText with manual popup selection",
 );
 assert(
-  !/selectedtext:\s*'\{popup-selection-text\}'/.test(managerHtml),
-  "Lapis autofill should not fill SelectedText by default",
+  /selectedtext:\s*'\{popup-selection-text\}'/.test(managerHtml),
+  "Lapis autofill should fill SelectedText with manual popup selection",
 );
 assert(
   /data-profile-pref="ankiDuplicateMode"/.test(managerHtml),
