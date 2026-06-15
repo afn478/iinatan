@@ -49,7 +49,7 @@ Use this only if you want the newest in-progress changes and are comfortable wit
 
 ## Quick Start
 
-. Open **Plugins -> iinatan -> Settings...**.
+1. Open **Plugins -> iinatan -> Settings...**.
 2. Choose the lookup language you want to use.
 3. Go to the dictionaries section
 3. Click `Get recommended Dictionaries...` and download the available dictionaries. Alternatively, import compatible dictionary ZIP files.
