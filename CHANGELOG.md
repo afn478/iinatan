@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.0.0 - 2026-06-15
+
 ### Added
 
 - Added a Prettier JavaScript formatting workflow for project source and tests while leaving generated runtime files ignored.
@@ -18,9 +20,14 @@
 - Fixed Anki reveal actions so opening Anki's browser is fire-and-forget and cannot stall later popup add/open actions.
 - Fixed Anki bridge request IDs so recreated popup sessions can add more than one card per IINA session.
 - Fixed Anki button clicks so dynamically swapped icons remain IINA-clickable and add/open requests use the documented webview message channel before WebSocket fallback.
+- Fixed Anki popup traffic so passive duplicate checks are delayed, coalesced, cached, and bounded, preventing repeated hover/add cycles from exhausting IINA subprocess monitoring threads.
 - Fixed secondary popup entries so each visible headword gets its own Anki add button with that entry's headword.
 - Changed Anki media filenames to use a short document-name prefix plus a hex suffix for screenshot and audio captures.
-- Removed SelectionText and SelectedText from Lapis Anki autofill defaults while keeping the looked-up text marker available for manual field mappings.
+- Changed the Anki popup selection marker to use text manually selected inside the dictionary popup, and restored Lapis SelectionText/SelectedText autofill defaults.
+
+### Known Issues
+
+- Anki duplicate checking is currently regressed after the passive status throttling change and may not reliably detect existing notes.
 
 ## 1.9.1 - 2026-06-14
 
