@@ -4240,6 +4240,8 @@
       markPendingAnkiMessageAcked(requestId);
       return;
     }
+    const pending = state.pendingAnkiMessages[String(requestId || "")];
+    const pendingType = pending && pending.type ? String(pending.type) : "";
     clearPendingAnkiMessage(requestId);
     try {
       popupEl.querySelectorAll(".anki-button").forEach((button) => {
@@ -4247,7 +4249,12 @@
         setAnkiButtonState(button, payload || {});
       });
     } catch (_) {}
-    if (payload && payload.ok === false && payload.message)
+    if (
+      payload &&
+      payload.ok === false &&
+      payload.message &&
+      pendingType !== "anki-card-status"
+    )
       setStatus({ message: payload.message, kind: "error", ttlMs: 8000 });
     else if (payload && payload.state === "added")
       setStatus({

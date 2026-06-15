@@ -44,6 +44,10 @@ assert(
   "AnkiConnect should default to the local AnkiConnect server",
 );
 assert(
+  info.preferenceDefaults.ankiConnectTimeoutSeconds === 3,
+  "AnkiConnect response timeout should default to three seconds",
+);
+assert(
   info.preferenceDefaults.ankiAudioFormat === "mp3",
   "Sentence audio should default to MP3",
 );
@@ -125,6 +129,12 @@ assert(
 assert(
   /id="ankiConnectUrl" data-profile-pref="ankiConnectUrl"/.test(managerHtml),
   "Anki settings should expose the AnkiConnect URL",
+);
+assert(
+  /id="ankiConnectTimeoutSeconds" data-profile-pref="ankiConnectTimeoutSeconds"/.test(
+    managerHtml,
+  ),
+  "Anki settings should expose the AnkiConnect response timeout",
 );
 assert(
   /id="ankiReachability"/.test(managerHtml),
@@ -588,6 +598,12 @@ assert(
 assert(
   /ankiActiveBridgeRequests/.test(ankiSource),
   "Anki bridge handlers should dedupe retried requests by request ID",
+);
+assert(
+  /ANKI_CONNECT_RECONNECT_ATTEMPTS\s*=\s*3/.test(ankiSource) &&
+    /Promise\.race/.test(ankiSource) &&
+    /--connect-timeout/.test(ankiSource),
+  "AnkiConnect requests should retry bounded curl requests with a JS watchdog",
 );
 assert(
   /ack:\s*true/.test(ankiSource),

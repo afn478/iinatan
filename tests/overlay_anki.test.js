@@ -561,6 +561,72 @@ const overlayAnkiExports = [
     message: "Added Anki card.",
   });
 
+  const { context: passiveContext, overlay: passiveOverlay } =
+    loadOverlayForTest(overlayAnkiExports);
+  passiveOverlay.applyConfig({
+    overlayBridgePort: 19741,
+    anki: { enabled: true, configured: true, duplicateMode: "prevent" },
+  });
+  passiveOverlay.state.ankiCardContexts.ctxPassive =
+    overlay.state.ankiCardContexts.ctx1;
+  const passiveButton = makeAnkiButton(passiveContext, "ctxPassive");
+  passiveOverlay.bindPopupAnkiButtons();
+  const passiveStatus = passiveContext.__sent.find(
+    (message) => message.type === "anki-card-status",
+  );
+  assert(passiveStatus, "Anki buttons should request passive status checks");
+  passiveOverlay.updateAnkiCardState({
+    requestId: passiveStatus.requestId,
+    ok: true,
+    ack: true,
+    state: "checking",
+  });
+  passiveOverlay.updateAnkiCardState({
+    requestId: passiveStatus.requestId,
+    ok: false,
+    state: "error",
+    message:
+      "AnkiConnect did not respond after 3 attempts in 0.1 seconds (timeout 3 seconds per attempt).",
+  });
+  assert(
+    passiveButton.dataset.ankiState === "error",
+    "Passive Anki status failures should mark the button as errored",
+  );
+  assert(
+    passiveContext.__elements.status.textContent === "",
+    "Passive Anki status failures should not show the global status banner",
+  );
+  passiveContext.__sent.length = 0;
+  passiveContext.__posted.length = 0;
+  clickButton(passiveButton);
+  await wait(20);
+  const deliberateAdd = passiveContext.__sent.find(
+    (message) => message.type === "anki-card-add",
+  );
+  assert(
+    deliberateAdd,
+    "Errored Anki buttons should still allow explicit adds",
+  );
+  passiveOverlay.updateAnkiCardState({
+    requestId: deliberateAdd.requestId,
+    ok: true,
+    ack: true,
+    state: "adding",
+  });
+  passiveOverlay.updateAnkiCardState({
+    requestId: deliberateAdd.requestId,
+    ok: false,
+    state: "error",
+    message:
+      "AnkiConnect did not respond after 3 attempts in 0.1 seconds (timeout 3 seconds per attempt).",
+  });
+  assert(
+    /AnkiConnect did not respond/.test(
+      passiveContext.__elements.status.textContent,
+    ),
+    "Explicit Anki add failures should still show a status message",
+  );
+
   console.log("overlay anki tests passed");
 })().catch((error) => {
   console.error(error);

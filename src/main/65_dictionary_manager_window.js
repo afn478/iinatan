@@ -311,6 +311,8 @@ function registerDictionaryManagerHandlers() {
       if (
         typeof refreshDictionaryManagerAnkiState === "function" &&
         (beforePrefs.ankiConnectUrl !== nextPrefs.ankiConnectUrl ||
+          beforePrefs.ankiConnectTimeoutSeconds !==
+            nextPrefs.ankiConnectTimeoutSeconds ||
           beforePrefs.ankiModelName !== nextPrefs.ankiModelName)
       ) {
         refreshDictionaryManagerAnkiState(payload && payload.preferences);

@@ -19,6 +19,7 @@
     "audioSourcesJson": "[{\"url\":\"http://127.0.0.1:5050/?term={term}&reading={reading}\"}]",
     "ankiEnabled": false,
     "ankiConnectUrl": "http://127.0.0.1:8765",
+    "ankiConnectTimeoutSeconds": 3,
     "ankiDeckName": "",
     "ankiModelName": "",
     "ankiFieldTemplatesJson": "{}",

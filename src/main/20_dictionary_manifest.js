@@ -14,6 +14,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   audioSourcesJson: DEFAULT_AUDIO_SOURCES_JSON,
   ankiEnabled: false,
   ankiConnectUrl: DEFAULT_ANKI_CONNECT_URL,
+  ankiConnectTimeoutSeconds: 3,
   ankiDeckName: "",
   ankiModelName: "",
   ankiFieldTemplatesJson: DEFAULT_ANKI_FIELD_TEMPLATES_JSON,
@@ -107,6 +108,12 @@ function normalizeAnkiConnectUrl(value) {
   if (!url || !/^https?:\/\//i.test(url) || /[\s<>"']/.test(url))
     return DEFAULT_ANKI_CONNECT_URL;
   return url.replace(/\/+$/, "");
+}
+function normalizeAnkiConnectTimeoutSeconds(value) {
+  const timeout = Math.round(
+    Number(value) || PROFILE_PREFERENCE_DEFAULTS.ankiConnectTimeoutSeconds,
+  );
+  return Math.max(1, Math.min(30, timeout));
 }
 function normalizeAnkiFieldTemplates(value) {
   let raw = value;
@@ -233,6 +240,9 @@ function normalizeProfilePreferences(prefs) {
     PROFILE_PREFERENCE_DEFAULTS.ankiEnabled,
   );
   out.ankiConnectUrl = normalizeAnkiConnectUrl(out.ankiConnectUrl);
+  out.ankiConnectTimeoutSeconds = normalizeAnkiConnectTimeoutSeconds(
+    out.ankiConnectTimeoutSeconds,
+  );
   out.ankiDeckName = String(out.ankiDeckName || "").trim();
   out.ankiModelName = String(out.ankiModelName || "").trim();
   out.ankiFieldTemplatesJson = normalizeAnkiFieldTemplatesJsonPreference(

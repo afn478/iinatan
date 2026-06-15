@@ -8,13 +8,16 @@ const files = [
   "src/main/55_anki_integration.js",
 ];
 const overlayMessages = [];
+const filesByPath = Object.create(null);
+let fastTimers = false;
 
 const context = {
   console,
   Date,
   Math,
   setTimeout(callback, delay) {
-    if (Number(delay) >= 1000) return { ignored: true };
+    if (fastTimers && Number(delay) < 50000) return setTimeout(callback, 0);
+    if (Number(delay) >= 50000) return { ignored: true };
     return setTimeout(callback, delay);
   },
   clearTimeout(timer) {
@@ -61,7 +64,9 @@ const context = {
     },
   },
   file: {
-    write() {},
+    write(path, value) {
+      filesByPath[String(path || "")] = String(value || "");
+    },
     exists() {
       return false;
     },
@@ -96,6 +101,7 @@ vm.runInContext(
     .join("\n"),
   context,
 );
+const realAnkiConnectInvoke = context.ankiConnectInvoke;
 
 function makeConfiguredAnkiPrefs(overrides) {
   return Object.assign(
@@ -132,8 +138,210 @@ function setActiveAnkiPrefs(prefs) {
 }
 
 async function flushAsyncWork() {
-  for (let i = 0; i < 4; i++) await Promise.resolve();
-  await new Promise((resolve) => setImmediate(resolve));
+  for (let i = 0; i < 16; i++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+async function waitForOverlayMessage(predicate) {
+  for (let i = 0; i < 12; i++) {
+    if (context.__overlayMessages.some(predicate)) return true;
+    await flushAsyncWork();
+  }
+  return context.__overlayMessages.some(predicate);
+}
+
+async function testAnkiConnectRetries() {
+  const previousExec = context.utils.exec;
+  const hungCalls = [];
+  fastTimers = true;
+  setActiveAnkiPrefs(makeConfiguredAnkiPrefs({ ankiConnectTimeoutSeconds: 1 }));
+  context.utils.exec = async (cmd, args) => {
+    if (cmd === "/usr/bin/curl") {
+      hungCalls.push(args.slice());
+      return new Promise(() => {});
+    }
+    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
+    return previousExec(cmd, args);
+  };
+  try {
+    await realAnkiConnectInvoke("version", {}, {});
+    assert(false, "Hung AnkiConnect should fail after retries");
+  } catch (error) {
+    assert(
+      /after 3 attempts in [0-9.]+ seconds \(timeout 1 seconds per attempt\)/.test(
+        String(error && error.message),
+      ),
+      "Hung AnkiConnect should report the retry count and timeout",
+    );
+  }
+  assert(
+    hungCalls.length === 3,
+    "Hung AnkiConnect should be retried with three fresh curl requests",
+  );
+  fastTimers = false;
+
+  const curlCalls = [];
+  setActiveAnkiPrefs(makeConfiguredAnkiPrefs({ ankiConnectTimeoutSeconds: 3 }));
+  context.utils.exec = async (cmd, args) => {
+    if (cmd === "/usr/bin/curl") {
+      curlCalls.push(args.slice());
+      return { status: 7, stdout: "", stderr: "Failed to connect" };
+    }
+    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
+    return previousExec(cmd, args);
+  };
+  try {
+    await realAnkiConnectInvoke(
+      "version",
+      {},
+      { url: "http://127.0.0.1:8765", timeoutSeconds: 20 },
+    );
+    assert(false, "Missing AnkiConnect should fail after retries");
+  } catch (error) {
+    assert(
+      /after 3 attempts in [0-9.]+ seconds \(timeout 3 seconds per attempt\)/.test(
+        String(error && error.message),
+      ),
+      "Missing AnkiConnect should report the retry count and timeout",
+    );
+  }
+  assert(
+    curlCalls.length === 3,
+    "Missing AnkiConnect should be retried with three fresh curl requests",
+  );
+  assert(
+    curlCalls.every((args) => {
+      const connectIndex = args.indexOf("--connect-timeout");
+      const maxIndex = args.indexOf("--max-time");
+      return (
+        connectIndex >= 0 &&
+        args[connectIndex + 1] === "3" &&
+        maxIndex >= 0 &&
+        args[maxIndex + 1] === "3"
+      );
+    }),
+    "AnkiConnect retry attempts should use the configured response timeout",
+  );
+
+  const actionErrorCalls = [];
+  context.utils.exec = async (cmd, args) => {
+    if (cmd === "/usr/bin/curl") {
+      actionErrorCalls.push(args.slice());
+      return {
+        status: 0,
+        stdout: JSON.stringify({ error: "bad action", result: null }),
+        stderr: "",
+      };
+    }
+    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
+    return previousExec(cmd, args);
+  };
+  try {
+    await realAnkiConnectInvoke("badAction", {}, {});
+    assert(false, "AnkiConnect action errors should be surfaced");
+  } catch (error) {
+    assert(
+      /bad action/.test(String(error && error.message)),
+      "AnkiConnect action errors should keep the original message",
+    );
+  }
+  assert(
+    actionErrorCalls.length === 1,
+    "AnkiConnect action errors should not be retried as connection failures",
+  );
+  context.utils.exec = previousExec;
+}
+
+async function testAnkiBridgeRecoversAfterConnectTimeout() {
+  const previousExec = context.utils.exec;
+  setActiveAnkiPrefs(
+    makeConfiguredAnkiPrefs({
+      ankiConnectTimeoutSeconds: 1,
+      ankiDuplicateCheck: false,
+    }),
+  );
+  context.__overlayMessages.length = 0;
+  fastTimers = true;
+  context.utils.exec = async (cmd, args) => {
+    if (cmd === "/usr/bin/curl") {
+      return new Promise(() => {});
+    }
+    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
+    return previousExec(cmd, args);
+  };
+  context.handleBridgeAnkiCardAdd({
+    requestId: "recover-timeout",
+    popupSessionId: "popup-recover",
+    context: {
+      expression: "鳥",
+      entry: { term: { expression: "鳥", glossaries: [{ glossary: "bird" }] } },
+    },
+  });
+  await flushAsyncWork();
+  assert(
+    await waitForOverlayMessage(
+      (message) =>
+        message.payload &&
+        message.payload.requestId === "recover-timeout" &&
+        message.payload.ok === false &&
+        /did not respond|timed out/i.test(message.payload.message || ""),
+    ),
+    "Timed-out AnkiConnect add requests should report an error to the popup",
+  );
+
+  fastTimers = false;
+  context.__overlayMessages.length = 0;
+  context.utils.exec = async (cmd, args) => {
+    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
+    if (cmd === "/usr/bin/curl") {
+      const dataIndex = args.indexOf("--data-binary");
+      const requestRef =
+        dataIndex >= 0 ? String(args[dataIndex + 1] || "") : "";
+      const requestPath =
+        requestRef.charAt(0) === "@" ? requestRef.slice(1) : "";
+      const body = JSON.parse(filesByPath[requestPath] || "{}");
+      if (body.action === "version")
+        return {
+          status: 0,
+          stdout: JSON.stringify({ result: 6, error: null }),
+          stderr: "",
+        };
+      if (body.action === "addNote")
+        return {
+          status: 0,
+          stdout: JSON.stringify({ result: 67890, error: null }),
+          stderr: "",
+        };
+      return {
+        status: 0,
+        stdout: JSON.stringify({ result: null, error: null }),
+        stderr: "",
+      };
+    }
+    return previousExec(cmd, args);
+  };
+  context.handleBridgeAnkiCardAdd({
+    requestId: "recover-success",
+    popupSessionId: "popup-recover",
+    context: {
+      expression: "鳥",
+      entry: { term: { expression: "鳥", glossaries: [{ glossary: "bird" }] } },
+    },
+  });
+  await flushAsyncWork();
+  assert(
+    await waitForOverlayMessage(
+      (message) =>
+        message.payload &&
+        message.payload.requestId === "recover-success" &&
+        message.payload.state === "added" &&
+        message.payload.noteId === 67890,
+    ),
+    "Anki add requests should recover after a previous AnkiConnect timeout",
+  );
+  context.utils.exec = previousExec;
 }
 
 async function testAnkiBridgeActions() {
@@ -144,6 +352,7 @@ async function testAnkiBridgeActions() {
   context.__overlayMessages.length = 0;
   context.ankiConnectInvoke = (action, params, options) => {
     openCalls.push({ action, params, options });
+    if (action === "version") return Promise.resolve(6);
     if (action === "guiBrowse") return new Promise(() => {});
     return Promise.resolve(null);
   };
@@ -176,6 +385,7 @@ async function testAnkiBridgeActions() {
   context.__overlayMessages.length = 0;
   context.ankiConnectInvoke = (action, params, options) => {
     fallbackCalls.push({ action, params, options });
+    if (action === "version") return Promise.resolve(6);
     return Promise.resolve([]);
   };
   context.handleBridgeAnkiCardOpen({
@@ -207,6 +417,7 @@ async function testAnkiBridgeActions() {
   context.__overlayMessages.length = 0;
   context.ankiConnectInvoke = (action, params, options) => {
     duplicateAddCalls.push({ action, params, options });
+    if (action === "version") return Promise.resolve(6);
     if (action === "canAddNotesWithErrorDetail")
       return Promise.resolve([
         {
@@ -250,6 +461,7 @@ async function testAnkiBridgeActions() {
   context.__overlayMessages.length = 0;
   context.ankiConnectInvoke = async (action, params, options) => {
     nullAddCalls.push({ action, params, options });
+    if (action === "version") return 6;
     if (action === "canAddNotesWithErrorDetail")
       return [{ canAdd: true, error: null }];
     if (action === "addNote") return null;
@@ -281,6 +493,7 @@ async function testAnkiBridgeActions() {
   context.__overlayMessages.length = 0;
   context.ankiConnectInvoke = async (action, params, options) => {
     successfulAddCalls.push({ action, params, options });
+    if (action === "version") return 6;
     if (action === "canAddNotesWithErrorDetail")
       return [{ canAdd: true, error: null }];
     if (action === "addNote") return 45678;
@@ -314,6 +527,7 @@ async function testAnkiBridgeActions() {
   let reusedNoteId = 50000;
   context.ankiConnectInvoke = async (action, params, options) => {
     reusedRequestCalls.push({ action, params, options });
+    if (action === "version") return 6;
     if (action === "canAddNotesWithErrorDetail")
       return [{ canAdd: true, error: null }];
     if (action === "addNote") return ++reusedNoteId;
@@ -370,6 +584,7 @@ async function testAnkiBridgeActions() {
 
 const prefs = context.normalizeProfilePreferences({
   ankiConnectUrl: "ftp://example.invalid",
+  ankiConnectTimeoutSeconds: 999,
   ankiAudioFormat: "opus",
   ankiAudioBitrateKbps: 999,
   ankiImageQuality: 999,
@@ -382,6 +597,10 @@ const prefs = context.normalizeProfilePreferences({
 assert(
   prefs.ankiConnectUrl === "http://127.0.0.1:8765",
   "Invalid AnkiConnect URLs should fall back to localhost",
+);
+assert(
+  prefs.ankiConnectTimeoutSeconds === 30,
+  "AnkiConnect response timeout should be clamped",
 );
 assert(
   prefs.ankiAudioFormat === "opus",
@@ -794,7 +1013,9 @@ assert(
   "Duplicate queries should match Yomitan-style first-field lookups case-insensitively",
 );
 
-testAnkiBridgeActions()
+testAnkiConnectRetries()
+  .then(testAnkiBridgeRecoversAfterConnectTimeout)
+  .then(testAnkiBridgeActions)
   .then(() => {
     console.log("anki integration tests passed");
   })

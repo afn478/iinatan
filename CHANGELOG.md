@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Fixed AnkiConnect dropouts so popup add/status requests probe the connection, retry three fresh bounded requests on missing responses, and use a configurable three-second default response timeout.
 - Fixed Anki glossary fields so structured dictionary content is rendered as card-ready HTML instead of raw JSON, while keeping glossary-plain as extracted plaintext.
 - Aligned Anki glossary and glossary-first HTML with Yomitan's default glossary-single rendering, including single glossary datapoints and structured-content wrappers.
 - Fixed duplicate Anki book actions so they open the detected note in Anki instead of falling through to add, clear stale note IDs after deleted duplicates, and avoid first-click bridge warm-up stalls.
