@@ -19,14 +19,14 @@ Anki export is available through AnkiConnect when Anki is running in the backgro
 ## What You Get
 
 - Dictionary lookups directly on IINA subtitles.
-- Pause-only behavior, so popups do not interrupt normal playback.
+- Automatic pause on dictionary lookup and resume afterwards
 - Japanese, English, French, German, Chinese, and Korean lookup modes.
 - Built-in downloader for recommended dictionaries and frequency data.
 - Import support for local Yomitan-compatible dictionary ZIP files.
-- Frequency and pitch-accent details for Japanese dictionaries that include them.
+- Frequency and pitch-accent dictionary support for Japanese
 - Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
 - One-click Anki card creation with duplicate detection, subtitle sentences, screenshots, and subtitle audio.
-- Profiles for keeping separate language, dictionary, popup, and playback setups.
+- Profiles for keeping separate language, dictionary, popup, and anki export settings.
 
 ## Installation
 
@@ -49,22 +49,11 @@ Use this only if you want the newest in-progress changes and are comfortable wit
 
 ## Quick Start
 
-### Japanese
-
-1. Open **Plugins -> iinatan -> Settings...**.
-2. Set the lookup language to **Japanese**.
-3. Install **Jitendex** from the dictionary panel.
-4. Make sure Jitendex is enabled.
-5. Open a video with Japanese subtitles.
-6. Toggle iinatan with **Shift+H**.
-7. Pause playback and hover subtitle text.
-
-### Other Languages
-
-1. Open **Plugins -> iinatan -> Settings...**.
+. Open **Plugins -> iinatan -> Settings...**.
 2. Choose the lookup language you want to use.
-3. Import a compatible dictionary ZIP.
-4. Enable the dictionary and move it into the order you prefer.
+3. Go to the dictionaries section
+3. Click `Get recommended Dictionaries...` and download the available dictionaries. Alternatively, import compatible dictionary ZIP files.
+4. Enable and move dictionaries into the order you prefer.
 5. Toggle iinatan with **Shift+H**.
 6. Pause playback and hover subtitle text.
 
@@ -86,7 +75,7 @@ Language support depends on the dictionaries you install. iinatan currently has 
 - French
 - German
 - Chinese
-- Korean
+- Korean (Experimental)
 
 Some dictionary ZIP files do not label their language clearly. When that happens, iinatan may still let you import the file, but you may need to choose the right lookup language yourself.
 
