@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Documentation
+
+- Updated README screenshots and clarified Anki popup add-button setup.
+- Removed the completed local goal-tracking document from the repository.
+
 ## 2.0.0 - 2026-06-15
 
 ### Added

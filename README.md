@@ -8,18 +8,20 @@ Anki export is available through AnkiConnect when Anki is running in the backgro
 
 ## Screenshots
 
-![Japanese popup over paused subtitles](docs/screenshots/japanese-popup.png)
+![Japanese popup with Anki add confirmation](docs/screenshots/japanese-popup.png)
 
-| English lookup and language menu | Dictionary settings |
+| German lookup | Anki setup |
 | --- | --- |
-| ![English lookup with language menu](docs/screenshots/english-popup-language-menu.png) | ![Dictionary settings](docs/screenshots/dictionary-settings.png) |
+| ![German popup over paused subtitles](docs/screenshots/german-popup.png) | ![Anki settings with popup add button enabled](docs/screenshots/anki-settings.png) |
+| Dictionary selection | Recommended dictionary downloads |
+| ![Dictionary settings with enabled Chinese dictionaries](docs/screenshots/dictionary-settings.png) | ![Recommended dictionaries dialog](docs/screenshots/recommended-dictionaries.png) |
 
 ## What You Get
 
 - Dictionary lookups directly on IINA subtitles.
 - Pause-only behavior, so popups do not interrupt normal playback.
 - Japanese, English, French, German, Chinese, and Korean lookup modes.
-- Built-in installer for the recommended Japanese dictionary, Jitendex.
+- Built-in downloader for recommended dictionaries and frequency data.
 - Import support for local Yomitan-compatible dictionary ZIP files.
 - Frequency and pitch-accent details for Japanese dictionaries that include them.
 - Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
@@ -63,7 +65,8 @@ Use this only if you want the newest in-progress changes and are comfortable wit
 2. Choose the lookup language you want to use.
 3. Import a compatible dictionary ZIP.
 4. Enable the dictionary and move it into the order you prefer.
-5. Pause playback and hover subtitle text.
+5. Toggle iinatan with **Shift+H**.
+6. Pause playback and hover subtitle text.
 
 If the popup does not appear, press **Shift+H** to toggle iinatan on.
 
@@ -104,6 +107,13 @@ Common settings include:
 ## Anki Export
 
 Install the AnkiConnect add-on, open Anki, then configure export from the **Anki** tab in **Plugins -> iinatan -> Settings...**. Anki settings are stored per profile, including the AnkiConnect URL, deck, note type, field templates, duplicate behavior, JPEG screenshot quality, and sentence audio format/bitrate.
+
+To add cards from the popup:
+
+1. Keep Anki open and make sure AnkiConnect shows as reachable in the **Anki** tab.
+2. Choose the deck, note type, and field mappings for the active profile.
+3. Enable **Show Anki add button in popups**. Without this checkbox, the popup will not show the add-card button even when AnkiConnect is configured.
+4. Press **Shift+H** to turn iinatan on, pause playback, hover subtitle text, then click the add-card button in the popup.
 
 The IINA plugin menu also includes **Settings...** and quick profile switching.
 
