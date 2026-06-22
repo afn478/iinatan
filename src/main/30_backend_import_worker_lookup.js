@@ -718,13 +718,23 @@ if [ -z "${"$"}{HOME:-}" ]; then
     mkdir -p "$HOME"
   fi
 fi
-nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" > "$LOG" 2>&1 < /dev/null &
+OWNER_PID="${"$"}{IINATAN_OWNER_PID:-${"$"}PPID}"
+nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" --owner-pid "$OWNER_PID" > "$LOG" 2>&1 < /dev/null &
 echo $! > "$PID"
 `;
   file.write(workerStartScriptPath(), script);
   await execChecked("/bin/chmod", ["755", workerStartScriptPath()]);
 }
+function requestBackendWorkerStop() {
+  try {
+    file.write(workerStopPath(), "stop\n");
+  } catch (_) {}
+  safeDelete(workerReadyPath());
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+}
 async function stopBackendWorker() {
+  requestBackendWorkerStop();
   try {
     await ensureDataDirs();
   } catch (_) {}
@@ -739,9 +749,6 @@ async function stopBackendWorker() {
     }
   } catch (_) {}
   safeDelete(workerPidPath());
-  safeDelete(workerReadyPath());
-  activeWorkerFingerprint = null;
-  activeWorkerReady = null;
   await sleep(120);
 }
 async function startBackendWorkerProcess(dicts, language) {

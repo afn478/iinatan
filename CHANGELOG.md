@@ -5,6 +5,7 @@
 ### Fixed
 
 - Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
+- Stopped the detached HoshiDicts lookup worker when IINA closes and added an owner-process watchdog so orphaned workers exit instead of spinning in the background.
 
 ### Documentation
 

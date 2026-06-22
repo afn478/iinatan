@@ -23,6 +23,10 @@ event.on("mpv.end-file", () => {
 event.on("iina.window-will-close", () => {
   resetLookupPopupPause();
   stopPolling();
+  requestBackendWorkerStop();
+  stopBackendWorker().catch((error) => {
+    debugWarn("lookup worker stop on close failed: " + compactError(error));
+  });
   flushDebugLogBuffer();
 });
 try {

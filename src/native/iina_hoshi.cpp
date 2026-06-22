@@ -10,7 +10,9 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <signal.h>
 #include <string>
+#include <sys/types.h>
 #include <thread>
 #include <vector>
 
@@ -56,6 +58,11 @@ static void print_string_array(const std::vector<std::string>& values) {
   std::cout << "]";
 }
 static int to_int(const std::string& s, int fallback) { try { return std::stoi(s); } catch (...) { return fallback; } }
+static bool process_exists(int pid) {
+  if (pid <= 0) return true;
+  if (::kill(static_cast<pid_t>(pid), 0) == 0) return true;
+  return errno == EPERM;
+}
 static std::string read_file(const fs::path& p) {
   std::ifstream in(p, std::ios::binary);
   std::ostringstream ss; ss << in.rdbuf(); return ss.str();
@@ -389,12 +396,14 @@ static WorkerConfig read_worker_config(const fs::path& config_path) {
   return cfg;
 }
 static void cmd_worker(int argc, char** argv) {
-  if (argc < 3) { print_error("usage: worker <worker_dir> [--sleep-ms n]"); std::exit(2); }
+  if (argc < 3) { print_error("usage: worker <worker_dir> [--sleep-ms n] [--owner-pid pid]"); std::exit(2); }
   fs::path root = argv[2];
   int sleep_ms = 2;
+  int owner_pid = 0;
   for (int i = 3; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--sleep-ms" && i + 1 < argc) sleep_ms = std::max(1, to_int(argv[++i], sleep_ms));
+    else if (arg == "--owner-pid" && i + 1 < argc) owner_pid = std::max(0, to_int(argv[++i], 0));
   }
   fs::path queue = root / "queue";
   fs::path responses = root / "responses";
@@ -409,8 +418,16 @@ static void cmd_worker(int argc, char** argv) {
   Deinflector deinflector;
   Lookup lookup(dict_query, deinflector);
   write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + "}\n");
-  std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size() << " dictionaries; sleep_ms=" << sleep_ms << "\n";
+  std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size() << " dictionaries; sleep_ms=" << sleep_ms << "; owner_pid=" << owner_pid << "\n";
+  auto next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (!fs::exists(stop)) {
+    if (owner_pid > 0 && std::chrono::steady_clock::now() >= next_owner_check) {
+      if (!process_exists(owner_pid)) {
+        std::cerr << "iina-hoshi-dicts worker stopping because owner pid " << owner_pid << " exited\n";
+        break;
+      }
+      next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
     std::vector<fs::path> requests;
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(queue, ec)) {

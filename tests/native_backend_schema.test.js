@@ -39,6 +39,30 @@ assert(
   /"prefix"/.test(nativeSource),
   "Native version/mode handling should include prefix mode",
 );
+assert(
+  /--owner-pid/.test(nativeSource) && /process_exists/.test(nativeSource),
+  "Native worker should exit when its owner process disappears",
+);
+
+const workerSource = fs.readFileSync(
+  path.join(root, "src/main/30_backend_import_worker_lookup.js"),
+  "utf8",
+);
+assert(
+  /--owner-pid "\$OWNER_PID"/.test(workerSource),
+  "Worker launch script should pass IINA's owner pid to the native worker",
+);
+
+const bootstrapSource = fs.readFileSync(
+  path.join(root, "src/main/99_bootstrap.js"),
+  "utf8",
+);
+assert(
+  /iina\.window-will-close[\s\S]*requestBackendWorkerStop\(\)/.test(
+    bootstrapSource,
+  ),
+  "IINA window close should synchronously request worker shutdown",
+);
 
 const buildScript = fs.readFileSync(
   path.join(root, "scripts/build_plugin.py"),
