@@ -234,6 +234,27 @@ assert(
   jaReq.lookupText === "法使い",
   "Japanese lookup text should not be lowercased or normalized as Latin",
 );
+assert(
+  ja.normalizeText("伺（うか）う") === "伺う",
+  "Japanese lookup normalization should strip kana-only fullwidth furigana",
+);
+assert(
+  ja.normalizeSubtitleText("昨日（きのう）伺（うか）う") === "昨日伺う",
+  "Japanese subtitle normalization should strip packed furigana spans",
+);
+assert(
+  ja.normalizeText("これは（補足）です") === "これは（補足）です",
+  "Japanese furigana stripping should leave non-kana parentheticals alone",
+);
+assert(
+  ja.normalizeText("これは（・）です") === "これは（・）です",
+  "Japanese furigana stripping should leave punctuation parentheticals alone",
+);
+const jaFuriganaReq = ja.lookupRequest(ja.normalizeText("伺（うか）う"), 0, 24);
+assert(
+  jaFuriganaReq && jaFuriganaReq.lookupText === "伺う",
+  "Japanese lookup should query the stripped surface form",
+);
 
 const koText = "한국어 공부";
 const koReq = ko.lookupRequest(koText, 1, 24);

@@ -1,5 +1,16 @@
 const IINATAN_JAPANESE_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const KANA_ONLY_FULLWIDTH_PARENS_RE =
+    /（([\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f\s]+)）/g;
+  const KANA_RE =
+    /[\u3041-\u3096\u309d-\u309f\u30a1-\u30fa\u30fd-\u30ff\u31f0-\u31ff\uff66-\uff9f]/;
+
+  function stripParenthesizedFurigana(text) {
+    return String(text || "").replace(
+      KANA_ONLY_FULLWIDTH_PARENS_RE,
+      (match, reading) => (KANA_RE.test(reading) ? "" : match),
+    );
+  }
 
   function isHoverableChar(ch) {
     return common.JAPANESE_CHAR_RE.test(String(ch || ""));
@@ -47,7 +58,8 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     isHoverableChar,
     hasLookupText,
     dictionaryMatches: () => true,
-    normalizeText: (text) => String(text || ""),
+    normalizeSubtitleText: stripParenthesizedFurigana,
+    normalizeText: stripParenthesizedFurigana,
     lookupRequest,
   };
 })();

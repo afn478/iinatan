@@ -289,7 +289,11 @@ function readCurrentSubtitle() {
   } catch (_) {
     sub = "";
   }
-  return cleanSubtitleText(sub);
+  const clean = cleanSubtitleText(sub);
+  const language = selectedLanguageModule();
+  if (language && typeof language.normalizeSubtitleText === "function")
+    return language.normalizeSubtitleText(clean);
+  return clean;
 }
 function publishSubtitle(text) {
   const normalized = text || "";

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
+
 ### Documentation
 
 - Updated README screenshots and clarified Anki popup add-button setup.
