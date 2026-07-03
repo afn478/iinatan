@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, "..");
 const files = [
   "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
+  "src/main/52_anki_templates.js",
   "src/main/55_anki_integration.js",
 ];
 const overlayMessages = [];

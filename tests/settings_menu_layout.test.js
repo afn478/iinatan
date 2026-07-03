@@ -535,12 +535,16 @@ assert(
   "ZIP import should not enter busy state before file selection",
 );
 
+const ankiTemplateSource = fs.readFileSync(
+  path.join(root, "src/main/52_anki_templates.js"),
+  "utf8",
+);
 const ankiSource = fs.readFileSync(
   path.join(root, "src/main/55_anki_integration.js"),
   "utf8",
 );
 assert(
-  /function ankiTemplatesNeedMedia/.test(ankiSource),
+  /function ankiTemplatesNeedMedia/.test(ankiTemplateSource),
   "Anki integration should check templates before media capture",
 );
 assert(
