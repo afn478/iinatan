@@ -14,6 +14,7 @@ The maintainable source is split under `src/`:
 - `src/main/50_overlay_bridge_pause.js` — local WebSocket overlay bridge and pause/resume lifecycle.
 - `src/main/52_anki_templates.js` — Anki marker definitions, template marker scanning, media needs, and field rendering.
 - `src/main/53_anki_duplicates.js` — Anki duplicate query/check-note/options shaping.
+- `src/main/54_anki_media_names.js` — Anki media filename, suffix, and document-stem normalization.
 - `src/main/60_overlay_lifecycle_toggle.js` — overlay initialization, polling, enable/disable, Shift+H.
 - `src/main/70_tests_menu.js` — parser tests, dictionary lookup test action, plugin menu assembly.
 - `src/main/99_bootstrap.js` — startup event registration.
