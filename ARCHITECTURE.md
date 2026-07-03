@@ -12,6 +12,7 @@ The maintainable source is split under `src/`:
 - `src/main/30_backend_import_worker_lookup.js` — bundled lookup engine install, dictionary import, persistent lookup worker.
 - `src/main/40_legacy_line_precompute.js` — legacy parser/precompute helpers kept while lookup flow is stabilized.
 - `src/main/50_overlay_bridge_pause.js` — local WebSocket overlay bridge and pause/resume lifecycle.
+- `src/main/51_anki_connect.js` — AnkiConnect URL safety, JSON transport, retries, response parsing, and version caching.
 - `src/main/52_anki_templates.js` — Anki marker definitions, template marker scanning, media needs, and field rendering.
 - `src/main/53_anki_duplicates.js` — Anki duplicate query/check-note/options shaping.
 - `src/main/54_anki_media_names.js` — Anki media filename, suffix, and document-stem normalization.
@@ -38,7 +39,7 @@ Settings/profile state is split by responsibility. `15_profile_settings.js` owns
 ## Current Risk Map
 
 - `src/overlay/overlay.js` remains the largest mixed-responsibility file: DOM event binding, popup placement, dictionary HTML rendering, audio controls, theme handling, and Anki button state all share one closure.
-- `src/main/55_anki_integration.js` still mixes AnkiConnect transport, media capture, manager state, and overlay bridge handling.
+- `src/main/55_anki_integration.js` still mixes Anki media capture, manager state, card context rendering, passive status, and overlay bridge handling.
 - `src/main/00_context_state_paths.js` still owns broad module-level mutable state for lifecycle, lookup cache/in-flight requests, bridge connections, pause state, diagnostics, task overlay state, and cached paths.
 - Boundary code has many intentionally best-effort `catch (_) {}` blocks around IINA/mpv/DOM APIs. These are useful for host compatibility, but future refactors should add context where failures affect user-visible behavior.
 - String contracts are still scattered across the overlay, settings manager HTML, main bridge messages, and `Info.json`. New settings and message types should be added through named constants or narrowly tested helpers where practical.

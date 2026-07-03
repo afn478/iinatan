@@ -543,6 +543,10 @@ const ankiDuplicateSource = fs.readFileSync(
   path.join(root, "src/main/53_anki_duplicates.js"),
   "utf8",
 );
+const ankiConnectSource = fs.readFileSync(
+  path.join(root, "src/main/51_anki_connect.js"),
+  "utf8",
+);
 const ankiSource = fs.readFileSync(
   path.join(root, "src/main/55_anki_integration.js"),
   "utf8",
@@ -609,9 +613,9 @@ assert(
   "Anki bridge handlers should dedupe retried requests by request ID",
 );
 assert(
-  /ANKI_CONNECT_RECONNECT_ATTEMPTS\s*=\s*3/.test(ankiSource) &&
-    /Promise\.race/.test(ankiSource) &&
-    /--connect-timeout/.test(ankiSource),
+  /ANKI_CONNECT_RECONNECT_ATTEMPTS\s*=\s*3/.test(ankiConnectSource) &&
+    /Promise\.race/.test(ankiConnectSource) &&
+    /--connect-timeout/.test(ankiConnectSource),
   "AnkiConnect requests should retry bounded curl requests with a JS watchdog",
 );
 assert(

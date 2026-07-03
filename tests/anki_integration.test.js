@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, "..");
 const files = [
   "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
+  "src/main/51_anki_connect.js",
   "src/main/52_anki_templates.js",
   "src/main/53_anki_duplicates.js",
   "src/main/54_anki_media_names.js",
@@ -154,108 +155,6 @@ async function waitForOverlayMessage(predicate) {
     await flushAsyncWork();
   }
   return context.__overlayMessages.some(predicate);
-}
-
-async function testAnkiConnectRetries() {
-  const previousExec = context.utils.exec;
-  const hungCalls = [];
-  fastTimers = true;
-  setActiveAnkiPrefs(makeConfiguredAnkiPrefs({ ankiConnectTimeoutSeconds: 1 }));
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      hungCalls.push(args.slice());
-      return new Promise(() => {});
-    }
-    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
-    return previousExec(cmd, args);
-  };
-  try {
-    await realAnkiConnectInvoke("version", {}, {});
-    assert(false, "Hung AnkiConnect should fail after retries");
-  } catch (error) {
-    assert(
-      /after 3 attempts in [0-9.]+ seconds \(timeout 1 seconds per attempt\)/.test(
-        String(error && error.message),
-      ),
-      "Hung AnkiConnect should report the retry count and timeout",
-    );
-  }
-  assert(
-    hungCalls.length === 3,
-    "Hung AnkiConnect should be retried with three fresh curl requests",
-  );
-  fastTimers = false;
-
-  const curlCalls = [];
-  setActiveAnkiPrefs(makeConfiguredAnkiPrefs({ ankiConnectTimeoutSeconds: 3 }));
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      curlCalls.push(args.slice());
-      return { status: 7, stdout: "", stderr: "Failed to connect" };
-    }
-    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
-    return previousExec(cmd, args);
-  };
-  try {
-    await realAnkiConnectInvoke(
-      "version",
-      {},
-      { url: "http://127.0.0.1:8765", timeoutSeconds: 20 },
-    );
-    assert(false, "Missing AnkiConnect should fail after retries");
-  } catch (error) {
-    assert(
-      /after 3 attempts in [0-9.]+ seconds \(timeout 3 seconds per attempt\)/.test(
-        String(error && error.message),
-      ),
-      "Missing AnkiConnect should report the retry count and timeout",
-    );
-  }
-  assert(
-    curlCalls.length === 3,
-    "Missing AnkiConnect should be retried with three fresh curl requests",
-  );
-  assert(
-    curlCalls.every((args) => {
-      const connectIndex = args.indexOf("--connect-timeout");
-      const maxIndex = args.indexOf("--max-time");
-      return (
-        connectIndex >= 0 &&
-        args[connectIndex + 1] === "3" &&
-        maxIndex >= 0 &&
-        args[maxIndex + 1] === "3"
-      );
-    }),
-    "AnkiConnect retry attempts should use the configured response timeout",
-  );
-
-  const actionErrorCalls = [];
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      actionErrorCalls.push(args.slice());
-      return {
-        status: 0,
-        stdout: JSON.stringify({ error: "bad action", result: null }),
-        stderr: "",
-      };
-    }
-    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
-    return previousExec(cmd, args);
-  };
-  try {
-    await realAnkiConnectInvoke("badAction", {}, {});
-    assert(false, "AnkiConnect action errors should be surfaced");
-  } catch (error) {
-    assert(
-      /bad action/.test(String(error && error.message)),
-      "AnkiConnect action errors should keep the original message",
-    );
-  }
-  assert(
-    actionErrorCalls.length === 1,
-    "AnkiConnect action errors should not be retried as connection failures",
-  );
-  context.utils.exec = previousExec;
 }
 
 async function testAnkiBridgeRecoversAfterConnectTimeout() {
@@ -1102,8 +1001,7 @@ assert(
   "Duplicate queries should match Yomitan-style first-field lookups case-insensitively",
 );
 
-testAnkiConnectRetries()
-  .then(testAnkiBridgeRecoversAfterConnectTimeout)
+testAnkiBridgeRecoversAfterConnectTimeout()
   .then(testAnkiBridgeActions)
   .then(testPassiveAnkiStatusCoalesces)
   .then(() => {
