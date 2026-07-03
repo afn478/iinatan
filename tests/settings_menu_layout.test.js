@@ -539,6 +539,10 @@ const ankiTemplateSource = fs.readFileSync(
   path.join(root, "src/main/52_anki_templates.js"),
   "utf8",
 );
+const ankiDuplicateSource = fs.readFileSync(
+  path.join(root, "src/main/53_anki_duplicates.js"),
+  "utf8",
+);
 const ankiSource = fs.readFileSync(
   path.join(root, "src/main/55_anki_integration.js"),
   "utf8",
@@ -590,8 +594,9 @@ assert(
   "Anki duplicate handling should be able to open existing notes",
 );
 assert(
-  /allowDuplicate/.test(ankiSource),
-  "Anki duplicate settings should be passed to addNote",
+  /allowDuplicate/.test(ankiDuplicateSource) &&
+    /options:\s*ankiDuplicateOptions\(prefs\)/.test(ankiSource),
+  "Anki duplicate settings should be shaped separately and passed to addNote",
 );
 assert(
   /if\s*\(prefs\.ankiDuplicateCheck\)\s*\{\s*const fieldNames = await ankiConfiguredFieldNames/.test(
