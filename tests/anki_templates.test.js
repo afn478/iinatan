@@ -3,34 +3,17 @@ const path = require("path");
 const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
-const source = fs.readFileSync(
-  path.join(root, "src/main/52_anki_templates.js"),
-  "utf8",
-);
-const context = {
-  console,
-  Object,
-  String,
-  ankiEscapeHtml(value) {
-    return String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  },
-  ankiFuriganaPlain(expression, reading) {
-    return reading ? expression + "[" + reading + "]" : expression;
-  },
-  ankiFuriganaHtml(expression, reading) {
-    return reading
-      ? "<ruby>" + expression + "<rt>" + reading + "</rt></ruby>"
-      : expression;
-  },
-};
+const sources = [
+  "src/main/52_anki_card_context.js",
+  "src/main/52_anki_templates.js",
+]
+  .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
+  .join("\n");
+const context = { console, Object, String };
 
 vm.createContext(context);
 vm.runInContext(
-  source +
+  sources +
     `
 globalThis.__ankiTemplates = {
   ankiMarkerDefinitions,

@@ -3,26 +3,17 @@ const path = require("path");
 const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
-const source = fs.readFileSync(
-  path.join(root, "src/main/53_anki_duplicates.js"),
-  "utf8",
-);
-const context = {
-  console,
-  Object,
-  String,
-  ankiCompareKey(value) {
-    return String(value || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase()
-      .normalize("NFKC");
-  },
-};
+const sources = [
+  "src/main/52_anki_card_context.js",
+  "src/main/53_anki_duplicates.js",
+]
+  .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
+  .join("\n");
+const context = { console, Object, String };
 
 vm.createContext(context);
 vm.runInContext(
-  source +
+  sources +
     `
 globalThis.__ankiDuplicates = {
   ankiSearchEscape,

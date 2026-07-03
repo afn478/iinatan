@@ -535,6 +535,10 @@ assert(
   "ZIP import should not enter busy state before file selection",
 );
 
+const ankiCardContextSource = fs.readFileSync(
+  path.join(root, "src/main/52_anki_card_context.js"),
+  "utf8",
+);
 const ankiTemplateSource = fs.readFileSync(
   path.join(root, "src/main/52_anki_templates.js"),
   "utf8",
@@ -623,8 +627,16 @@ assert(
   "Anki bridge handlers should acknowledge received requests immediately",
 );
 assert(
-  /ankiStructuredHtml/.test(ankiSource),
+  /function ankiBuildCardContext/.test(ankiCardContextSource),
+  "Anki card context shaping should live in the pure card-context module",
+);
+assert(
+  /ankiStructuredHtml/.test(ankiCardContextSource),
   "Anki glossary rendering should convert structured dictionary content into HTML",
+);
+assert(
+  !/function ankiStructuredHtml/.test(ankiSource),
+  "Anki integration should not own pure structured glossary rendering",
 );
 
 const overlayBridgeSource = fs.readFileSync(

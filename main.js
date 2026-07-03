@@ -9454,427 +9454,6 @@ async function ankiRequireConnectable(prefs) {
     throw new Error("AnkiConnect did not return a version.");
 }
 
-function ankiMarkerDefinitions(language) {
-  const lang = String(language || "ja");
-  const markers = [
-    { marker: "{expression}", label: "Headword" },
-    { marker: "{word}", label: "Headword alias" },
-    { marker: "{reading}", label: "Reading" },
-    { marker: "{furigana}", label: "Headword ruby" },
-    { marker: "{furigana-plain}", label: "Furigana text" },
-    { marker: "{popup-selection-text}", label: "Popup selection" },
-    { marker: "{sentence}", label: "Subtitle sentence" },
-    { marker: "{cloze-prefix}", label: "Cloze before word" },
-    { marker: "{cloze-body}", label: "Cloze word" },
-    { marker: "{cloze-suffix}", label: "Cloze after word" },
-    { marker: "{glossary-first}", label: "First definition" },
-    { marker: "{selected-glossary}", label: "Selected definition" },
-    { marker: "{glossary}", label: "All definitions" },
-    { marker: "{glossary-plain}", label: "Plain definitions" },
-    { marker: "{dictionary}", label: "Dictionary" },
-    { marker: "{part-of-speech}", label: "Part of speech" },
-    { marker: "{tags}", label: "Dictionary tags" },
-    { marker: "{frequencies}", label: "Frequency tags" },
-    { marker: "{frequency-harmonic-rank}", label: "Frequency rank" },
-    { marker: "{phonetic-transcriptions}", label: "Phonetics" },
-    { marker: "{document-title}", label: "Video title" },
-    { marker: "{source-path}", label: "File path" },
-    { marker: "{timestamp}", label: "Timestamp" },
-    { marker: "{screenshot}", label: "Video screenshot" },
-    { marker: "{image}", label: "Video screenshot alias" },
-    { marker: "{sentence-audio}", label: "Subtitle audio" },
-    { marker: "{subtitle-audio}", label: "Subtitle audio alias" },
-    { marker: "{audio}", label: "Word audio or subtitle audio" },
-  ];
-  if (lang === "ja") {
-    markers.push(
-      { marker: "{pitch-accent-positions}", label: "Pitch positions" },
-      { marker: "{pitch-accent-categories}", label: "Pitch categories" },
-    );
-  }
-  return markers;
-}
-function extractAnkiMarkersFromTemplates(templates) {
-  const out = Object.create(null);
-  Object.keys(templates || {}).forEach((field) => {
-    const text = String(templates[field] || "");
-    text.replace(/\{([^{}]+)\}/g, (_match, key) => {
-      out[
-        String(key || "")
-          .trim()
-          .toLowerCase()
-      ] = true;
-      return "";
-    });
-  });
-  return out;
-}
-function ankiTemplatesNeedMedia(templates) {
-  const markers = extractAnkiMarkersFromTemplates(templates || {});
-  return {
-    screenshot: !!(markers.screenshot || markers.image),
-    sentenceAudio: !!(markers["sentence-audio"] || markers["subtitle-audio"]),
-    wordAudio: !!markers.audio,
-  };
-}
-function ankiMarkerValue(marker, context, media) {
-  const key = String(marker || "")
-    .trim()
-    .toLowerCase();
-  if (key === "expression" || key === "word")
-    return ankiEscapeHtml(context.expression);
-  if (key === "reading") return ankiEscapeHtml(context.reading);
-  if (key === "furigana-plain")
-    return ankiEscapeHtml(
-      ankiFuriganaPlain(context.expression, context.reading),
-    );
-  if (key === "furigana")
-    return ankiFuriganaHtml(context.expression, context.reading);
-  if (key === "popup-selection-text")
-    return ankiEscapeHtml(context.popupSelectionText);
-  if (key === "sentence") return ankiEscapeHtml(context.sentence);
-  if (key === "cloze-prefix") return ankiEscapeHtml(context.clozePrefix);
-  if (key === "cloze-body") return ankiEscapeHtml(context.clozeBody);
-  if (key === "cloze-suffix") return ankiEscapeHtml(context.clozeSuffix);
-  if (key === "glossary") return context.glossary;
-  if (key === "glossary-plain") return ankiEscapeHtml(context.glossaryPlain);
-  if (key === "glossary-first")
-    return context.glossaryFirstHtml || ankiEscapeHtml(context.glossaryFirst);
-  if (key === "selected-glossary")
-    return (
-      context.selectedGlossaryHtml ||
-      ankiEscapeHtml(context.selectedGlossary || context.glossaryFirst)
-    );
-  if (key === "dictionary" || key === "dictionary-alias")
-    return ankiEscapeHtml(context.dictionary);
-  if (key === "part-of-speech") return ankiEscapeHtml(context.partOfSpeech);
-  if (key === "tags") return ankiEscapeHtml(context.tags);
-  if (key === "frequencies") return ankiEscapeHtml(context.frequencies);
-  if (key === "frequency-harmonic-rank")
-    return ankiEscapeHtml(context.frequencyHarmonicRank);
-  if (key === "pitch-accent-positions")
-    return ankiEscapeHtml(context.pitchAccentPositions);
-  if (key === "pitch-accent-categories")
-    return ankiEscapeHtml(context.pitchAccentCategories);
-  if (key === "phonetic-transcriptions")
-    return ankiEscapeHtml(context.phoneticTranscriptions);
-  if (key === "document-title") return ankiEscapeHtml(context.documentTitle);
-  if (key === "source-path") return ankiEscapeHtml(context.sourcePath);
-  if (key === "timestamp") return ankiEscapeHtml(context.timestamp);
-  if (key === "screenshot" || key === "image")
-    return media && media.screenshot
-      ? '<img src="' + ankiEscapeHtml(media.screenshot) + '">'
-      : "";
-  if (key === "sentence-audio" || key === "subtitle-audio")
-    return media && media.sentenceAudio
-      ? "[sound:" + media.sentenceAudio + "]"
-      : "";
-  if (key === "audio")
-    return media && media.wordAudio ? "[sound:" + media.wordAudio + "]" : "";
-  return "";
-}
-function renderAnkiTemplate(template, context, media) {
-  return String(template || "").replace(/\{([^{}]+)\}/g, (_match, marker) =>
-    ankiMarkerValue(marker, context, media || {}),
-  );
-}
-function renderAnkiFields(templates, context, media) {
-  const fields = {};
-  Object.keys(templates || {}).forEach((field) => {
-    fields[field] = renderAnkiTemplate(templates[field], context, media || {});
-  });
-  return fields;
-}
-
-function ankiSearchEscape(value) {
-  return String(value || "").replace(/"/g, "");
-}
-function ankiDuplicateFieldValue(fields, firstField) {
-  const map = fields && typeof fields === "object" ? fields : {};
-  const name = String(firstField || "");
-  if (!name) return "";
-  if (Object.prototype.hasOwnProperty.call(map, name))
-    return String(map[name] || "");
-  const target = ankiCompareKey(name);
-  const keys = Object.keys(map);
-  for (let i = 0; i < keys.length; i++) {
-    if (ankiCompareKey(keys[i]) === target) return String(map[keys[i]] || "");
-  }
-  return "";
-}
-function ankiFirstFieldName(fields, fieldNames) {
-  if (Array.isArray(fieldNames) && fieldNames.length)
-    return String(fieldNames[0] || "");
-  return Object.keys(fields || {})[0] || "";
-}
-function ankiDuplicateFields(fields, fieldNames) {
-  const firstField = ankiFirstFieldName(fields, fieldNames);
-  const value = firstField ? ankiDuplicateFieldValue(fields, firstField) : "";
-  if (!firstField || !value) return {};
-  const out = {};
-  out[firstField] = value;
-  return out;
-}
-function ankiDuplicateQuery(prefs, fields, fieldNames) {
-  const deck = prefs.ankiDeckName;
-  const firstField = ankiFirstFieldName(fields, fieldNames);
-  const value = firstField ? ankiDuplicateFieldValue(fields, firstField) : "";
-  if (!firstField || !value) return "";
-  const parts = [
-    '"' +
-      ankiSearchEscape(firstField).toLowerCase() +
-      ":" +
-      ankiSearchEscape(value) +
-      '"',
-  ];
-  if (prefs.ankiDuplicateScope === "deck" && deck)
-    parts.unshift('"deck:' + ankiSearchEscape(deck) + '"');
-  return parts.join(" ");
-}
-function ankiDuplicateOptions(prefs) {
-  return {
-    allowDuplicate: prefs.ankiDuplicateMode === "allow",
-    duplicateScope:
-      prefs.ankiDuplicateScope === "collection" ? "collection" : "deck",
-    duplicateScopeOptions: {
-      deckName: prefs.ankiDeckName,
-      checkChildren: true,
-      checkAllModels: false,
-    },
-  };
-}
-function ankiDuplicateCheckOptions(prefs, allowDuplicate) {
-  const options = ankiDuplicateOptions(prefs);
-  options.allowDuplicate = !!allowDuplicate;
-  return options;
-}
-function ankiDuplicateCheckNote(prefs, fields, fieldNames, allowDuplicate) {
-  const firstFields = ankiDuplicateFields(fields, fieldNames);
-  if (!Object.keys(firstFields).length) return null;
-  return {
-    deckName: prefs.ankiDeckName,
-    modelName: prefs.ankiModelName,
-    fields: firstFields,
-    options: ankiDuplicateCheckOptions(prefs, allowDuplicate),
-    tags: [],
-  };
-}
-
-const ANKI_MEDIA_DOCUMENT_STEM_MAX_LENGTH = 14;
-
-function ankiSafeMediaName(text) {
-  const base = String(text || "iinatan")
-    .replace(/[^\w.-]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-  return base || "iinatan";
-}
-function ankiMediaDocumentStem(text) {
-  const safe = ankiSafeMediaName(text || "video");
-  return (
-    safe
-      .slice(0, ANKI_MEDIA_DOCUMENT_STEM_MAX_LENGTH)
-      .replace(/[._-]+$/g, "") || "video"
-  );
-}
-function ankiRandomHex(length) {
-  const target = Math.max(1, Math.min(32, Number(length) || 12));
-  let out = "";
-  while (out.length < target) {
-    out += Math.floor(Math.random() * 0x100000000)
-      .toString(16)
-      .padStart(8, "0");
-  }
-  return out.slice(0, target);
-}
-function ankiMediaHexSuffix(hex) {
-  const clean = String(hex || "")
-    .toLowerCase()
-    .replace(/[^0-9a-f]+/g, "")
-    .slice(0, 12);
-  return clean || ankiRandomHex(12);
-}
-function ankiMediaFilename(documentName, hex, ext) {
-  const suffix = ankiMediaHexSuffix(hex);
-  const extension =
-    String(ext || "bin")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "")
-      .slice(0, 8) || "bin";
-  return ankiMediaDocumentStem(documentName) + "_" + suffix + "." + extension;
-}
-
-let ankiManagerStateCache = null;
-let ankiManagerRefreshInFlight = false;
-let ankiManagerRefreshSerial = 0;
-let ankiModelFieldCache = Object.create(null);
-let ankiActiveBridgeRequests = Object.create(null);
-let ankiStatusCache = Object.create(null);
-let ankiStatusInFlight = Object.create(null);
-let ankiStatusQueueTail = Promise.resolve();
-let ankiStatusQueuedCount = 0;
-
-const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
-const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
-const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
-const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 4;
-
-function ankiActiveProfilePreferences(overrides) {
-  const manifest = readManifest();
-  const profile = activeDictionaryProfile(manifest);
-  return normalizeProfilePreferences(
-    Object.assign({}, profile.preferences || {}, overrides || {}),
-  );
-}
-function ankiFieldTemplatesFromPrefs(prefs) {
-  return normalizeAnkiFieldTemplates(prefs && prefs.ankiFieldTemplatesJson);
-}
-function ankiProfileConfigured(prefs) {
-  const templates = ankiFieldTemplatesFromPrefs(prefs || {});
-  const hasTemplate = Object.keys(templates).some((field) =>
-    String(templates[field] || "").trim(),
-  );
-  return !!(
-    prefs &&
-    prefs.ankiEnabled &&
-    prefs.ankiConnectUrl &&
-    prefs.ankiDeckName &&
-    prefs.ankiModelName &&
-    hasTemplate
-  );
-}
-function overlayAnkiConfig() {
-  const prefs = ankiActiveProfilePreferences();
-  return {
-    enabled: !!prefs.ankiEnabled,
-    configured: ankiProfileConfigured(prefs),
-    duplicateCheck: !!prefs.ankiDuplicateCheck,
-    duplicateMode: prefs.ankiDuplicateMode,
-    duplicateScope: prefs.ankiDuplicateScope,
-    deckName: prefs.ankiDeckName,
-    modelName: prefs.ankiModelName,
-  };
-}
-function dictionaryManagerAnkiState(profilePreferences) {
-  const prefs = normalizeProfilePreferences(
-    profilePreferences || ankiActiveProfilePreferences(),
-  );
-  const cached = ankiManagerStateCache || {};
-  const fields =
-    Array.isArray(cached.fields) && cached.modelName === prefs.ankiModelName
-      ? cached.fields.slice()
-      : [];
-  return {
-    enabled: !!prefs.ankiEnabled,
-    connectUrl: prefs.ankiConnectUrl,
-    deckName: prefs.ankiDeckName,
-    modelName: prefs.ankiModelName,
-    fieldTemplates: ankiFieldTemplatesFromPrefs(prefs),
-    tags: prefs.ankiTags,
-    audioFormat: prefs.ankiAudioFormat,
-    audioBitrateKbps: prefs.ankiAudioBitrateKbps,
-    imageQuality: prefs.ankiImageQuality,
-    duplicateCheck: !!prefs.ankiDuplicateCheck,
-    duplicateMode: prefs.ankiDuplicateMode,
-    duplicateScope: prefs.ankiDuplicateScope,
-    sentenceAudioPaddingMs: prefs.ankiSentenceAudioPaddingMs,
-    lookupLanguage: String(prefs.lookupLanguage || "ja"),
-    markers: ankiMarkerDefinitions(String(prefs.lookupLanguage || "ja")),
-    reachable: !!cached.reachable,
-    checking: !!ankiManagerRefreshInFlight,
-    message: cached.message || "AnkiConnect has not been checked yet.",
-    checkedAt: cached.checkedAt || 0,
-    version: cached.version || null,
-    deckNames: Array.isArray(cached.deckNames) ? cached.deckNames.slice() : [],
-    modelNames: Array.isArray(cached.modelNames)
-      ? cached.modelNames.slice()
-      : [],
-    fields,
-  };
-}
-function ankiFieldCacheKey(prefs) {
-  return (
-    String((prefs && prefs.ankiConnectUrl) || "") +
-    "\n" +
-    String((prefs && prefs.ankiModelName) || "")
-  );
-}
-function postDictionaryManagerAnkiState() {
-  try {
-    postToDictionaryManager(
-      "dictionary-manager-anki-state",
-      dictionaryManagerAnkiState(),
-    );
-  } catch (error) {
-    debugWarn("could not build Anki manager state: " + compactError(error));
-  }
-}
-function refreshDictionaryManagerAnkiState(overrides) {
-  const serial = ++ankiManagerRefreshSerial;
-  const prefs = ankiActiveProfilePreferences(overrides || {});
-  ankiManagerRefreshInFlight = true;
-  ankiManagerStateCache = Object.assign({}, ankiManagerStateCache || {}, {
-    reachable: false,
-    message: "Checking AnkiConnect...",
-    checkedAt: Date.now(),
-    modelName: prefs.ankiModelName,
-  });
-  postDictionaryManagerAnkiState();
-  (async () => {
-    try {
-      const invokeOptions = { url: prefs.ankiConnectUrl, timeoutSeconds: 4 };
-      const version = await ankiConnectInvoke("version", {}, invokeOptions);
-      const deckNames = await ankiConnectInvoke("deckNames", {}, invokeOptions);
-      const modelNames = await ankiConnectInvoke(
-        "modelNames",
-        {},
-        invokeOptions,
-      );
-      let fields = [];
-      if (
-        prefs.ankiModelName &&
-        Array.isArray(modelNames) &&
-        modelNames.indexOf(prefs.ankiModelName) >= 0
-      ) {
-        fields = await ankiConnectInvoke(
-          "modelFieldNames",
-          { modelName: prefs.ankiModelName },
-          invokeOptions,
-        );
-      }
-      if (serial !== ankiManagerRefreshSerial) return;
-      ankiManagerStateCache = {
-        reachable: true,
-        message: "Reachable.",
-        checkedAt: Date.now(),
-        version,
-        deckNames: Array.isArray(deckNames) ? deckNames : [],
-        modelNames: Array.isArray(modelNames) ? modelNames : [],
-        fields: Array.isArray(fields) ? fields : [],
-        modelName: prefs.ankiModelName,
-      };
-      ankiModelFieldCache[ankiFieldCacheKey(prefs)] =
-        ankiManagerStateCache.fields.slice();
-    } catch (error) {
-      if (serial !== ankiManagerRefreshSerial) return;
-      ankiManagerStateCache = {
-        reachable: false,
-        message: "Not reachable: " + compactError(error),
-        checkedAt: Date.now(),
-        version: null,
-        deckNames: [],
-        modelNames: [],
-        fields: [],
-        modelName: prefs.ankiModelName,
-      };
-    } finally {
-      if (serial === ankiManagerRefreshSerial) {
-        ankiManagerRefreshInFlight = false;
-        postDictionaryManagerAnkiState();
-      }
-    }
-  })();
-}
 function ankiEscapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -10669,7 +10248,7 @@ function ankiDisplayReading(entry, expression) {
     return "";
   return reading;
 }
-function ankiLookupSurface(context, entry) {
+function ankiLookupSurface(context, entry, fallbackSubtitle) {
   const candidate =
     context && context.result && context.result.candidateUsed
       ? context.result.candidateUsed
@@ -10678,13 +10257,558 @@ function ankiLookupSurface(context, entry) {
   if (entry && entry.matched) return String(entry.matched);
   if (candidate && candidate.displayText) return String(candidate.displayText);
   const result = context && context.result ? context.result : {};
-  const text = String(result.text || context.sentence || lastSubtitle || "");
+  const text = String(
+    result.text || context.sentence || fallbackSubtitle || "",
+  );
   const start = Number(result.lookupStart);
   const end = Number(result.lookupEnd);
   if (Number.isFinite(start) && Number.isFinite(end) && end > start)
     return Array.from(text).slice(start, end).join("");
   if (result.lookupText) return String(result.lookupText);
   return "";
+}
+function ankiFormatTimestamp(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.floor(total % 60);
+  return (
+    (h > 0 ? String(h) + ":" + String(m).padStart(2, "0") : String(m)) +
+    ":" +
+    String(s).padStart(2, "0")
+  );
+}
+function ankiFuriganaPlain(expression, reading) {
+  return reading
+    ? String(expression || "") + "[" + String(reading || "") + "]"
+    : String(expression || "");
+}
+function ankiFuriganaHtml(expression, reading) {
+  return reading
+    ? "<ruby>" +
+        ankiEscapeHtml(expression) +
+        "<rt>" +
+        ankiEscapeHtml(reading) +
+        "</rt></ruby>"
+    : ankiEscapeHtml(expression);
+}
+function ankiClozeForSentence(sentence, surface, position) {
+  const chars = Array.from(String(sentence || ""));
+  const bodyChars = Array.from(String(surface || ""));
+  let start = Number(position);
+  if (!Number.isFinite(start) || start < 0 || start >= chars.length) {
+    const sentenceText = String(sentence || "");
+    const idx = surface ? sentenceText.indexOf(String(surface)) : -1;
+    start = idx >= 0 ? Array.from(sentenceText.slice(0, idx)).length : 0;
+  }
+  let end = start + Math.max(1, bodyChars.length || 1);
+  if (start < 0) start = 0;
+  if (end > chars.length) end = chars.length;
+  const body = chars.slice(start, end).join("") || String(surface || "");
+  return {
+    prefix: chars.slice(0, start).join(""),
+    body,
+    suffix: chars.slice(end).join(""),
+  };
+}
+function ankiBuildCardContext(payload, host) {
+  const runtime = host && typeof host === "object" ? host : {};
+  const raw =
+    payload && payload.context && typeof payload.context === "object"
+      ? payload.context
+      : {};
+  const entry = raw.entry && typeof raw.entry === "object" ? raw.entry : {};
+  const term = entry.term || {};
+  const expression = ankiNormalizeWhitespace(
+    raw.expression || raw.heading || ankiDisplayHeadword(entry),
+  );
+  const reading = ankiNormalizeWhitespace(
+    raw.reading || ankiDisplayReading(entry, expression),
+  );
+  const sentence = String(
+    raw.sentence ||
+      (raw.result && raw.result.text) ||
+      runtime.lastSubtitle ||
+      "",
+  );
+  const surface = ankiNormalizeWhitespace(
+    raw.surface ||
+      ankiLookupSurface(raw, entry, runtime.lastSubtitle) ||
+      expression,
+  );
+  const popupSelectionText = ankiNormalizeWhitespace(
+    raw.popupSelectionText || raw.selectionText || raw.selectedText || "",
+  );
+  const position = Number(
+    raw.position !== undefined
+      ? raw.position
+      : payload && payload.position !== undefined
+        ? payload.position
+        : raw.result && raw.result.lookupStart,
+  );
+  const cloze = ankiClozeForSentence(sentence, surface || expression, position);
+  const title = ankiNormalizeWhitespace(runtime.documentTitle || "");
+  const sourcePath = String(runtime.sourcePath || "");
+  const timePos = Number(runtime.timePos || 0);
+  const selectedGlossary = ankiFirstGlossary(entry);
+  const selectedGlossaryHtml = ankiFirstGlossaryHtml(entry);
+  return {
+    requestId: String((payload && payload.requestId) || ""),
+    entry,
+    term,
+    expression,
+    word: expression,
+    reading,
+    sentence,
+    surface,
+    popupSelectionText,
+    position: Number.isFinite(position) ? position : 0,
+    clozePrefix: cloze.prefix,
+    clozeBody: cloze.body,
+    clozeSuffix: cloze.suffix,
+    glossary: ankiGlossaryHtml(entry),
+    glossaryPlain: ankiGlossaryPlain(entry),
+    glossaryFirst: selectedGlossary,
+    glossaryFirstHtml: selectedGlossaryHtml,
+    selectedGlossary,
+    selectedGlossaryHtml,
+    dictionary: ankiDictionaryNames(entry),
+    partOfSpeech: ankiPartOfSpeech(entry),
+    tags: ankiEntryTags(entry),
+    frequencies: ankiFormatFrequencies(term),
+    frequencyHarmonicRank: ankiFrequencyHarmonicRank(term),
+    pitchAccentPositions: ankiPitchPositions(term),
+    pitchAccentCategories: ankiPitchCategories(term),
+    phoneticTranscriptions: ankiPhoneticTranscriptions(term),
+    documentTitle: title,
+    sourcePath,
+    timestamp: ankiFormatTimestamp(timePos),
+    timePos,
+    audioTerm: expression,
+    audioReading: reading,
+  };
+}
+
+function ankiMarkerDefinitions(language) {
+  const lang = String(language || "ja");
+  const markers = [
+    { marker: "{expression}", label: "Headword" },
+    { marker: "{word}", label: "Headword alias" },
+    { marker: "{reading}", label: "Reading" },
+    { marker: "{furigana}", label: "Headword ruby" },
+    { marker: "{furigana-plain}", label: "Furigana text" },
+    { marker: "{popup-selection-text}", label: "Popup selection" },
+    { marker: "{sentence}", label: "Subtitle sentence" },
+    { marker: "{cloze-prefix}", label: "Cloze before word" },
+    { marker: "{cloze-body}", label: "Cloze word" },
+    { marker: "{cloze-suffix}", label: "Cloze after word" },
+    { marker: "{glossary-first}", label: "First definition" },
+    { marker: "{selected-glossary}", label: "Selected definition" },
+    { marker: "{glossary}", label: "All definitions" },
+    { marker: "{glossary-plain}", label: "Plain definitions" },
+    { marker: "{dictionary}", label: "Dictionary" },
+    { marker: "{part-of-speech}", label: "Part of speech" },
+    { marker: "{tags}", label: "Dictionary tags" },
+    { marker: "{frequencies}", label: "Frequency tags" },
+    { marker: "{frequency-harmonic-rank}", label: "Frequency rank" },
+    { marker: "{phonetic-transcriptions}", label: "Phonetics" },
+    { marker: "{document-title}", label: "Video title" },
+    { marker: "{source-path}", label: "File path" },
+    { marker: "{timestamp}", label: "Timestamp" },
+    { marker: "{screenshot}", label: "Video screenshot" },
+    { marker: "{image}", label: "Video screenshot alias" },
+    { marker: "{sentence-audio}", label: "Subtitle audio" },
+    { marker: "{subtitle-audio}", label: "Subtitle audio alias" },
+    { marker: "{audio}", label: "Word audio or subtitle audio" },
+  ];
+  if (lang === "ja") {
+    markers.push(
+      { marker: "{pitch-accent-positions}", label: "Pitch positions" },
+      { marker: "{pitch-accent-categories}", label: "Pitch categories" },
+    );
+  }
+  return markers;
+}
+function extractAnkiMarkersFromTemplates(templates) {
+  const out = Object.create(null);
+  Object.keys(templates || {}).forEach((field) => {
+    const text = String(templates[field] || "");
+    text.replace(/\{([^{}]+)\}/g, (_match, key) => {
+      out[
+        String(key || "")
+          .trim()
+          .toLowerCase()
+      ] = true;
+      return "";
+    });
+  });
+  return out;
+}
+function ankiTemplatesNeedMedia(templates) {
+  const markers = extractAnkiMarkersFromTemplates(templates || {});
+  return {
+    screenshot: !!(markers.screenshot || markers.image),
+    sentenceAudio: !!(markers["sentence-audio"] || markers["subtitle-audio"]),
+    wordAudio: !!markers.audio,
+  };
+}
+function ankiMarkerValue(marker, context, media) {
+  const key = String(marker || "")
+    .trim()
+    .toLowerCase();
+  if (key === "expression" || key === "word")
+    return ankiEscapeHtml(context.expression);
+  if (key === "reading") return ankiEscapeHtml(context.reading);
+  if (key === "furigana-plain")
+    return ankiEscapeHtml(
+      ankiFuriganaPlain(context.expression, context.reading),
+    );
+  if (key === "furigana")
+    return ankiFuriganaHtml(context.expression, context.reading);
+  if (key === "popup-selection-text")
+    return ankiEscapeHtml(context.popupSelectionText);
+  if (key === "sentence") return ankiEscapeHtml(context.sentence);
+  if (key === "cloze-prefix") return ankiEscapeHtml(context.clozePrefix);
+  if (key === "cloze-body") return ankiEscapeHtml(context.clozeBody);
+  if (key === "cloze-suffix") return ankiEscapeHtml(context.clozeSuffix);
+  if (key === "glossary") return context.glossary;
+  if (key === "glossary-plain") return ankiEscapeHtml(context.glossaryPlain);
+  if (key === "glossary-first")
+    return context.glossaryFirstHtml || ankiEscapeHtml(context.glossaryFirst);
+  if (key === "selected-glossary")
+    return (
+      context.selectedGlossaryHtml ||
+      ankiEscapeHtml(context.selectedGlossary || context.glossaryFirst)
+    );
+  if (key === "dictionary" || key === "dictionary-alias")
+    return ankiEscapeHtml(context.dictionary);
+  if (key === "part-of-speech") return ankiEscapeHtml(context.partOfSpeech);
+  if (key === "tags") return ankiEscapeHtml(context.tags);
+  if (key === "frequencies") return ankiEscapeHtml(context.frequencies);
+  if (key === "frequency-harmonic-rank")
+    return ankiEscapeHtml(context.frequencyHarmonicRank);
+  if (key === "pitch-accent-positions")
+    return ankiEscapeHtml(context.pitchAccentPositions);
+  if (key === "pitch-accent-categories")
+    return ankiEscapeHtml(context.pitchAccentCategories);
+  if (key === "phonetic-transcriptions")
+    return ankiEscapeHtml(context.phoneticTranscriptions);
+  if (key === "document-title") return ankiEscapeHtml(context.documentTitle);
+  if (key === "source-path") return ankiEscapeHtml(context.sourcePath);
+  if (key === "timestamp") return ankiEscapeHtml(context.timestamp);
+  if (key === "screenshot" || key === "image")
+    return media && media.screenshot
+      ? '<img src="' + ankiEscapeHtml(media.screenshot) + '">'
+      : "";
+  if (key === "sentence-audio" || key === "subtitle-audio")
+    return media && media.sentenceAudio
+      ? "[sound:" + media.sentenceAudio + "]"
+      : "";
+  if (key === "audio")
+    return media && media.wordAudio ? "[sound:" + media.wordAudio + "]" : "";
+  return "";
+}
+function renderAnkiTemplate(template, context, media) {
+  return String(template || "").replace(/\{([^{}]+)\}/g, (_match, marker) =>
+    ankiMarkerValue(marker, context, media || {}),
+  );
+}
+function renderAnkiFields(templates, context, media) {
+  const fields = {};
+  Object.keys(templates || {}).forEach((field) => {
+    fields[field] = renderAnkiTemplate(templates[field], context, media || {});
+  });
+  return fields;
+}
+
+function ankiSearchEscape(value) {
+  return String(value || "").replace(/"/g, "");
+}
+function ankiDuplicateFieldValue(fields, firstField) {
+  const map = fields && typeof fields === "object" ? fields : {};
+  const name = String(firstField || "");
+  if (!name) return "";
+  if (Object.prototype.hasOwnProperty.call(map, name))
+    return String(map[name] || "");
+  const target = ankiCompareKey(name);
+  const keys = Object.keys(map);
+  for (let i = 0; i < keys.length; i++) {
+    if (ankiCompareKey(keys[i]) === target) return String(map[keys[i]] || "");
+  }
+  return "";
+}
+function ankiFirstFieldName(fields, fieldNames) {
+  if (Array.isArray(fieldNames) && fieldNames.length)
+    return String(fieldNames[0] || "");
+  return Object.keys(fields || {})[0] || "";
+}
+function ankiDuplicateFields(fields, fieldNames) {
+  const firstField = ankiFirstFieldName(fields, fieldNames);
+  const value = firstField ? ankiDuplicateFieldValue(fields, firstField) : "";
+  if (!firstField || !value) return {};
+  const out = {};
+  out[firstField] = value;
+  return out;
+}
+function ankiDuplicateQuery(prefs, fields, fieldNames) {
+  const deck = prefs.ankiDeckName;
+  const firstField = ankiFirstFieldName(fields, fieldNames);
+  const value = firstField ? ankiDuplicateFieldValue(fields, firstField) : "";
+  if (!firstField || !value) return "";
+  const parts = [
+    '"' +
+      ankiSearchEscape(firstField).toLowerCase() +
+      ":" +
+      ankiSearchEscape(value) +
+      '"',
+  ];
+  if (prefs.ankiDuplicateScope === "deck" && deck)
+    parts.unshift('"deck:' + ankiSearchEscape(deck) + '"');
+  return parts.join(" ");
+}
+function ankiDuplicateOptions(prefs) {
+  return {
+    allowDuplicate: prefs.ankiDuplicateMode === "allow",
+    duplicateScope:
+      prefs.ankiDuplicateScope === "collection" ? "collection" : "deck",
+    duplicateScopeOptions: {
+      deckName: prefs.ankiDeckName,
+      checkChildren: true,
+      checkAllModels: false,
+    },
+  };
+}
+function ankiDuplicateCheckOptions(prefs, allowDuplicate) {
+  const options = ankiDuplicateOptions(prefs);
+  options.allowDuplicate = !!allowDuplicate;
+  return options;
+}
+function ankiDuplicateCheckNote(prefs, fields, fieldNames, allowDuplicate) {
+  const firstFields = ankiDuplicateFields(fields, fieldNames);
+  if (!Object.keys(firstFields).length) return null;
+  return {
+    deckName: prefs.ankiDeckName,
+    modelName: prefs.ankiModelName,
+    fields: firstFields,
+    options: ankiDuplicateCheckOptions(prefs, allowDuplicate),
+    tags: [],
+  };
+}
+
+const ANKI_MEDIA_DOCUMENT_STEM_MAX_LENGTH = 14;
+
+function ankiSafeMediaName(text) {
+  const base = String(text || "iinatan")
+    .replace(/[^\w.-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return base || "iinatan";
+}
+function ankiMediaDocumentStem(text) {
+  const safe = ankiSafeMediaName(text || "video");
+  return (
+    safe
+      .slice(0, ANKI_MEDIA_DOCUMENT_STEM_MAX_LENGTH)
+      .replace(/[._-]+$/g, "") || "video"
+  );
+}
+function ankiRandomHex(length) {
+  const target = Math.max(1, Math.min(32, Number(length) || 12));
+  let out = "";
+  while (out.length < target) {
+    out += Math.floor(Math.random() * 0x100000000)
+      .toString(16)
+      .padStart(8, "0");
+  }
+  return out.slice(0, target);
+}
+function ankiMediaHexSuffix(hex) {
+  const clean = String(hex || "")
+    .toLowerCase()
+    .replace(/[^0-9a-f]+/g, "")
+    .slice(0, 12);
+  return clean || ankiRandomHex(12);
+}
+function ankiMediaFilename(documentName, hex, ext) {
+  const suffix = ankiMediaHexSuffix(hex);
+  const extension =
+    String(ext || "bin")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "")
+      .slice(0, 8) || "bin";
+  return ankiMediaDocumentStem(documentName) + "_" + suffix + "." + extension;
+}
+
+let ankiManagerStateCache = null;
+let ankiManagerRefreshInFlight = false;
+let ankiManagerRefreshSerial = 0;
+let ankiModelFieldCache = Object.create(null);
+let ankiActiveBridgeRequests = Object.create(null);
+let ankiStatusCache = Object.create(null);
+let ankiStatusInFlight = Object.create(null);
+let ankiStatusQueueTail = Promise.resolve();
+let ankiStatusQueuedCount = 0;
+
+const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
+const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
+const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
+const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 4;
+
+function ankiActiveProfilePreferences(overrides) {
+  const manifest = readManifest();
+  const profile = activeDictionaryProfile(manifest);
+  return normalizeProfilePreferences(
+    Object.assign({}, profile.preferences || {}, overrides || {}),
+  );
+}
+function ankiFieldTemplatesFromPrefs(prefs) {
+  return normalizeAnkiFieldTemplates(prefs && prefs.ankiFieldTemplatesJson);
+}
+function ankiProfileConfigured(prefs) {
+  const templates = ankiFieldTemplatesFromPrefs(prefs || {});
+  const hasTemplate = Object.keys(templates).some((field) =>
+    String(templates[field] || "").trim(),
+  );
+  return !!(
+    prefs &&
+    prefs.ankiEnabled &&
+    prefs.ankiConnectUrl &&
+    prefs.ankiDeckName &&
+    prefs.ankiModelName &&
+    hasTemplate
+  );
+}
+function overlayAnkiConfig() {
+  const prefs = ankiActiveProfilePreferences();
+  return {
+    enabled: !!prefs.ankiEnabled,
+    configured: ankiProfileConfigured(prefs),
+    duplicateCheck: !!prefs.ankiDuplicateCheck,
+    duplicateMode: prefs.ankiDuplicateMode,
+    duplicateScope: prefs.ankiDuplicateScope,
+    deckName: prefs.ankiDeckName,
+    modelName: prefs.ankiModelName,
+  };
+}
+function dictionaryManagerAnkiState(profilePreferences) {
+  const prefs = normalizeProfilePreferences(
+    profilePreferences || ankiActiveProfilePreferences(),
+  );
+  const cached = ankiManagerStateCache || {};
+  const fields =
+    Array.isArray(cached.fields) && cached.modelName === prefs.ankiModelName
+      ? cached.fields.slice()
+      : [];
+  return {
+    enabled: !!prefs.ankiEnabled,
+    connectUrl: prefs.ankiConnectUrl,
+    deckName: prefs.ankiDeckName,
+    modelName: prefs.ankiModelName,
+    fieldTemplates: ankiFieldTemplatesFromPrefs(prefs),
+    tags: prefs.ankiTags,
+    audioFormat: prefs.ankiAudioFormat,
+    audioBitrateKbps: prefs.ankiAudioBitrateKbps,
+    imageQuality: prefs.ankiImageQuality,
+    duplicateCheck: !!prefs.ankiDuplicateCheck,
+    duplicateMode: prefs.ankiDuplicateMode,
+    duplicateScope: prefs.ankiDuplicateScope,
+    sentenceAudioPaddingMs: prefs.ankiSentenceAudioPaddingMs,
+    lookupLanguage: String(prefs.lookupLanguage || "ja"),
+    markers: ankiMarkerDefinitions(String(prefs.lookupLanguage || "ja")),
+    reachable: !!cached.reachable,
+    checking: !!ankiManagerRefreshInFlight,
+    message: cached.message || "AnkiConnect has not been checked yet.",
+    checkedAt: cached.checkedAt || 0,
+    version: cached.version || null,
+    deckNames: Array.isArray(cached.deckNames) ? cached.deckNames.slice() : [],
+    modelNames: Array.isArray(cached.modelNames)
+      ? cached.modelNames.slice()
+      : [],
+    fields,
+  };
+}
+function ankiFieldCacheKey(prefs) {
+  return (
+    String((prefs && prefs.ankiConnectUrl) || "") +
+    "\n" +
+    String((prefs && prefs.ankiModelName) || "")
+  );
+}
+function postDictionaryManagerAnkiState() {
+  try {
+    postToDictionaryManager(
+      "dictionary-manager-anki-state",
+      dictionaryManagerAnkiState(),
+    );
+  } catch (error) {
+    debugWarn("could not build Anki manager state: " + compactError(error));
+  }
+}
+function refreshDictionaryManagerAnkiState(overrides) {
+  const serial = ++ankiManagerRefreshSerial;
+  const prefs = ankiActiveProfilePreferences(overrides || {});
+  ankiManagerRefreshInFlight = true;
+  ankiManagerStateCache = Object.assign({}, ankiManagerStateCache || {}, {
+    reachable: false,
+    message: "Checking AnkiConnect...",
+    checkedAt: Date.now(),
+    modelName: prefs.ankiModelName,
+  });
+  postDictionaryManagerAnkiState();
+  (async () => {
+    try {
+      const invokeOptions = { url: prefs.ankiConnectUrl, timeoutSeconds: 4 };
+      const version = await ankiConnectInvoke("version", {}, invokeOptions);
+      const deckNames = await ankiConnectInvoke("deckNames", {}, invokeOptions);
+      const modelNames = await ankiConnectInvoke(
+        "modelNames",
+        {},
+        invokeOptions,
+      );
+      let fields = [];
+      if (
+        prefs.ankiModelName &&
+        Array.isArray(modelNames) &&
+        modelNames.indexOf(prefs.ankiModelName) >= 0
+      ) {
+        fields = await ankiConnectInvoke(
+          "modelFieldNames",
+          { modelName: prefs.ankiModelName },
+          invokeOptions,
+        );
+      }
+      if (serial !== ankiManagerRefreshSerial) return;
+      ankiManagerStateCache = {
+        reachable: true,
+        message: "Reachable.",
+        checkedAt: Date.now(),
+        version,
+        deckNames: Array.isArray(deckNames) ? deckNames : [],
+        modelNames: Array.isArray(modelNames) ? modelNames : [],
+        fields: Array.isArray(fields) ? fields : [],
+        modelName: prefs.ankiModelName,
+      };
+      ankiModelFieldCache[ankiFieldCacheKey(prefs)] =
+        ankiManagerStateCache.fields.slice();
+    } catch (error) {
+      if (serial !== ankiManagerRefreshSerial) return;
+      ankiManagerStateCache = {
+        reachable: false,
+        message: "Not reachable: " + compactError(error),
+        checkedAt: Date.now(),
+        version: null,
+        deckNames: [],
+        modelNames: [],
+        fields: [],
+        modelName: prefs.ankiModelName,
+      };
+    } finally {
+      if (serial === ankiManagerRefreshSerial) {
+        ankiManagerRefreshInFlight = false;
+        postDictionaryManagerAnkiState();
+      }
+    }
+  })();
 }
 function ankiMediaTitleFromMpv() {
   const props = [
@@ -10739,120 +10863,13 @@ function ankiSubtitleBoundary(name) {
   } catch (_) {}
   return null;
 }
-function ankiFormatTimestamp(seconds) {
-  const total = Math.max(0, Number(seconds) || 0);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = Math.floor(total % 60);
-  return (
-    (h > 0 ? String(h) + ":" + String(m).padStart(2, "0") : String(m)) +
-    ":" +
-    String(s).padStart(2, "0")
-  );
-}
-function ankiFuriganaPlain(expression, reading) {
-  return reading
-    ? String(expression || "") + "[" + String(reading || "") + "]"
-    : String(expression || "");
-}
-function ankiFuriganaHtml(expression, reading) {
-  return reading
-    ? "<ruby>" +
-        ankiEscapeHtml(expression) +
-        "<rt>" +
-        ankiEscapeHtml(reading) +
-        "</rt></ruby>"
-    : ankiEscapeHtml(expression);
-}
-function ankiClozeForSentence(sentence, surface, position) {
-  const chars = Array.from(String(sentence || ""));
-  const bodyChars = Array.from(String(surface || ""));
-  let start = Number(position);
-  if (!Number.isFinite(start) || start < 0 || start >= chars.length) {
-    const sentenceText = String(sentence || "");
-    const idx = surface ? sentenceText.indexOf(String(surface)) : -1;
-    start = idx >= 0 ? Array.from(sentenceText.slice(0, idx)).length : 0;
-  }
-  let end = start + Math.max(1, bodyChars.length || 1);
-  if (start < 0) start = 0;
-  if (end > chars.length) end = chars.length;
-  const body = chars.slice(start, end).join("") || String(surface || "");
-  return {
-    prefix: chars.slice(0, start).join(""),
-    body,
-    suffix: chars.slice(end).join(""),
-  };
-}
 function ankiCardContextFromPayload(payload) {
-  const raw =
-    payload && payload.context && typeof payload.context === "object"
-      ? payload.context
-      : {};
-  const entry = raw.entry && typeof raw.entry === "object" ? raw.entry : {};
-  const term = entry.term || {};
-  const expression = ankiNormalizeWhitespace(
-    raw.expression || raw.heading || ankiDisplayHeadword(entry),
-  );
-  const reading = ankiNormalizeWhitespace(
-    raw.reading || ankiDisplayReading(entry, expression),
-  );
-  const sentence = String(
-    raw.sentence || (raw.result && raw.result.text) || lastSubtitle || "",
-  );
-  const surface = ankiNormalizeWhitespace(
-    raw.surface || ankiLookupSurface(raw, entry) || expression,
-  );
-  const popupSelectionText = ankiNormalizeWhitespace(
-    raw.popupSelectionText || raw.selectionText || raw.selectedText || "",
-  );
-  const position = Number(
-    raw.position !== undefined
-      ? raw.position
-      : payload && payload.position !== undefined
-        ? payload.position
-        : raw.result && raw.result.lookupStart,
-  );
-  const cloze = ankiClozeForSentence(sentence, surface || expression, position);
-  const title = ankiMediaTitleFromMpv();
-  const sourcePath = ankiSourcePathFromMpv();
-  const timePos = ankiTimePosFromMpv();
-  const selectedGlossary = ankiFirstGlossary(entry);
-  const selectedGlossaryHtml = ankiFirstGlossaryHtml(entry);
-  return {
-    requestId: String((payload && payload.requestId) || ""),
-    entry,
-    term,
-    expression,
-    word: expression,
-    reading,
-    sentence,
-    surface,
-    popupSelectionText,
-    position: Number.isFinite(position) ? position : 0,
-    clozePrefix: cloze.prefix,
-    clozeBody: cloze.body,
-    clozeSuffix: cloze.suffix,
-    glossary: ankiGlossaryHtml(entry),
-    glossaryPlain: ankiGlossaryPlain(entry),
-    glossaryFirst: selectedGlossary,
-    glossaryFirstHtml: selectedGlossaryHtml,
-    selectedGlossary,
-    selectedGlossaryHtml,
-    dictionary: ankiDictionaryNames(entry),
-    partOfSpeech: ankiPartOfSpeech(entry),
-    tags: ankiEntryTags(entry),
-    frequencies: ankiFormatFrequencies(term),
-    frequencyHarmonicRank: ankiFrequencyHarmonicRank(term),
-    pitchAccentPositions: ankiPitchPositions(term),
-    pitchAccentCategories: ankiPitchCategories(term),
-    phoneticTranscriptions: ankiPhoneticTranscriptions(term),
-    documentTitle: title,
-    sourcePath,
-    timestamp: ankiFormatTimestamp(timePos),
-    timePos,
-    audioTerm: expression,
-    audioReading: reading,
-  };
+  return ankiBuildCardContext(payload, {
+    lastSubtitle,
+    documentTitle: ankiMediaTitleFromMpv(),
+    sourcePath: ankiSourcePathFromMpv(),
+    timePos: ankiTimePosFromMpv(),
+  });
 }
 function ankiErrorLooksDuplicate(error) {
   return /cannot create note because it is a duplicate/i.test(

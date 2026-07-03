@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Split Anki card context and glossary formatting into a dedicated source module with focused test-suite coverage.
+
 ### Fixed
 
 - Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
