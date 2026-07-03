@@ -17,6 +17,7 @@ The maintainable source is split under `src/`:
 - `src/main/52_anki_templates.js` — Anki marker definitions, template marker scanning, media needs, and field rendering.
 - `src/main/53_anki_duplicates.js` — Anki duplicate query/check-note/options shaping.
 - `src/main/54_anki_media_names.js` — Anki media filename, suffix, and document-stem normalization.
+- `src/main/54_anki_note_actions.js` — Anki note ID normalization, duplicate note lookup/opening, tag cleanup, and add-result note ID validation.
 - `src/main/60_overlay_lifecycle_toggle.js` — overlay initialization, polling, enable/disable, Shift+H.
 - `src/main/70_tests_menu.js` — parser tests, dictionary lookup test action, plugin menu assembly.
 - `src/main/99_bootstrap.js` — startup event registration.
@@ -40,7 +41,7 @@ Settings/profile state is split by responsibility. `15_profile_settings.js` owns
 ## Current Risk Map
 
 - `src/overlay/overlay.js` remains the largest mixed-responsibility file: DOM event binding, popup placement, dictionary HTML rendering, audio controls, theme handling, and Anki button state all share one closure.
-- `src/main/55_anki_integration.js` still mixes Anki media capture, manager state, passive status, and overlay bridge handling; pure card-context/glossary rendering now lives in `52_anki_card_context.js`.
+- `src/main/55_anki_integration.js` still mixes Anki media capture, manager state, passive status, and overlay bridge handling; pure card-context/glossary rendering and note actions now live in narrower Anki modules.
 - `src/main/00_context_state_paths.js` still owns broad module-level mutable state for lifecycle, lookup cache/in-flight requests, bridge connections, pause state, diagnostics, task overlay state, and cached paths.
 - Boundary code has many intentionally best-effort `catch (_) {}` blocks around IINA/mpv/DOM APIs. These are useful for host compatibility, but future refactors should add context where failures affect user-visible behavior.
 - String contracts are still scattered across the overlay, settings manager HTML, main bridge messages, and `Info.json`. New settings and message types should be added through named constants or narrowly tested helpers where practical.

@@ -551,6 +551,10 @@ const ankiConnectSource = fs.readFileSync(
   path.join(root, "src/main/51_anki_connect.js"),
   "utf8",
 );
+const ankiNoteActionsSource = fs.readFileSync(
+  path.join(root, "src/main/54_anki_note_actions.js"),
+  "utf8",
+);
 const ankiSource = fs.readFileSync(
   path.join(root, "src/main/55_anki_integration.js"),
   "utf8",
@@ -598,8 +602,20 @@ assert(
   "Anki integration should cache note field names for repeated popup actions",
 );
 assert(
-  /guiBrowse/.test(ankiSource),
+  /guiBrowse/.test(ankiNoteActionsSource),
   "Anki duplicate handling should be able to open existing notes",
+);
+assert(
+  /function ankiOpenDuplicateNotes/.test(ankiNoteActionsSource) &&
+    /function ankiNoteTags/.test(ankiNoteActionsSource) &&
+    /function ankiValidAddedNoteId/.test(ankiNoteActionsSource),
+  "Anki note-action helpers should live in the dedicated note-actions module",
+);
+assert(
+  !/function ankiOpenDuplicateNotes/.test(ankiSource) &&
+    !/function ankiNoteTags/.test(ankiSource) &&
+    !/function ankiValidAddedNoteId/.test(ankiSource),
+  "Anki integration should not own note-action helper definitions",
 );
 assert(
   /allowDuplicate/.test(ankiDuplicateSource) &&

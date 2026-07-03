@@ -5,6 +5,7 @@
 ### Changed
 
 - Split Anki card context and glossary formatting into a dedicated source module with focused test-suite coverage.
+- Split Anki note-action helpers into a dedicated source module with focused test-suite coverage.
 
 ### Fixed
 

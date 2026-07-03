@@ -11,6 +11,7 @@ const files = [
   "src/main/52_anki_templates.js",
   "src/main/53_anki_duplicates.js",
   "src/main/54_anki_media_names.js",
+  "src/main/54_anki_note_actions.js",
   "src/main/55_anki_integration.js",
 ];
 const overlayMessages = [];
