@@ -16,6 +16,7 @@ const files = [
   "src/languages/chinese.js",
   "src/languages/korean.js",
   "src/languages/registry.js",
+  "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
 ];
 

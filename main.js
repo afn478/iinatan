@@ -5637,36 +5637,6 @@ function normalizeProfilePreferenceBoolValue(value, fallback) {
   }
   return !!value;
 }
-function emptyManifest() {
-  return {
-    dictionaries: {},
-    disabled: {},
-    dictionaryOrder: [],
-    activeProfileId: DEFAULT_PROFILE_ID,
-    profiles: {},
-  };
-}
-function normalizeDictionaryOrder(order) {
-  const seen = Object.create(null);
-  const out = [];
-  if (!Array.isArray(order)) return out;
-  order.forEach((name) => {
-    const key = String(name || "").trim();
-    if (key && !seen[key]) {
-      seen[key] = true;
-      out.push(key);
-    }
-  });
-  return out;
-}
-function normalizeDisabledMap(map) {
-  const out = {};
-  if (!map || typeof map !== "object") return out;
-  Object.keys(map).forEach((name) => {
-    if (map[name]) out[name] = true;
-  });
-  return out;
-}
 function normalizeProfilePreferences(prefs) {
   const out = {};
   PROFILE_PREFERENCE_KEYS.forEach((key) => {
@@ -5723,6 +5693,37 @@ function normalizeProfilePreferences(prefs) {
         PROFILE_PREFERENCE_DEFAULTS.ankiSentenceAudioPaddingMs,
     ),
   );
+  return out;
+}
+
+function emptyManifest() {
+  return {
+    dictionaries: {},
+    disabled: {},
+    dictionaryOrder: [],
+    activeProfileId: DEFAULT_PROFILE_ID,
+    profiles: {},
+  };
+}
+function normalizeDictionaryOrder(order) {
+  const seen = Object.create(null);
+  const out = [];
+  if (!Array.isArray(order)) return out;
+  order.forEach((name) => {
+    const key = String(name || "").trim();
+    if (key && !seen[key]) {
+      seen[key] = true;
+      out.push(key);
+    }
+  });
+  return out;
+}
+function normalizeDisabledMap(map) {
+  const out = {};
+  if (!map || typeof map !== "object") return out;
+  Object.keys(map).forEach((name) => {
+    if (map[name]) out[name] = true;
+  });
   return out;
 }
 function makeDefaultProfile(id, name) {

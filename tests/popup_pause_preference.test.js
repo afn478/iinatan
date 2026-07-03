@@ -5,6 +5,7 @@ const vm = require("vm");
 const root = path.resolve(__dirname, "..");
 const files = [
   "src/main/00_context_state_paths.js",
+  "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
   "src/main/50_overlay_bridge_pause.js",
 ];

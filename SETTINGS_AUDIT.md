@@ -2,6 +2,8 @@
 
 This audit covers every key in `Info.json` `preferenceDefaults`, its Settings UI, runtime read path, verified behavior, and caveats. Most keys are persisted as active-profile preferences in `manifest.json` and mirrored into IINA preferences when a profile is active. Dictionary import settings remain global.
 
+`src/main/15_profile_settings.js` is the source-level home for profile/global setting defaults and normalization rules. The implementation column below lists the runtime consumers that apply each normalized setting.
+
 | Setting | Default | UI control | Implementation | Verified behavior / caveat |
 | --- | ---: | --- | --- | --- |
 | `enabledByDefault` | `true` | Settings profile Playback checkbox | `src/main/99_bootstrap.js` | Enables iinatan when a window loads. Profile-scoped; changing it affects newly opened windows or the next plugin startup. |
