@@ -9674,11 +9674,54 @@ const ANKI_STRUCTURED_TAGS = {
   ul: true,
 };
 const ANKI_VOID_TAGS = { br: true, img: true };
+const ANKI_STRUCTURED_CONTENT_CSS = `
+.yomitan-glossary details[data-sc-details] { margin: 0.5em 0; padding-left: 0; }
+.yomitan-glossary summary[data-sc-summary] { border-block-end: 1px dotted var(--link-color, var(--fg-link, rgb(26, 115, 232))); border-radius: 0.4em; color: var(--text-color-light4, var(--fg-subtle, currentColor)); cursor: pointer; display: list-item; font-size: 0.85em; font-weight: 700; list-style-position: inside; padding: 0.1em 0.2em; user-select: none; width: max-content; }
+.yomitan-glossary summary[data-sc-summary]:hover { background: var(--notification-background-color-lighter, rgba(127, 127, 127, 0.14)); border-block-end-style: solid; color: var(--text-color, currentColor); }
+.yomitan-glossary details[data-sc-details][open] > summary[data-sc-summary] { color: var(--text-color, currentColor); margin-block-end: 0.5em; }
+`.trim();
+const ANKI_JITENDEX_STRUCTURED_CSS = `
+.yomitan-glossary [data-dictionary^="Jitendex"] span[title] { cursor: help; }
+.yomitan-glossary [data-dictionary^="Jitendex"] [data-sc-class="tag"] { border-radius: 0.3em; font-size: 0.8em; font-weight: bold; margin-right: 0.5em; padding: 0.2em 0.3em; vertical-align: text-bottom; word-break: keep-all; }
+.yomitan-glossary [data-dictionary^="Jitendex"] [data-sc-content="part-of-speech-info"] { background-color: rgb(86, 86, 86); color: white; }
+.yomitan-glossary [data-dictionary^="Jitendex"] [data-sc-content="misc-info"] { background-color: brown; color: white; }
+.yomitan-glossary [data-dictionary^="Jitendex"] [data-sc-content="field-info"] { background-color: purple; color: white; }
+.yomitan-glossary [data-dictionary^="Jitendex"] [data-sc-content="dialect-info"] { background-color: green; color: white; }
+.yomitan-glossary [data-dictionary^="Jitendex"] ul[data-sc-content="glossary"] { list-style-type: none; margin: 0.75em 0 0.4em; padding-left: 0; }
+.yomitan-glossary [data-dictionary^="Jitendex"] ul[data-sc-content="glossary"] > li { display: inline; }
+.yomitan-glossary [data-dictionary^="Jitendex"] ul[data-sc-content="glossary"] > li + li::before { content: " | "; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="extra-info"] { margin-left: 0.5em; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-class="extra-box"] { border-radius: 0.4rem; border-style: none none none solid; border-width: 0.35rem; margin: 0.5rem 0; padding: 0.5rem; width: fit-content; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="example-sentence"] { background: rgba(0, 0, 0, 0.05); border-color: currentColor; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="example-sentence-a"] { font-size: 1.3em; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="example-sentence-b"] { font-size: 0.8em; }
+.yomitan-glossary [data-dictionary^="Jitendex"] span[data-sc-content="example-keyword"] { color: rgb(0, 128, 0); }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="xref"] { background: rgba(26, 115, 232, 0.05); border-color: rgb(26, 115, 232); }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="xref-content"] { font-size: 1.3em; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="xref-glossary"] { font-size: 0.8rem; margin-top: 0.4em; }
+.yomitan-glossary [data-dictionary^="Jitendex"] span[data-sc-content="reference-label"] { color: rgb(26, 115, 232); font-size: 0.8em; margin-right: 0.5rem; }
+.yomitan-glossary [data-dictionary^="Jitendex"] .gloss-link { color: rgb(0, 120, 215); text-decoration: none; }
+.yomitan-glossary [data-dictionary^="Jitendex"] .gloss-link-external-icon { display: none; }
+.yomitan-glossary [data-dictionary^="Jitendex"] div[data-sc-content="attribution"] { font-size: 0.7em; margin-top: 0.6rem; text-align: right; }
+`.trim();
 function ankiSafeTagName(value) {
   const tag = String(value || "")
     .trim()
     .toLowerCase();
   return ANKI_STRUCTURED_TAGS[tag] ? tag : "";
+}
+function ankiStructuredSpanNeedsTrailingSpace(node, tag) {
+  if (tag !== "span") return false;
+  const data = ankiDataMap(node);
+  const kind = ankiNodeKind(node);
+  const cls = String(data.class || data["data-class"] || "");
+  return (
+    kind === "part-of-speech-info" ||
+    kind === "misc-info" ||
+    kind === "tag" ||
+    kind === "reference-label" ||
+    cls === "tag"
+  );
 }
 function ankiImageSrc(node) {
   const data = ankiDataMap(node);
@@ -9838,7 +9881,6 @@ function ankiStructuredHtml(value, dictionary) {
       .filter(Boolean)
       .join("");
   if (typeof value !== "object") return "";
-  if (ankiNodeKind(value) === "attribution") return "";
   if (value.type === "structured-content")
     return ankiStructuredContentHtml(value.content, dictionary);
   if (value.type === "text") return ankiYomitanMultilineHtml(value.text);
@@ -9856,8 +9898,7 @@ function ankiStructuredHtml(value, dictionary) {
         ankiYomitanEscapeExpression(ankiNodeHref(value))) +
       "</span>";
     const rawHref = ankiNodeHref(value);
-    const href =
-      rawHref && rawHref.charAt(0) === "?" ? "#" : ankiSafeHref(rawHref);
+    const href = ankiSafeHref(rawHref);
     const icon =
       href && href !== "#"
         ? '<span class="gloss-link-external-icon icon"></span>'
@@ -9883,18 +9924,18 @@ function ankiStructuredHtml(value, dictionary) {
   const body = ANKI_VOID_TAGS[tag]
     ? ""
     : ankiStructuredHtml(value.content, dictionary);
-  const className = "gloss-sc-" + tag;
-  const attrs = ankiCommonAttributes(value, { className, extraAttrs });
+  const attrs = ankiCommonAttributes(value, { extraAttrs });
   const element = ANKI_VOID_TAGS[tag]
     ? "<" + tag + attrs + ">"
     : "<" + tag + attrs + ">" + body + "</" + tag + ">";
+  if (ankiStructuredSpanNeedsTrailingSpace(value, tag)) return element + " ";
   return tag === "table"
     ? '<div class="gloss-sc-table-container">' + element + "</div>"
     : element;
 }
 function ankiStructuredContentHtml(value, dictionary) {
   return (
-    '<span class="structured-content">' +
+    "<span>" +
     ankiStructuredContentPieces(value)
       .map((item) => ankiStructuredHtml(item, dictionary))
       .join("") +
@@ -10020,6 +10061,66 @@ function ankiGlossaryItems(entry) {
   const term = entry && entry.term ? entry.term : {};
   return Array.isArray(term.glossaries) ? term.glossaries : [];
 }
+function ankiDictionaryMarkerKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]/g, "");
+}
+function ankiDictionaryMarkerMatches(dictionary, marker) {
+  const dictKey = ankiDictionaryMarkerKey(dictionary);
+  const markerKey = ankiDictionaryMarkerKey(marker);
+  if (!dictKey || !markerKey) return false;
+  return (
+    dictKey === markerKey ||
+    dictKey.indexOf(markerKey) === 0 ||
+    markerKey.indexOf(dictKey) === 0
+  );
+}
+function ankiDictionaryIsJitendex(value) {
+  return /^Jitendex(?:\.org)?(?:\b|\s|\[)/i.test(
+    ankiNormalizeWhitespace(value),
+  );
+}
+function ankiStyleBlockHtml(css) {
+  const text = String(css || "")
+    .replace(/<\/style/gi, "<\\/style")
+    .trim();
+  return text ? "<style>" + text + "</style>" : "";
+}
+function ankiGlossaryContentIsStructured(value) {
+  if (value === undefined || value === null) return false;
+  const parsed = ankiParseGlossaryJson(value);
+  if (parsed !== null) return ankiGlossaryContentIsStructured(parsed);
+  if (Array.isArray(value)) return value.some(ankiGlossaryContentIsStructured);
+  if (typeof value !== "object") return false;
+  if (value.type === "structured-content" || value.tag) return true;
+  if (value.content !== undefined)
+    return ankiGlossaryContentIsStructured(value.content);
+  if (value.glossary !== undefined)
+    return ankiGlossaryContentIsStructured(value.glossary);
+  return false;
+}
+function ankiGlossaryItemHasStructuredContent(item) {
+  return ankiGlossaryContentList(item && item.glossary).some(
+    ankiGlossaryContentIsStructured,
+  );
+}
+function ankiGlossaryScopedStylesHtml(items) {
+  const itemList = ankiToArray(items);
+  const hasStructured = itemList.some(ankiGlossaryItemHasStructuredContent);
+  if (!hasStructured) return "";
+  const css = [ANKI_STRUCTURED_CONTENT_CSS];
+  if (
+    itemList.some(
+      (item) =>
+        ankiDictionaryIsJitendex(item && item.dict) &&
+        ankiGlossaryItemHasStructuredContent(item),
+    )
+  ) {
+    css.push(ANKI_JITENDEX_STRUCTURED_CSS);
+  }
+  return ankiStyleBlockHtml(css.filter(Boolean).join("\n"));
+}
 function ankiGlossaryPlain(entry) {
   return ankiGlossaryItems(entry)
     .map((item) => {
@@ -10093,17 +10194,21 @@ function ankiGlossaryEntryHtml(item) {
     "</li>"
   );
 }
-function ankiGlossaryHtml(entry) {
-  const glossaryItems = ankiGlossaryItems(entry);
+function ankiGlossaryItemsHtml(glossaryItems, options) {
+  const opts = options || {};
   const items = glossaryItems.map(ankiGlossaryEntryHtml).filter(Boolean);
   if (!items.length) return "";
+  const style = ankiGlossaryScopedStylesHtml(glossaryItems);
   const body =
-    glossaryItems.length === 1
-      ? ankiGlossarySingleHtml(glossaryItems[0])
-      : "<ol>" + items.join("") + "</ol>";
+    glossaryItems.length === 1 && !opts.forceList
+      ? ankiGlossarySingleHtml(glossaryItems[0]) + style
+      : "<ol>" + items.join("") + style + "</ol>";
   return (
     '<div style="text-align: left;" class="yomitan-glossary">' + body + "</div>"
   );
+}
+function ankiGlossaryHtml(entry) {
+  return ankiGlossaryItemsHtml(ankiGlossaryItems(entry), { forceList: true });
 }
 function ankiFirstGlossary(entry) {
   const items = ankiGlossaryItems(entry);
@@ -10111,12 +10216,59 @@ function ankiFirstGlossary(entry) {
 }
 function ankiFirstGlossaryHtml(entry) {
   const first = ankiGlossaryItems(entry)[0];
-  const item = first ? ankiGlossarySingleHtml(first) : "";
-  return item
-    ? '<div style="text-align: left;" class="yomitan-glossary">' +
-        item +
-        "</div>"
+  return first ? ankiGlossaryItemsHtml([first]) : "";
+}
+function ankiMatchingGlossaryItems(entry, dictionary) {
+  const items = ankiGlossaryItems(entry);
+  const marker = ankiNormalizeWhitespace(dictionary);
+  if (!marker) return [];
+  return items.filter((item) =>
+    ankiDictionaryMarkerMatches(item && item.dict, marker),
+  );
+}
+function ankiFirstMatchingGlossaryDictionary(entry, dictionary) {
+  const item = ankiMatchingGlossaryItems(entry, dictionary)[0];
+  return ankiNormalizeWhitespace(item && item.dict);
+}
+function ankiSelectedGlossaryDictionary(entry, rawContext) {
+  const items = ankiGlossaryItems(entry);
+  if (!items.length) return "";
+  const explicit = ankiNormalizeWhitespace(
+    rawContext &&
+      (rawContext.selectedDictionary ||
+        rawContext.selectedGlossaryDictionary ||
+        rawContext.dictionary),
+  );
+  const explicitMatch = explicit
+    ? ankiFirstMatchingGlossaryDictionary(entry, explicit)
     : "";
+  if (explicitMatch) return explicitMatch;
+  const jitendex = items.find((item) =>
+    ankiDictionaryIsJitendex(item && item.dict),
+  );
+  if (jitendex) return ankiNormalizeWhitespace(jitendex && jitendex.dict);
+  return ankiNormalizeWhitespace(items[0] && items[0].dict);
+}
+function ankiGlossaryPlainForDictionary(entry, dictionary) {
+  const item = ankiMatchingGlossaryItems(entry, dictionary)[0];
+  if (!item) return "";
+  return ankiGlossaryContentList(item && item.glossary)
+    .map(ankiFormatGlossaryPlainText)
+    .filter(Boolean)
+    .join("\n");
+}
+function ankiGlossaryHtmlForDictionary(entry, dictionary) {
+  const item = ankiMatchingGlossaryItems(entry, dictionary)[0];
+  if (!item) return "";
+  return ankiGlossaryItemsHtml([item], { forceList: true });
+}
+function ankiSelectedGlossaryHtml(entry, rawContext) {
+  const selectedDictionary = ankiSelectedGlossaryDictionary(entry, rawContext);
+  if (!selectedDictionary) return ankiFirstGlossaryHtml(entry);
+  return (
+    ankiGlossaryHtmlForDictionary(entry, selectedDictionary) ||
+    ankiFirstGlossaryHtml(entry)
+  );
 }
 function ankiDictionaryNames(entry) {
   const seen = Object.create(null);
@@ -10350,8 +10502,14 @@ function ankiBuildCardContext(payload, host) {
   const title = ankiNormalizeWhitespace(runtime.documentTitle || "");
   const sourcePath = String(runtime.sourcePath || "");
   const timePos = Number(runtime.timePos || 0);
-  const selectedGlossary = ankiFirstGlossary(entry);
-  const selectedGlossaryHtml = ankiFirstGlossaryHtml(entry);
+  const selectedDictionary = ankiSelectedGlossaryDictionary(entry, raw);
+  const glossaryFirst = ankiFirstGlossary(entry);
+  const selectedGlossary =
+    (selectedDictionary
+      ? ankiGlossaryPlainForDictionary(entry, selectedDictionary)
+      : "") || glossaryFirst;
+  const glossaryFirstHtml = ankiFirstGlossaryHtml(entry);
+  const selectedGlossaryHtml = ankiSelectedGlossaryHtml(entry, raw);
   return {
     requestId: String((payload && payload.requestId) || ""),
     entry,
@@ -10368,10 +10526,11 @@ function ankiBuildCardContext(payload, host) {
     clozeSuffix: cloze.suffix,
     glossary: ankiGlossaryHtml(entry),
     glossaryPlain: ankiGlossaryPlain(entry),
-    glossaryFirst: selectedGlossary,
-    glossaryFirstHtml: selectedGlossaryHtml,
+    glossaryFirst,
+    glossaryFirstHtml,
     selectedGlossary,
     selectedGlossaryHtml,
+    selectedDictionary,
     dictionary: ankiDictionaryNames(entry),
     partOfSpeech: ankiPartOfSpeech(entry),
     tags: ankiEntryTags(entry),
@@ -10423,6 +10582,7 @@ function ankiMarkerDefinitions(language) {
   ];
   if (lang === "ja") {
     markers.push(
+      { marker: "{single-glossary-jitendex}", label: "Jitendex definition" },
       { marker: "{pitch-accent-positions}", label: "Pitch positions" },
       { marker: "{pitch-accent-categories}", label: "Pitch categories" },
     );
@@ -10480,6 +10640,10 @@ function ankiMarkerValue(marker, context, media) {
       context.selectedGlossaryHtml ||
       ankiEscapeHtml(context.selectedGlossary || context.glossaryFirst)
     );
+  if (key.indexOf("single-glossary-") === 0) {
+    const dictionary = key.slice("single-glossary-".length);
+    return ankiGlossaryHtmlForDictionary(context.entry, dictionary);
+  }
   if (key === "dictionary" || key === "dictionary-alias")
     return ankiEscapeHtml(context.dictionary);
   if (key === "part-of-speech") return ankiEscapeHtml(context.partOfSpeech);

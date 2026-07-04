@@ -44,10 +44,22 @@ assert(
   "Japanese marker definitions should include pitch accent markers",
 );
 assert(
+  templates
+    .ankiMarkerDefinitions("ja")
+    .some((item) => item.marker === "{single-glossary-jitendex}"),
+  "Japanese marker definitions should advertise the Yomitan-style Jitendex single-glossary marker",
+);
+assert(
   !templates
     .ankiMarkerDefinitions("en")
     .some((item) => item.marker === "{pitch-accent-positions}"),
   "Non-Japanese marker definitions should not advertise pitch accent markers",
+);
+assert(
+  !templates
+    .ankiMarkerDefinitions("en")
+    .some((item) => item.marker === "{single-glossary-jitendex}"),
+  "Non-Japanese marker definitions should not advertise the Jitendex single-glossary marker",
 );
 
 const markers = templates.extractAnkiMarkersFromTemplates({
@@ -112,6 +124,36 @@ assert(
 assert(
   fields.Unknown === "xy",
   "Unknown markers should render as empty strings",
+);
+
+const singleGlossaryFields = templates.renderAnkiFields(
+  {
+    Jitendex: "{single-glossary-jitendex}",
+  },
+  {
+    entry: {
+      term: {
+        glossaries: [
+          {
+            dict: "旺文社国語辞典 第十二版",
+            glossary: "Japanese dictionary definition",
+          },
+          { dict: "Jitendex.org [2026-06-06]", glossary: "branch family" },
+          { dict: "Jitendex.org [2026-06-06]", glossary: "cadet family" },
+        ],
+      },
+    },
+  },
+  {},
+);
+assert(
+  /branch family/.test(singleGlossaryFields.Jitendex) &&
+    !/cadet family/.test(singleGlossaryFields.Jitendex),
+  "Yomitan-style single-glossary markers should include one matching dictionary entry",
+);
+assert(
+  !/旺文社国語辞典/.test(singleGlossaryFields.Jitendex),
+  "Yomitan-style single-glossary markers should exclude other dictionaries",
 );
 
 console.log("anki template tests passed");

@@ -10,6 +10,11 @@
 ### Fixed
 
 - Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
+- Fixed Anki structured glossary HTML so Jitendex metadata, example boxes, cross-reference boxes, and attribution links export closer to Yomitan while keeping dictionary-internal links non-clickable.
+- Fixed Anki selected-glossary exports for Lapis so Japanese cards prefer Jitendex like Yomitan while falling back when it is absent, support `{single-glossary-jitendex}`, put one selected dictionary entry in `MainDefinition`, and keep the full dictionary list in `Glossary`.
+- Made exported structured glossary wrappers match Yomitan's plain `data-sc-*` shape more closely so Lapis sees selected Jitendex definitions like Yomitan cards do.
+- Stopped embedding dictionary `styles.css` in Anki glossary fields so nested Yomitan/Jitendex CSS cannot be malformed during export.
+- Stopped exporting generated-content `summary::before` rules in Anki glossary fields so Lapis does not blank structured glossary sections.
 - Stopped the detached HoshiDicts lookup worker when IINA closes and added an owner-process watchdog so orphaned workers exit instead of spinning in the background.
 
 ### Documentation

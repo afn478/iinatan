@@ -165,6 +165,10 @@ assert(
   "Lapis autofill should fill SelectedText with manual popup selection",
 );
 assert(
+  /maindefinition:\s*'\{selected-glossary\}'/.test(managerHtml),
+  "Lapis autofill should use the fallback-safe selected glossary marker",
+);
+assert(
   /data-profile-pref="ankiDuplicateMode"/.test(managerHtml),
   "Anki settings should expose duplicate behavior",
 );

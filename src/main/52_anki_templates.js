@@ -32,6 +32,7 @@ function ankiMarkerDefinitions(language) {
   ];
   if (lang === "ja") {
     markers.push(
+      { marker: "{single-glossary-jitendex}", label: "Jitendex definition" },
       { marker: "{pitch-accent-positions}", label: "Pitch positions" },
       { marker: "{pitch-accent-categories}", label: "Pitch categories" },
     );
@@ -89,6 +90,10 @@ function ankiMarkerValue(marker, context, media) {
       context.selectedGlossaryHtml ||
       ankiEscapeHtml(context.selectedGlossary || context.glossaryFirst)
     );
+  if (key.indexOf("single-glossary-") === 0) {
+    const dictionary = key.slice("single-glossary-".length);
+    return ankiGlossaryHtmlForDictionary(context.entry, dictionary);
+  }
   if (key === "dictionary" || key === "dictionary-alias")
     return ankiEscapeHtml(context.dictionary);
   if (key === "part-of-speech") return ankiEscapeHtml(context.partOfSpeech);
