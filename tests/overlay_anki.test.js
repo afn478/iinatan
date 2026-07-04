@@ -216,6 +216,11 @@ const overlayAnkiExports = [
     JSON.parse(addButton.dataset.ankiNoteIds)[0] === 24680,
     "Added Anki buttons should preserve the new note ID",
   );
+  assert(
+    context.__elements.status.textContent === "Added Anki card." &&
+      context.__elements.status.classList.contains("success"),
+    "Added Anki status should use the success banner style",
+  );
   await wait(2600);
   assert(
     context.__elements.status.classList.contains("hidden"),

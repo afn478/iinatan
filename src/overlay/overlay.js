@@ -4306,7 +4306,12 @@
       return;
     }
     statusEl.textContent = msg;
-    statusEl.className = payload.kind === "error" ? "error" : "";
+    statusEl.className =
+      payload.kind === "error"
+        ? "error"
+        : payload.kind === "success"
+          ? "success"
+          : "";
     statusEl.classList.remove("hidden");
     const ttlMs = payload && Number(payload.ttlMs);
     if (Number.isFinite(ttlMs) && ttlMs > 0) {
@@ -4350,7 +4355,7 @@
     else if (payload && payload.state === "added")
       setStatus({
         message: payload.message || "Added Anki card.",
-        kind: "info",
+        kind: "success",
         ttlMs: 2500,
       });
     else if (payload && payload.state === "opened")

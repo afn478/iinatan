@@ -10,6 +10,7 @@
 ### Fixed
 
 - Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
+- Made the successful Anki add confirmation use a light green status background.
 - Fixed Anki structured glossary HTML so Jitendex metadata, example boxes, cross-reference boxes, and attribution links export closer to Yomitan while keeping dictionary-internal links non-clickable.
 - Fixed Anki selected-glossary exports for Lapis so Japanese cards prefer Jitendex like Yomitan while falling back when it is absent, support `{single-glossary-jitendex}`, put one selected dictionary entry in `MainDefinition`, and keep the full dictionary list in `Glossary`.
 - Made exported structured glossary wrappers match Yomitan's plain `data-sc-*` shape more closely so Lapis sees selected Jitendex definitions like Yomitan cards do.
