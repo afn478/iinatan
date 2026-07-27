@@ -218,6 +218,10 @@ function runSettingsAuditChecks() {
     "popupSubtitleGapPx should be sent to overlay",
   );
   check(
+    typeof cfg.flattenSubtitleLineBreaks === "boolean",
+    "flattenSubtitleLineBreaks should be sent to overlay",
+  );
+  check(
     ["dark", "light", "inherit"].indexOf(cfg.popupTheme) >= 0,
     "popupTheme should be sent to overlay",
   );

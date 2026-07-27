@@ -198,10 +198,16 @@ function makeOverlayContext(options) {
   const elements = {
     subtitle: new FakeElement("subtitle"),
     popup: new FakeElement("popup"),
+    "popup-safety-zone": new FakeElement("popup-safety-zone"),
+    "popup-row-safety-zone": new FakeElement("popup-row-safety-zone"),
     status: new FakeElement("status"),
     task: new FakeElement("task"),
   };
   elements.popup.classList.add("hidden");
+  elements["popup-safety-zone"].classList.add("hidden");
+  elements["popup-safety-zone"].setAttribute("data-clickable", "true");
+  elements["popup-row-safety-zone"].classList.add("hidden");
+  elements["popup-row-safety-zone"].setAttribute("data-clickable", "true");
   const head = new FakeElement("head");
   const body = new FakeElement("body");
   const rootStyle = {

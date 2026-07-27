@@ -36,6 +36,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  flattenSubtitleLineBreaks: false,
   popupTheme: "inherit",
   subtitlePollMs: 120,
   etymologyCollapseDefault: "collapsed",
@@ -200,6 +201,10 @@ function normalizeProfilePreferences(prefs) {
   out.audioAutoPlay = normalizeProfilePreferenceBoolValue(
     out.audioAutoPlay,
     PROFILE_PREFERENCE_DEFAULTS.audioAutoPlay,
+  );
+  out.flattenSubtitleLineBreaks = normalizeProfilePreferenceBoolValue(
+    out.flattenSubtitleLineBreaks,
+    PROFILE_PREFERENCE_DEFAULTS.flattenSubtitleLineBreaks,
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,

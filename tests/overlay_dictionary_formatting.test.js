@@ -20,6 +20,9 @@ const { context, overlay } = loadOverlayForTest([
   "renderPopupHead",
   "safeExternalUrl",
   "placePopup",
+  "hidePopup",
+  "scheduleHidePopup",
+  "renderSubtitle",
 ]);
 
 overlay.applyConfig({
@@ -28,6 +31,28 @@ overlay.applyConfig({
   wiktionaryEtymologyCollapseOverride: "collapsed",
   customPopupCss: "#popup .gloss { font-size: 16px; }",
 });
+overlay.state.enabled = true;
+overlay.renderSubtitle("猫\n\n犬", 1);
+assert(
+  overlay.state.text === "猫\n\n犬",
+  "Subtitle line breaks should be preserved by default",
+);
+assert(
+  context.__elements.subtitle.children.filter((child) => child.tagName === "br")
+    .length === 2,
+  "Each preserved subtitle line break should render as a line-break element",
+);
+assert(
+  overlay.state.charByPos[3] && overlay.state.charByPos[3].dataset.pos === "3",
+  "Preserved line breaks should retain lookup positions after consecutive breaks",
+);
+overlay.applyConfig({ flattenSubtitleLineBreaks: true });
+overlay.renderSubtitle("猫\n\n犬", 2);
+assert(
+  overlay.state.text === "猫 犬",
+  "Subtitle line-break flattening should remain available as an opt-in",
+);
+overlay.applyConfig({ flattenSubtitleLineBreaks: false });
 assert(
   context.__head.children.length === 1,
   "Custom CSS should create a style element",
@@ -77,19 +102,19 @@ context.__elements.subtitle._rect = {
   height: 80,
 };
 context.__elements.popup._rect = {
-  left: 0,
-  top: 0,
-  right: 528,
-  bottom: 360,
+  left: 1166,
+  top: 656,
+  right: 1694,
+  bottom: 1016,
   width: 528,
   height: 360,
 };
 const scaledPlacementAnchor = context.document.createElement("span");
 scaledPlacementAnchor._rect = {
   left: 1400,
-  top: 1008,
+  top: 1050,
   right: 1460,
-  bottom: 1080,
+  bottom: 1122,
   width: 60,
   height: 72,
 };
@@ -100,14 +125,117 @@ overlay.applyConfig({
 });
 overlay.placePopup(scaledPlacementAnchor);
 const scaledPopupTop = Number.parseFloat(context.__elements.popup.style.top);
+const popupSafetyZone = context.__elements["popup-safety-zone"];
+const popupRowSafetyZone = context.__elements["popup-row-safety-zone"];
 assert(
   scaledPopupTop + context.__elements.popup._rect.height <=
-    context.__elements.subtitle._rect.top - 34 + 0.001,
-  "Scaled popup should stay above the subtitle-safe region",
+    scaledPlacementAnchor._rect.top - 34 + 0.001,
+  "Scaled popup should stay above the selected subtitle row",
+);
+assert(
+  scaledPopupTop + context.__elements.popup._rect.height >
+    context.__elements.subtitle._rect.top - 34,
+  "A lower-row popup should be able to cover earlier subtitle rows",
 );
 assert(
   context.document.documentElement.style["--popup-max-height"] === "407px",
   "Scaled popup max-height should reserve visual room after CSS transform",
+);
+assert(
+  popupSafetyZone.getAttribute("data-clickable") === "true",
+  "Popup safety zone should be marked clickable for IINA",
+);
+assert(
+  popupSafetyZone.style.left === "1166px" &&
+    popupSafetyZone.style.top === "1016px" &&
+    popupSafetyZone.style.width === "528px" &&
+    popupSafetyZone.style.height === "34px",
+  "Popup safety corridor should stop at the near edge of the selected row",
+);
+assert(
+  popupRowSafetyZone.getAttribute("data-clickable") === "true" &&
+    popupRowSafetyZone.style.left === "1400px" &&
+    popupRowSafetyZone.style.top === "1050px" &&
+    popupRowSafetyZone.style.width === "60px" &&
+    popupRowSafetyZone.style.height === "72px",
+  "Selected-row protection should cover only the active word",
+);
+assert(
+  !popupSafetyZone.classList.contains("hidden"),
+  "Popup safety zone should be visible with a positioned popup",
+);
+context.__elements.popup._rect = {
+  left: 66,
+  top: 130,
+  right: 594,
+  bottom: 490,
+  width: 528,
+  height: 360,
+};
+const belowPlacementAnchor = context.document.createElement("span");
+belowPlacementAnchor._rect = {
+  left: 300,
+  top: 40,
+  right: 360,
+  bottom: 96,
+  width: 60,
+  height: 56,
+};
+overlay.placePopup(belowPlacementAnchor);
+assert(
+  popupSafetyZone.style.left === "66px" &&
+    popupSafetyZone.style.top === "96px" &&
+    popupSafetyZone.style.width === "528px" &&
+    popupSafetyZone.style.height === "34px",
+  "A below-row popup should extend its safety corridor to the selected row's near edge",
+);
+assert(
+  popupRowSafetyZone.style.left === "300px" &&
+    popupRowSafetyZone.style.top === "40px" &&
+    popupRowSafetyZone.style.width === "60px" &&
+    popupRowSafetyZone.style.height === "56px",
+  "Below-row placement should keep selected-word protection exact",
+);
+overlay.scheduleHidePopup();
+popupSafetyZone.listeners.mouseenter({});
+assert(
+  overlay.state.hideTimer === null,
+  "Entering the popup safety zone should cancel pending popup hiding",
+);
+popupSafetyZone.listeners.mouseleave({});
+assert(
+  overlay.state.hideTimer,
+  "Leaving the popup safety zone should schedule popup hiding",
+);
+popupRowSafetyZone.listeners.mouseenter({});
+assert(
+  overlay.state.hideTimer === null,
+  "Entering selected-word protection should cancel pending popup hiding",
+);
+popupRowSafetyZone.listeners.mouseleave({});
+assert(
+  overlay.state.hideTimer,
+  "Leaving selected-word protection should schedule popup hiding",
+);
+overlay.hidePopup();
+assert(
+  popupSafetyZone.classList.contains("hidden") &&
+    popupRowSafetyZone.classList.contains("hidden"),
+  "Hiding the popup should also hide both safety zones",
+);
+context.__elements.popup._rect = {
+  left: 120,
+  top: 20,
+  right: 648,
+  bottom: 380,
+  width: 528,
+  height: 360,
+};
+overlay.placePopup(belowPlacementAnchor);
+assert(
+  popupSafetyZone.classList.contains("hidden") &&
+    !popupRowSafetyZone.classList.contains("hidden"),
+  "A nonpositive gap corridor should stay hidden while current-word protection remains active",
 );
 
 const header = overlay.displayHeaderForResult(
@@ -993,6 +1121,16 @@ assert(
 );
 
 const css = fs.readFileSync(path.join(root, "src/overlay/overlay.css"), "utf8");
+assert(
+  /#popup-safety-zone,\s*#popup-row-safety-zone \{[^}]*background: transparent;[^}]*pointer-events: auto;[^}]*\}/s.test(
+    css,
+  ),
+  "Both popup safety regions should remain transparent hit targets",
+);
+assert(
+  !/#popup-safety-zone,\s*#popup-row-safety-zone \{[^}]*\bheight:/s.test(css),
+  "Popup safety-region heights should be calculated from rendered geometry",
+);
 assert(
   /:root\.theme-light/.test(css),
   "Popup CSS should define a concrete light theme",

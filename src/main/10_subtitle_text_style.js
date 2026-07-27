@@ -7,8 +7,8 @@ function decodeEntities(s) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 }
-function cleanSubtitleText(text) {
-  return decodeEntities(String(text || ""))
+function cleanSubtitleText(text, flattenLineBreaks) {
+  const clean = decodeEntities(String(text || ""))
     .replace(/\uFEFF/g, "")
     .replace(/\{\\[^}]+\}/g, "")
     .replace(/\\N/g, "\n")
@@ -17,8 +17,8 @@ function cleanSubtitleText(text) {
     .replace(/<[^>]+>/g, "")
     .replace(/\r/g, "")
     .replace(/[ \t\f\v]+\n/g, "\n")
-    .replace(/\n[ \t\f\v]+/g, "\n")
-    .replace(/\n+/g, " ")
+    .replace(/\n[ \t\f\v]+/g, "\n");
+  return (flattenLineBreaks ? clean.replace(/\n+/g, " ") : clean)
     .replace(/[ \t\f\v]{2,}/g, " ")
     .trim();
 }
@@ -252,6 +252,7 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
     popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
     ...readSubtitleStyleConfig(),
@@ -289,7 +290,10 @@ function readCurrentSubtitle() {
   } catch (_) {
     sub = "";
   }
-  const clean = cleanSubtitleText(sub);
+  const clean = cleanSubtitleText(
+    sub,
+    prefBool("flattenSubtitleLineBreaks", false),
+  );
   const language = selectedLanguageModule();
   if (language && typeof language.normalizeSubtitleText === "function")
     return language.normalizeSubtitleText(clean);

@@ -214,6 +214,15 @@
       user-select: text;
     }
     #popup.hidden { display: none; }
+    #popup-safety-zone,
+    #popup-row-safety-zone {
+      position: absolute;
+      z-index: 20;
+      background: transparent;
+      pointer-events: auto;
+    }
+    #popup-safety-zone.hidden,
+    #popup-row-safety-zone.hidden { display: none; }
     #popup::-webkit-scrollbar { width: 10px; }
     #popup::-webkit-scrollbar-track { background: var(--popup-scroll-track); border-radius: 999px; }
     #popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
@@ -591,11 +600,15 @@
     <div id="task" class="hidden" data-clickable="true"></div>
     <div id="subtitle" class="hidden"></div>
     <div id="popup" class="hidden" data-clickable="true"></div>
+    <div id="popup-safety-zone" class="hidden" data-clickable="true" aria-hidden="true"></div>
+    <div id="popup-row-safety-zone" class="hidden" data-clickable="true" aria-hidden="true"></div>
   </div>
 <script>
 (function () {
   const subtitleEl = document.getElementById("subtitle");
   const popupEl = document.getElementById("popup");
+  const popupSafetyZoneEl = document.getElementById("popup-safety-zone");
+  const popupRowSafetyZoneEl = document.getElementById("popup-row-safety-zone");
   const statusEl = document.getElementById("status");
   const taskEl = document.getElementById("task");
 
@@ -613,6 +626,7 @@
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
+      flattenSubtitleLineBreaks: false,
       popupTheme: "inherit",
       maxEntries: 3,
       maxGlossesPerEntry: 4,
@@ -1943,7 +1957,9 @@
   }
 
   function renderSubtitle(text, lineId) {
-    state.text = flattenSubtitleText(text);
+    state.text = state.config.flattenSubtitleLineBreaks
+      ? flattenSubtitleText(text)
+      : String(text || "");
     overlayDebug(
       "renderSubtitle lineId=" +
         state.lineId +
@@ -1981,7 +1997,7 @@
     for (let i = 0; i < state.chars.length; i++) {
       const ch = state.chars[i];
       if (ch === "\n") {
-        frag.appendChild(document.createTextNode(" "));
+        frag.appendChild(document.createElement("br"));
         continue;
       }
       if (/\s/.test(ch)) {
@@ -2249,6 +2265,10 @@
   }
   popupEl.addEventListener("mouseenter", cancelHidePopupTimer);
   popupEl.addEventListener("mouseleave", scheduleHidePopup);
+  popupSafetyZoneEl.addEventListener("mouseenter", cancelHidePopupTimer);
+  popupSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
+  popupRowSafetyZoneEl.addEventListener("mouseenter", cancelHidePopupTimer);
+  popupRowSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
   popupEl.addEventListener("click", onPopupClick, true);
   function trapPopupWheel(ev) {
     if (popupEl.classList.contains("hidden")) return;
@@ -2577,6 +2597,8 @@
     hideAudioSourceMenu();
     setLookupPopupVisibility(false);
     popupEl.classList.add("hidden");
+    popupSafetyZoneEl.classList.add("hidden");
+    popupRowSafetyZoneEl.classList.add("hidden");
     state.currentPos = null;
     state.currentAnchor = null;
     Object.keys(state.pendingLookupTimers || {}).forEach((k) =>
@@ -3173,29 +3195,11 @@
       : null;
   }
 
-  function visibleSubtitleRect() {
-    const rect = subtitleEl.getBoundingClientRect();
-    if (
-      subtitleEl.classList.contains("hidden") ||
-      !rect.width ||
-      !rect.height
-    ) {
-      return {
-        top: window.innerHeight * 0.72,
-        bottom: window.innerHeight * 0.92,
-        left: 0,
-        right: window.innerWidth,
-        width: window.innerWidth,
-        height: window.innerHeight * 0.2,
-      };
-    }
-    return rect;
-  }
-
   function placePopup(anchor) {
+    popupSafetyZoneEl.classList.add("hidden");
+    popupRowSafetyZoneEl.classList.add("hidden");
     if (!anchor) return;
     const rect = anchor.getBoundingClientRect();
-    const sub = visibleSubtitleRect();
     const margin = 12;
     const gap = Math.max(12, Number(state.config.popupSubtitleGapPx || 34));
     const scale = Math.max(
@@ -3208,32 +3212,34 @@
     );
     const desiredMax = Math.floor((window.innerHeight * desiredVh) / 100);
 
-    // Hard rule: choose a non-subtitle region first, then cap the popup height to
-    // that region. v1.3.2 accidentally let max-height fall back to the whole
-    // window, which could make a tall popup overlap the subtitle band.
-    const availableAbove = Math.max(0, sub.top - margin - gap);
+    // Use the selected row rather than the complete subtitle band. A popup for a
+    // lower row can therefore cover earlier rows, preventing them from replacing
+    // the active popup while the pointer moves into it.
+    const availableAbove = Math.max(0, rect.top - margin - gap);
     const availableBelow = Math.max(
       0,
-      window.innerHeight - sub.bottom - margin - gap,
+      window.innerHeight - rect.bottom - margin - gap,
     );
     let placeAbove = true;
     if (availableAbove < 90 && availableBelow > availableAbove)
       placeAbove = false;
     else if (availableAbove < 160 && availableBelow > 220) placeAbove = false;
-    else placeAbove = true; // subtitles are usually at the bottom; keep the popup above.
+    else placeAbove = true; // Subtitles are usually at the bottom; keep popups above.
 
-    let regionTop = placeAbove ? margin : sub.bottom + gap;
-    let regionBottom = placeAbove ? sub.top - gap : window.innerHeight - margin;
+    let regionTop = placeAbove ? margin : rect.bottom + gap;
+    let regionBottom = placeAbove
+      ? rect.top - gap
+      : window.innerHeight - margin;
     if (regionBottom - regionTop < 80) {
-      // Fallback: use the larger side, still outside the subtitle if possible.
+      // Fallback: use the larger side, still clear of the selected row.
       if (availableBelow > availableAbove) {
         placeAbove = false;
-        regionTop = Math.min(window.innerHeight - 80, sub.bottom + gap);
+        regionTop = Math.min(window.innerHeight - 80, rect.bottom + gap);
         regionBottom = window.innerHeight - margin;
       } else {
         placeAbove = true;
         regionTop = margin;
-        regionBottom = Math.max(margin + 80, sub.top - gap);
+        regionBottom = Math.max(margin + 80, rect.top - gap);
       }
     }
 
@@ -3257,17 +3263,15 @@
     const maxLeft = window.innerWidth - popupW - margin;
     left = Math.max(margin, Math.min(left, Math.max(margin, maxLeft)));
 
-    // Stable vertical docking: keep the popup adjacent to the subtitle-safe region
-    // rather than pinning it to the very top of the video. This keeps it close to
-    // the word being studied while still leaving the subtitle band unobstructed.
+    // Keep the popup adjacent to the selected subtitle row rather than pinning it
+    // to the very top of the video.
     let top = placeAbove ? regionBottom - popupH : regionTop;
     top = Math.max(regionTop, Math.min(top, regionBottom - popupH));
     top = Math.max(margin, Math.min(top, window.innerHeight - popupH - margin));
 
-    // Absolute last safety check: if the computed rect still overlaps subtitles,
-    // shrink to fit the upper region and keep its bottom above the subtitle.
+    // Absolute last safety check: keep the popup clear of the selected row.
     const overlaps = !(
-      top + popupH <= sub.top - gap / 2 || top >= sub.bottom + gap / 2
+      top + popupH <= rect.top - gap / 2 || top >= rect.bottom + gap / 2
     );
     if (overlaps && availableAbove > 80) {
       const safeHeight = Math.max(80, Math.min(desiredMax, availableAbove));
@@ -3275,11 +3279,44 @@
         "--popup-max-height",
         String(Math.floor(safeHeight / scale)) + "px",
       );
-      top = Math.max(margin, sub.top - gap - safeHeight);
+      top = Math.max(margin, rect.top - gap - safeHeight);
     }
 
     popupEl.style.left = left + "px";
     popupEl.style.top = top + "px";
+
+    // The popup is CSS-scaled, so use its final rendered bounds rather than
+    // unscaled layout dimensions. Protect the gap up to the selected row, then
+    // cover only the active word so adjacent words on that row remain usable.
+    const popupRect = popupEl.getBoundingClientRect();
+    const safetyTop = placeAbove ? popupRect.bottom : rect.bottom;
+    const safetyBottom = placeAbove ? rect.top : popupRect.top;
+    const safetyLeft = Math.min(popupRect.left, rect.left);
+    const safetyRight = Math.max(popupRect.right, rect.right);
+    if (
+      [rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite) &&
+      rect.right > rect.left &&
+      rect.bottom > rect.top
+    ) {
+      popupRowSafetyZoneEl.style.left = rect.left + "px";
+      popupRowSafetyZoneEl.style.top = rect.top + "px";
+      popupRowSafetyZoneEl.style.width = rect.right - rect.left + "px";
+      popupRowSafetyZoneEl.style.height = rect.bottom - rect.top + "px";
+      popupRowSafetyZoneEl.classList.remove("hidden");
+    }
+    if (
+      ![safetyTop, safetyBottom, safetyLeft, safetyRight].every(
+        Number.isFinite,
+      ) ||
+      safetyBottom <= safetyTop ||
+      safetyRight <= safetyLeft
+    )
+      return;
+    popupSafetyZoneEl.style.left = safetyLeft + "px";
+    popupSafetyZoneEl.style.top = safetyTop + "px";
+    popupSafetyZoneEl.style.width = safetyRight - safetyLeft + "px";
+    popupSafetyZoneEl.style.height = safetyBottom - safetyTop + "px";
+    popupSafetyZoneEl.classList.remove("hidden");
   }
 
   function toArray(v) {

@@ -86,6 +86,10 @@ assert(
   prefs.ankiConnectUrl === settings.DEFAULT_ANKI_CONNECT_URL,
   "Missing AnkiConnect URL should receive the default URL",
 );
+assert(
+  prefs.flattenSubtitleLineBreaks === false,
+  "Subtitle line-break flattening should default to off",
+);
 
 prefs = settings.normalizeProfilePreferences({
   audioAutoPlay: "yes",
@@ -108,6 +112,7 @@ prefs = settings.normalizeProfilePreferences({
   ankiDuplicateMode: "allow",
   ankiDuplicateScope: "collection",
   ankiSentenceAudioPaddingMs: 99999,
+  flattenSubtitleLineBreaks: "yes",
   unknownSetting: "ignored",
 });
 
@@ -117,6 +122,10 @@ assert(
   "Explicit empty audio sources remain empty",
 );
 assert(prefs.ankiEnabled === true, "Anki enabled should normalize as boolean");
+assert(
+  prefs.flattenSubtitleLineBreaks === true,
+  "Subtitle line-break flattening should normalize boolean-like values",
+);
 assert(
   prefs.ankiConnectUrl === "http://127.0.0.1:8765",
   "AnkiConnect URL should trim trailing slashes",

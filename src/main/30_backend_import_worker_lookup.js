@@ -1185,7 +1185,9 @@ function appendLookupResultEntries(target, seen, candidateResult, limit) {
 }
 async function lookupAtPosition(text, position, requestId) {
   const language = selectedLanguageModule();
-  const clean = language.normalizeText(cleanSubtitleText(text));
+  const clean = language.normalizeText(
+    cleanSubtitleText(text, prefBool("flattenSubtitleLineBreaks", false)),
+  );
   const chars = charsOf(clean);
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
   const scanLength = Math.max(1, prefNumber("scanLength", 24));

@@ -46,6 +46,7 @@
     "subtitlePollMs": 120,
     "popupMaxHeightVh": 34,
     "popupSubtitleGapPx": 34,
+    "flattenSubtitleLineBreaks": false,
     "pauseWhilePopupVisible": true,
     "lookupTimeoutMs": 9000,
     "etymologyCollapseDefault": "collapsed",

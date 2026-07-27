@@ -213,6 +213,14 @@ assert(
   "Settings manager should expose per-profile popup color mode",
 );
 assert(
+  /data-profile-pref="flattenSubtitleLineBreaks"/.test(managerHtml),
+  "Settings manager should expose opt-in subtitle line-break flattening",
+);
+assert(
+  /Gap above selected subtitle row/.test(managerHtml),
+  "Settings manager should describe popup spacing relative to the selected row",
+);
+assert(
   /data-profile-pref="customPopupCss"/.test(managerHtml),
   "Settings manager should expose per-profile custom popup CSS",
 );

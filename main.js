@@ -5081,8 +5081,8 @@ function decodeEntities(s) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 }
-function cleanSubtitleText(text) {
-  return decodeEntities(String(text || ""))
+function cleanSubtitleText(text, flattenLineBreaks) {
+  const clean = decodeEntities(String(text || ""))
     .replace(/\uFEFF/g, "")
     .replace(/\{\\[^}]+\}/g, "")
     .replace(/\\N/g, "\n")
@@ -5091,8 +5091,8 @@ function cleanSubtitleText(text) {
     .replace(/<[^>]+>/g, "")
     .replace(/\r/g, "")
     .replace(/[ \t\f\v]+\n/g, "\n")
-    .replace(/\n[ \t\f\v]+/g, "\n")
-    .replace(/\n+/g, " ")
+    .replace(/\n[ \t\f\v]+/g, "\n");
+  return (flattenLineBreaks ? clean.replace(/\n+/g, " ") : clean)
     .replace(/[ \t\f\v]{2,}/g, " ")
     .trim();
 }
@@ -5326,6 +5326,7 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
     popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
     ...readSubtitleStyleConfig(),
@@ -5363,7 +5364,10 @@ function readCurrentSubtitle() {
   } catch (_) {
     sub = "";
   }
-  const clean = cleanSubtitleText(sub);
+  const clean = cleanSubtitleText(
+    sub,
+    prefBool("flattenSubtitleLineBreaks", false),
+  );
   const language = selectedLanguageModule();
   if (language && typeof language.normalizeSubtitleText === "function")
     return language.normalizeSubtitleText(clean);
@@ -5489,6 +5493,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  flattenSubtitleLineBreaks: false,
   popupTheme: "inherit",
   subtitlePollMs: 120,
   etymologyCollapseDefault: "collapsed",
@@ -5653,6 +5658,10 @@ function normalizeProfilePreferences(prefs) {
   out.audioAutoPlay = normalizeProfilePreferenceBoolValue(
     out.audioAutoPlay,
     PROFILE_PREFERENCE_DEFAULTS.audioAutoPlay,
+  );
+  out.flattenSubtitleLineBreaks = normalizeProfilePreferenceBoolValue(
+    out.flattenSubtitleLineBreaks,
+    PROFILE_PREFERENCE_DEFAULTS.flattenSubtitleLineBreaks,
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,
@@ -8045,7 +8054,9 @@ function appendLookupResultEntries(target, seen, candidateResult, limit) {
 }
 async function lookupAtPosition(text, position, requestId) {
   const language = selectedLanguageModule();
-  const clean = language.normalizeText(cleanSubtitleText(text));
+  const clean = language.normalizeText(
+    cleanSubtitleText(text, prefBool("flattenSubtitleLineBreaks", false)),
+  );
   const chars = charsOf(clean);
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
   const scanLength = Math.max(1, prefNumber("scanLength", 24));
@@ -12664,6 +12675,10 @@ function runSettingsAuditChecks() {
     Number.isFinite(Number(cfg.popupSubtitleGapPx)) &&
       cfg.popupSubtitleGapPx >= 12,
     "popupSubtitleGapPx should be sent to overlay",
+  );
+  check(
+    typeof cfg.flattenSubtitleLineBreaks === "boolean",
+    "flattenSubtitleLineBreaks should be sent to overlay",
   );
   check(
     ["dark", "light", "inherit"].indexOf(cfg.popupTheme) >= 0,

@@ -209,6 +209,15 @@
       user-select: text;
     }
     #popup.hidden { display: none; }
+    #popup-safety-zone,
+    #popup-row-safety-zone {
+      position: absolute;
+      z-index: 20;
+      background: transparent;
+      pointer-events: auto;
+    }
+    #popup-safety-zone.hidden,
+    #popup-row-safety-zone.hidden { display: none; }
     #popup::-webkit-scrollbar { width: 10px; }
     #popup::-webkit-scrollbar-track { background: var(--popup-scroll-track); border-radius: 999px; }
     #popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
