@@ -90,6 +90,12 @@ assert(
   prefs.flattenSubtitleLineBreaks === false,
   "Subtitle line-break flattening should default to off",
 );
+assert(
+  prefs.experimentalNativeSubtitleHitLayer === false &&
+    prefs.experimentalNativeSubtitleHitBoxes === false &&
+    prefs.experimentalNativeSubtitleTextOpacity === 0,
+  "Experimental native subtitle controls should default off and invisible",
+);
 
 prefs = settings.normalizeProfilePreferences({
   audioAutoPlay: "yes",
@@ -113,6 +119,9 @@ prefs = settings.normalizeProfilePreferences({
   ankiDuplicateScope: "collection",
   ankiSentenceAudioPaddingMs: 99999,
   flattenSubtitleLineBreaks: "yes",
+  experimentalNativeSubtitleHitLayer: "yes",
+  experimentalNativeSubtitleHitBoxes: "1",
+  experimentalNativeSubtitleTextOpacity: 4,
   unknownSetting: "ignored",
 });
 
@@ -125,6 +134,21 @@ assert(prefs.ankiEnabled === true, "Anki enabled should normalize as boolean");
 assert(
   prefs.flattenSubtitleLineBreaks === true,
   "Subtitle line-break flattening should normalize boolean-like values",
+);
+assert(
+  prefs.experimentalNativeSubtitleHitLayer === true &&
+    prefs.experimentalNativeSubtitleHitBoxes === true,
+  "Experimental native subtitle booleans should normalize",
+);
+assert(
+  prefs.experimentalNativeSubtitleTextOpacity === 1,
+  "Experimental copied-text opacity should clamp to one",
+);
+assert(
+  settings.normalizeProfilePreferences({
+    experimentalNativeSubtitleTextOpacity: -5,
+  }).experimentalNativeSubtitleTextOpacity === 0,
+  "Experimental copied-text opacity should clamp to zero",
 );
 assert(
   prefs.ankiConnectUrl === "http://127.0.0.1:8765",

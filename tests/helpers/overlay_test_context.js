@@ -42,7 +42,11 @@ class FakeElement {
     this.dataset = {};
     this.attributes = {};
     this.listeners = {};
-    this.style = {};
+    this.style = {
+      setProperty(name, value) {
+        this[name] = String(value);
+      },
+    };
     this.className = "";
     this.classList = new FakeClassList(this);
     this.focused = false;
@@ -55,7 +59,18 @@ class FakeElement {
   }
   set textContent(value) {
     this._textContent = String(value || "");
-    if (this.tagName !== "#text") this.children = [];
+    if (this.tagName !== "#text") {
+      this.children = [];
+      if (this._textContent) {
+        const child = new FakeElement("#text");
+        child._textContent = this._textContent;
+        child.parentNode = this;
+        this.children.push(child);
+      }
+    }
+  }
+  get firstChild() {
+    return this.children[0] || null;
   }
   get textContent() {
     if (this.tagName === "#text") return this._textContent;
@@ -129,6 +144,21 @@ class FakeElement {
   addEventListener(type, handler) {
     this.listeners[type] = handler;
   }
+  attachShadow(init) {
+    const shadow = new FakeElement("#shadow-root");
+    shadow.host = this;
+    shadow.mode = (init && init.mode) || "open";
+    this.shadowRoot = shadow;
+    return shadow;
+  }
+  getElementById(id) {
+    if (this.id === id) return this;
+    for (const child of this.children) {
+      const found = child.getElementById(id);
+      if (found) return found;
+    }
+    return null;
+  }
   querySelector(selector) {
     return this.querySelectorAll(selector)[0] || null;
   }
@@ -145,6 +175,19 @@ class FakeElement {
   }
   getBoundingClientRect() {
     if (this._rect) return this._rect;
+    if (
+      this.tagName === "html" ||
+      this.tagName === "body" ||
+      this.tagName === "root"
+    )
+      return {
+        left: 0,
+        top: 0,
+        right: 1280,
+        bottom: 720,
+        width: 1280,
+        height: 720,
+      };
     const pos = Number(this.dataset.pos || 0);
     if (this.tagName === "subtitle")
       return {
@@ -208,13 +251,25 @@ function makeOverlayContext(options) {
   elements["popup-safety-zone"].setAttribute("data-clickable", "true");
   elements["popup-row-safety-zone"].classList.add("hidden");
   elements["popup-row-safety-zone"].setAttribute("data-clickable", "true");
+  const overlayRoot = new FakeElement("root");
+  overlayRoot.id = "root";
+  elements.root = overlayRoot;
+  Object.keys(elements).forEach((key) => {
+    if (elements[key] !== overlayRoot) overlayRoot.appendChild(elements[key]);
+  });
   const head = new FakeElement("head");
   const body = new FakeElement("body");
+  body.appendChild(overlayRoot);
   const rootStyle = {
     setProperty(name, value) {
       this[name] = String(value);
     },
   };
+  const documentElement = new FakeElement("html");
+  documentElement.style = rootStyle;
+  documentElement.clientWidth = 1280;
+  documentElement.clientHeight = 720;
+  documentElement.appendChild(body);
   const sent = [];
   const posted = [];
   const handlers = Object.create(null);
@@ -235,6 +290,84 @@ function makeOverlayContext(options) {
   FakeWebSocket.prototype.close = function close() {
     this.readyState = 3;
   };
+  function FakeFontFace(family, source, descriptors) {
+    this.family = family;
+    this.source = source;
+    this.descriptors = descriptors || {};
+  }
+  FakeFontFace.prototype.load = function load() {
+    const quotedMatch = String(this.source || "").match(/^local\("(.*)"\)$/);
+    const family = (quotedMatch || [])[1] || "";
+    if (typeof options.localFontLoad === "function")
+      return options.localFontLoad(family, this);
+    return (options.localFonts || []).includes(family)
+      ? Promise.resolve(this)
+      : Promise.reject(new Error("missing local font: " + family));
+  };
+  function fakeComputedStyle(element) {
+    const inline = (element && element.style) || {};
+    const inlineValue = (camelName, cssName, fallback) => {
+      const direct =
+        inline[camelName] !== undefined ? inline[camelName] : inline[cssName];
+      return direct === undefined || direct === null || String(direct) === ""
+        ? fallback
+        : String(direct);
+    };
+    const computed = {
+      transform: inlineValue("transform", "transform", "none"),
+      filter: inlineValue("filter", "filter", "none"),
+      perspective: inlineValue("perspective", "perspective", "none"),
+      zoom: inlineValue("zoom", "zoom", "1"),
+      writingMode: inlineValue("writingMode", "writing-mode", "horizontal-tb"),
+      direction: inlineValue("direction", "direction", "ltr"),
+      contain: inlineValue("contain", "contain", "none"),
+      clip: inlineValue("clip", "clip", "auto"),
+      clipPath: inlineValue("clipPath", "clip-path", "none"),
+      willChange: inlineValue("willChange", "will-change", "auto"),
+      transformStyle: inlineValue("transformStyle", "transform-style", "flat"),
+      contentVisibility: inlineValue(
+        "contentVisibility",
+        "content-visibility",
+        "visible",
+      ),
+      translate: inlineValue("translate", "translate", "none"),
+      rotate: inlineValue("rotate", "rotate", "none"),
+      scale: inlineValue("scale", "scale", "none"),
+      backdropFilter: inlineValue("backdropFilter", "backdrop-filter", "none"),
+      webkitBackdropFilter: inlineValue(
+        "webkitBackdropFilter",
+        "-webkit-backdrop-filter",
+        "none",
+      ),
+      maskImage: inlineValue("maskImage", "mask-image", "none"),
+      webkitMaskImage: inlineValue(
+        "webkitMaskImage",
+        "-webkit-mask-image",
+        "none",
+      ),
+      position: inlineValue(
+        "position",
+        "position",
+        element && element.id === "root" ? "fixed" : "static",
+      ),
+      zIndex: inlineValue(
+        "zIndex",
+        "z-index",
+        element && element.id === "root" ? "10" : "auto",
+      ),
+      pointerEvents: inlineValue(
+        "pointerEvents",
+        "pointer-events",
+        element && element.id === "root" ? "none" : "auto",
+      ),
+      getPropertyValue(name) {
+        return inlineValue(name, name, "");
+      },
+    };
+    return typeof options.computedStyle === "function"
+      ? options.computedStyle(element, computed) || computed
+      : computed;
+  }
 
   const context = {
     console,
@@ -244,17 +377,133 @@ function makeOverlayContext(options) {
     setInterval,
     clearInterval,
     WebSocket: FakeWebSocket,
-    window: { innerWidth: 1280, innerHeight: 720, addEventListener() {} },
+    window: {
+      innerWidth: 1280,
+      innerHeight: 720,
+      devicePixelRatio: options.devicePixelRatio || 1,
+      FontFace: options.localFonts ? FakeFontFace : undefined,
+      CSS: {
+        supports(property, value) {
+          if (
+            value === "balance" &&
+            (property === "text-wrap" || property === "text-wrap-style")
+          )
+            return options.balanceWrapSupported !== false;
+          return false;
+        },
+      },
+      addEventListener(type, handler) {
+        handlers["window:" + type] = handler;
+      },
+      getComputedStyle: fakeComputedStyle,
+      requestAnimationFrame(handler) {
+        return setTimeout(handler, 0);
+      },
+    },
     document: {
       body,
       head,
-      documentElement: { style: rootStyle },
+      documentElement,
+      fonts: options.fontsUnavailable
+        ? undefined
+        : {
+            ready: options.fontsReady || Promise.resolve(),
+            load(fontSpec, text) {
+              return typeof options.fontLoad === "function"
+                ? options.fontLoad(fontSpec, text)
+                : options.fontLoad || Promise.resolve([{}]);
+            },
+            check() {
+              return options.fontCheck !== undefined
+                ? !!options.fontCheck
+                : options.fontAvailable !== false;
+            },
+            add() {
+              return this;
+            },
+            delete() {
+              return true;
+            },
+          },
       addEventListener() {},
       getElementById(id) {
+        if (/^native-subtitle-/.test(id)) {
+          let found = null;
+          const visit = (node) => {
+            if (!node || found) return;
+            if (node.id === id) {
+              found = node;
+              return;
+            }
+            (node.children || []).forEach(visit);
+          };
+          visit(documentElement);
+          if (found) elements[id] = found;
+          else delete elements[id];
+          return found;
+        }
         return elements[id];
       },
+      elementFromPoint(x, y) {
+        const contains = (rect) =>
+          rect &&
+          x >= rect.left &&
+          x <= rect.right &&
+          y >= rect.top &&
+          y <= rect.bottom;
+        const popup = elements.popup;
+        if (
+          popup &&
+          !popup.classList.contains("hidden") &&
+          contains(popup.getBoundingClientRect())
+        )
+          return popup;
+        const hitRoot = this.getElementById("native-subtitle-hit-boxes");
+        if (hitRoot) {
+          for (let index = hitRoot.children.length - 1; index >= 0; index--) {
+            const hit = hitRoot.children[index];
+            const left = Number.parseFloat(hit.style.left);
+            const top = Number.parseFloat(hit.style.top);
+            const width = Number.parseFloat(hit.style.width);
+            const height = Number.parseFloat(hit.style.height);
+            if (
+              [left, top, width, height].every(Number.isFinite) &&
+              contains({
+                left,
+                top,
+                right: left + width,
+                bottom: top + height,
+              })
+            )
+              return hit;
+          }
+        }
+        return null;
+      },
       createElement(tag) {
-        return new FakeElement(tag);
+        const element = new FakeElement(tag);
+        if (tag === "canvas") {
+          element.getContext = () => {
+            const drawing = {
+              font: "",
+              measureText() {
+                const font = String(drawing.font || "");
+                const fallback = /monospace\s*$/.test(font)
+                  ? 100
+                  : /serif\s*$/.test(font) && !/sans-serif\s*$/.test(font)
+                    ? 110
+                    : 105;
+                const custom = /"[^"]+"\s*,/.test(font);
+                const detected =
+                  options.fontDetect !== false &&
+                  options.fontAvailable !== false;
+                return { width: custom && detected ? 140 : fallback };
+              },
+            };
+            return drawing;
+          };
+        }
+        return element;
       },
       createTextNode(text) {
         const node = new FakeElement("#text");
@@ -263,6 +512,32 @@ function makeOverlayContext(options) {
       },
       createDocumentFragment() {
         return new FakeElement("#fragment");
+      },
+      createRange() {
+        let start = 0;
+        let end = 0;
+        return {
+          setStart(_node, value) {
+            start = value;
+          },
+          setEnd(_node, value) {
+            end = value;
+          },
+          getClientRects() {
+            if (typeof options.rangeRects === "function")
+              return options.rangeRects(start, end);
+            return [
+              {
+                left: 100 + start * 10,
+                top: 500,
+                right: 100 + end * 10,
+                bottom: 526,
+                width: Math.max(1, (end - start) * 10),
+                height: 26,
+              },
+            ];
+          },
+        };
       },
     },
     iina: {
@@ -303,6 +578,13 @@ function loadOverlayForTest(exportList, options) {
     path.join(root, "src/overlay/overlay.js"),
     "utf8",
   );
+  source =
+    fs.readFileSync(
+      path.join(root, "src/overlay/native_subtitle_hit_layer.js"),
+      "utf8",
+    ) +
+    "\n" +
+    source;
   source = source.replace(
     "  // Keep the documented ready message",
     "  globalThis.__overlayTest = { " +

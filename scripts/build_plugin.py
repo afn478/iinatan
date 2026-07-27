@@ -63,7 +63,11 @@ def build_files() -> None:
     overlay_dir = ROOT / "src" / "overlay"
     template = (overlay_dir / "overlay.template.html").read_text()
     html = template.replace("{{OVERLAY_CSS}}", (overlay_dir / "overlay.css").read_text())
-    html = html.replace("{{OVERLAY_JS}}", (overlay_dir / "overlay.js").read_text())
+    overlay_js = "\n".join([
+        (overlay_dir / "native_subtitle_hit_layer.js").read_text(),
+        (overlay_dir / "overlay.js").read_text(),
+    ])
+    html = html.replace("{{OVERLAY_JS}}", overlay_js)
     (ROOT / "overlay.html").write_text(html)
 
     manager_dir = ROOT / "src" / "dictionary-manager"

@@ -15,6 +15,9 @@
   "preferenceDefaults": {
     "enabledByDefault": true,
     "hideNativeSubtitles": true,
+    "experimentalNativeSubtitleHitLayer": false,
+    "experimentalNativeSubtitleHitBoxes": false,
+    "experimentalNativeSubtitleTextOpacity": 0,
     "audioAutoPlay": false,
     "audioSourcesJson": "[{\"url\":\"http://127.0.0.1:5050/?term={term}&reading={reading}\"}]",
     "ankiEnabled": false,

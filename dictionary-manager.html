@@ -409,7 +409,7 @@
       <h3>Playback</h3>
       <div class="form-grid">
         <label class="check-field"><input data-profile-pref="enabledByDefault" type="checkbox"><span>Turn on automatically for new windows</span></label>
-        <label class="check-field"><input data-profile-pref="hideNativeSubtitles" type="checkbox"><span>Hide IINA subtitles while iinatan is on</span></label>
+        <label class="check-field"><input id="hideNativeSubtitles" data-profile-pref="hideNativeSubtitles" type="checkbox"><span>Hide IINA subtitles while iinatan is on</span></label>
         <label class="check-field"><input data-profile-pref="pauseWhilePopupVisible" type="checkbox"><span>Pause while a popup is visible</span></label>
       </div>
 
@@ -613,6 +613,13 @@
 
     <section class="panel" data-panel="advanced">
       <h2>Advanced</h2>
+      <h3>Experimental Native Subtitle Lookup Layer</h3>
+      <div class="form-grid single">
+        <label class="check-field"><input id="experimentalNativeSubtitleHitLayer" data-profile-pref="experimentalNativeSubtitleHitLayer" type="checkbox"><span>Use native subtitles with an invisible lookup layer</span></label>
+        <small>Experimental. Intended for SRT and simple dialogue-style ASS. Complex ASS, signs that cannot be distinguished from dialogue, and bitmap subtitles are unsupported.</small>
+        <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup hit boxes</span></label>
+        <div class="field"><label for="experimentalNativeSubtitleTextOpacity">Copied-text debug opacity</label><input id="experimentalNativeSubtitleTextOpacity" data-profile-pref="experimentalNativeSubtitleTextOpacity" type="number" min="0" max="1" step="0.05"><small>Diagnostic only; a nonzero value intentionally reveals the copied text over native subtitles.</small></div>
+      </div>
       <h3>Timeouts</h3>
       <div class="form-grid">
         <div class="field">
@@ -779,6 +786,7 @@
       Array.from(document.querySelectorAll('[data-busy-control]')).forEach(control => {
         control.disabled = disabled || control.dataset.positionDisabled === 'true';
       });
+      syncExperimentalNativeSubtitleControls();
       Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
         row.draggable = !disabled;
       });
@@ -1226,7 +1234,21 @@
       });
       syncAudioSourcesFromProfile();
       syncAnkiFieldTemplatesFromProfile();
+      syncExperimentalNativeSubtitleControls();
       state.rendering = false;
+    }
+    function syncExperimentalNativeSubtitleControls() {
+      const master = document.getElementById('experimentalNativeSubtitleHitLayer');
+      const boxes = document.getElementById('experimentalNativeSubtitleHitBoxes');
+      const opacity = document.getElementById('experimentalNativeSubtitleTextOpacity');
+      const hideNative = document.getElementById('hideNativeSubtitles');
+      const active = !!(master && master.checked);
+      if (boxes) boxes.disabled = state.busy || !active;
+      if (opacity) opacity.disabled = state.busy || !active;
+      if (hideNative) {
+        hideNative.disabled = state.busy || active;
+        hideNative.title = active ? 'Native subtitle visibility is required by the experimental lookup layer.' : '';
+      }
     }
     function renderRecommended() {
       els.recommendedList.innerHTML = '';
@@ -1494,7 +1516,7 @@
       if (event.key === 'Escape' && state.recommendedDialogOpen) closeRecommendedDialog();
     });
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
-      control.addEventListener('change', saveProfilePreferences);
+      control.addEventListener('change', () => { syncExperimentalNativeSubtitleControls(); saveProfilePreferences(); });
     });
     Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
       control.addEventListener('change', saveGlobalSettings);

@@ -4,12 +4,14 @@
 
 ### Changed
 
+- Added an opt-in experimental native-subtitle lookup layer for SubRip cues. It keeps mpv subtitles visible and uses a Shadow-DOM-isolated measurement flow with libass-calibrated WebKit glyph metrics and native nominal multiline advance for invisible hit boxes; simple ASS is best-effort only when mpv is already forcing or stripping styling. Complex/ambiguous ASS (including signs that mpv 0.38 cannot reliably identify), bitmap subtitles, OCR, image fallbacks, and geometry-distorting overlay ancestor CSS remain native-only. Advanced settings include hit-box and copied-text-opacity diagnostics.
 - Preserved subtitle line breaks by default, added an opt-in profile setting to flatten them, and anchored popup spacing to the selected subtitle row.
 - Split Anki card context and glossary formatting into a dedicated source module with focused test-suite coverage.
 - Split Anki note-action helpers into a dedicated source module with focused test-suite coverage.
 
 ### Fixed
 
+- Made the experimental native-subtitle layer follow the live mpv subtitle font, resolve and coverage-check installed macOS faces through CoreText without silent fallback, verify libass-compatible legacy family/full/PostScript selection (failing closed when CoreText and libass would choose different faces), derive each verified face's libass-to-WebKit size ratio from its OpenType Win metrics, keep cue text out of logged process arguments via short-lived private files, model synthetic bold/italic, reject known symbol/icon fonts for CJK cues, reset stale font generations, and require balanced WebKit wrapping when libass automatically wraps a cue.
 - Added an invisible safety corridor between dictionary popups and their selected subtitle words so pointer travel into a popup does not trigger an intervening subtitle lookup while adjacent words remain available.
 - Stripped kana-only fullwidth parenthetical furigana from Japanese subtitles before lookup so packed forms like `伺（うか）う` query as `伺う`.
 - Made the successful Anki add confirmation use a light green status background.

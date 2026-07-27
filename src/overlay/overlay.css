@@ -132,7 +132,7 @@
       pointer-events: none;
       user-select: none;
     }
-    #root { position: fixed; inset: 0; pointer-events: none; }
+    #root { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
     #subtitle {
       position: absolute;
       left: 5vw;
@@ -155,6 +155,27 @@
       white-space: normal;
     }
     #subtitle.hidden { display: none; }
+    /* The copied measurement flow lives in Shadow DOM; only hits stay light. */
+    #native-subtitle-hit-boxes.hidden { display: none; }
+    #native-subtitle-layer-host::before, #native-subtitle-layer-host::after,
+    #native-subtitle-hit-boxes::before, #native-subtitle-hit-boxes::after,
+    .native-subtitle-hit-box::before, .native-subtitle-hit-box::after,
+    .native-subtitle-hit-box::marker,
+    .native-subtitle-hit-box::first-letter,
+    .native-subtitle-hit-box::first-line {
+      content: none !important;
+      pointer-events: none !important;
+      display: none !important;
+    }
+    #native-subtitle-hit-boxes { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+    .native-subtitle-hit-box {
+      position: fixed;
+      box-sizing: border-box;
+      pointer-events: auto;
+      background: transparent;
+      border: 0 solid transparent;
+    }
+    .native-subtitle-hit-box.debug { border: 1px solid rgba(80, 190, 255, .9); background: rgba(80, 190, 255, .14); }
     .match-bg {
       position: absolute;
       z-index: 0;

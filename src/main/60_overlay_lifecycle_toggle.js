@@ -34,6 +34,41 @@ function initializeOverlay() {
   overlay.onMessage("lookup-popup-visible", (payload) => {
     handleLookupPopupVisibility(payload);
   });
+  overlay.onMessage("native-layout-invalidated", () => {
+    lastSubtitleCueIdentity = null;
+    lastNativeLayoutFingerprint = "";
+    nativeLayoutStablePolls = 0;
+    if (enabled) pollSubtitle();
+  });
+  overlay.onMessage("native-layout-diagnostic", (payload) => {
+    if (!logEnabled()) return;
+    const diagnostic = payload && typeof payload === "object" ? payload : {};
+    const key = JSON.stringify([
+      diagnostic.lineId,
+      diagnostic.reason,
+      diagnostic.osd,
+      diagnostic.viewport,
+      diagnostic.ratios,
+      diagnostic.layoutMetrics,
+      diagnostic.fontState,
+    ]);
+    if (key === lastNativeSubtitleDiagnosticKey) return;
+    lastNativeSubtitleDiagnosticKey = key;
+    debugLog(
+      "experimental native subtitle hit layer: " +
+        String(diagnostic.reason || "unsupported") +
+        " geometry=" +
+        JSON.stringify({
+          osd: diagnostic.osd || null,
+          viewport: diagnostic.viewport || null,
+          dpr: diagnostic.dpr || 0,
+          hidpiScale: diagnostic.hidpiScale || 0,
+          ratios: diagnostic.ratios || null,
+          layoutMetrics: diagnostic.layoutMetrics || null,
+          fontState: diagnostic.fontState || null,
+        }),
+    );
+  });
   overlay.onMessage("open-external-url", (payload) => {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,
@@ -50,12 +85,16 @@ function initializeOverlay() {
   });
 }
 function prepareRuntimeAfterProfileChange() {
+  advanceNativeSubtitleFontMetricGeneration();
   lookupBackendReadyForNativeHide = false;
   lookupInFlight = Object.create(null);
   hoverLookupInFlight = false;
   pendingHoverLookup = null;
   hoverLookupActiveKey = "";
   lastSubtitle = null;
+  lastSubtitleCueIdentity = null;
+  lastNativeLayoutFingerprint = "";
+  nativeLayoutStablePolls = 0;
   resetLookupPopupPause();
 }
 function warmActiveProfileBackend() {
@@ -169,6 +208,9 @@ function stopPolling() {
   pollTimer = null;
   activeSubtitlePollMs = 0;
   lastSubtitle = null;
+  lastSubtitleCueIdentity = null;
+  lastNativeLayoutFingerprint = "";
+  nativeLayoutStablePolls = 0;
   lookupInFlight = Object.create(null);
 }
 async function prepareLookupBackendForEnabledOverlay(language, dicts) {
@@ -213,8 +255,13 @@ function setEnabled(next) {
     const language = selectedLanguageModule();
     const dicts = activeDictionaryPaths(language);
     try {
-      nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
-      syncNativeSubtitleVisibility();
+      nativeSubtitlePlaybackActive =
+        nativeSubtitlePlaybackActive ||
+        !!mpvStringProp(["path", "filename"], "");
+      if (nativeSubtitlePlaybackActive) {
+        acquireNativeSubtitleVisibilityOwnership();
+        syncNativeSubtitleVisibility();
+      }
     } catch (error) {
       console.warn(
         "Could not update native subtitle visibility: " + compactError(error),
@@ -242,10 +289,7 @@ function setEnabled(next) {
             ": " +
             compactError(error),
         );
-        try {
-          if (nativeSubVisibilityBeforeEnable !== null)
-            mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
-        } catch (_) {}
+        syncNativeSubtitleVisibility();
         setOverlayStatus(compactError(error), "error", 14000);
       });
   } else {
@@ -253,10 +297,7 @@ function setEnabled(next) {
     resetLookupPopupPause();
     stopPolling();
     publishSubtitle("");
-    try {
-      if (nativeSubVisibilityBeforeEnable !== null)
-        mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
-    } catch (_) {}
+    restoreNativeSubtitleVisibility();
     showOSD("iinatan: Off");
   }
 }

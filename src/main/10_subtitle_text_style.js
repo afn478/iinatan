@@ -253,6 +253,24 @@ function overlayConfig() {
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+    experimentalNativeSubtitleHitLayer: prefBool(
+      "experimentalNativeSubtitleHitLayer",
+      false,
+    ),
+    experimentalNativeSubtitleHitBoxes:
+      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      prefBool("experimentalNativeSubtitleHitBoxes", false),
+    experimentalNativeSubtitleTextOpacity: prefBool(
+      "experimentalNativeSubtitleHitLayer",
+      false,
+    )
+      ? clampNumber(
+          prefNumber("experimentalNativeSubtitleTextOpacity", 0),
+          0,
+          1,
+          0,
+        )
+      : 0,
     popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
     popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
     ...readSubtitleStyleConfig(),
@@ -299,8 +317,44 @@ function readCurrentSubtitle() {
     return language.normalizeSubtitleText(clean);
   return clean;
 }
-function publishSubtitle(text) {
-  const normalized = text || "";
+function readExperimentalLookupSubtitle() {
+  let sub = "";
+  try {
+    sub = mpv.getString("sub-text") || "";
+  } catch (_) {
+    sub = "";
+  }
+  const clean = cleanSubtitleText(
+    sub,
+    prefBool("flattenSubtitleLineBreaks", false),
+  );
+  const language = selectedLanguageModule();
+  const subtitleNormalized =
+    language && typeof language.normalizeSubtitleText === "function"
+      ? language.normalizeSubtitleText(clean)
+      : clean;
+  if (language && typeof language.normalizeText === "function")
+    return language.normalizeText(subtitleNormalized);
+  return IINATAN_LANGUAGE_COMMON.normalizeBasic(subtitleNormalized);
+}
+function cleanNativeDisplayText(text) {
+  // This intentionally differs from lookup cleaning: it preserves authored
+  // line breaks and repeated spaces for the continuous measurement flow.
+  return decodeEntities(String(text || ""))
+    .replace(/\uFEFF/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\r/g, "");
+}
+function experimentalNativeSubtitleMode() {
+  return prefBool("experimentalNativeSubtitleHitLayer", false);
+}
+function publishSubtitle(text, nativeCue) {
+  const legacyText = text || "";
+  const lookupText =
+    nativeCue && typeof nativeCue.lookupText === "string"
+      ? nativeCue.lookupText
+      : legacyText;
   currentSubtitleLineId = ++subtitleLineSerial;
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
@@ -312,19 +366,29 @@ function publishSubtitle(text) {
       " activeDicts=" +
       dicts.length +
       " len=" +
-      String(normalized || "").length +
+      String(lookupText || "").length +
       " text=" +
-      JSON.stringify(String(normalized || "").slice(0, 80)),
+      JSON.stringify(String(lookupText || "").slice(0, 80)),
   );
   postToOverlay("subtitle", {
-    text: normalized,
+    text: lookupText,
+    displayText:
+      nativeCue && nativeCue.displayText !== undefined
+        ? nativeCue.displayText
+        : text || "",
+    nativeReason: (nativeCue && nativeCue.reason) || "",
+    nativeLookupSpans: (nativeCue && nativeCue.lookupSpans) || [],
+    nativeLayout: (nativeCue && nativeCue.layout) || null,
+    renderingMode: experimentalNativeSubtitleMode()
+      ? "experimental-native-hit"
+      : "legacy",
     config: overlayConfig(),
     lineId: currentSubtitleLineId,
   });
   postToOverlay("line-lookup-reset", { lineId: currentSubtitleLineId });
   // v1.5.0: no full-line background precompute. Hover requests are looked up
   // directly and serialized so the hovered word is never blocked by a batch.
-  if (normalized && language.hasLookupText(normalized) && dicts.length) {
+  if (lookupText && language.hasLookupText(lookupText) && dicts.length) {
     ensureBackendWorker(dicts, language).catch((error) => {
       debugLog(
         "background worker warmup failed lineId=" +
@@ -351,17 +415,38 @@ function canHideNativeSubtitlesForCurrentLanguage() {
     return false;
   }
 }
-function syncNativeSubtitleVisibility() {
-  if (!enabled) return;
+function acquireNativeSubtitleVisibilityOwnership() {
+  if (nativeSubtitleVisibilityOwned) return;
   try {
-    if (
-      prefBool("hideNativeSubtitles", true) &&
-      canHideNativeSubtitlesForCurrentLanguage()
-    ) {
-      mpv.set("sub-visibility", false);
-    } else if (nativeSubVisibilityBeforeEnable !== null) {
+    nativeSubVisibilityBeforeEnable = mpv.getFlag("sub-visibility");
+    nativeSubtitleVisibilityOwned = true;
+  } catch (_) {
+    nativeSubVisibilityBeforeEnable = null;
+    nativeSubtitleVisibilityOwned = false;
+  }
+}
+function restoreNativeSubtitleVisibility() {
+  if (!nativeSubtitleVisibilityOwned) return;
+  try {
+    if (nativeSubVisibilityBeforeEnable !== null)
       mpv.set("sub-visibility", nativeSubVisibilityBeforeEnable);
-    }
+  } catch (_) {}
+  nativeSubtitleVisibilityOwned = false;
+  nativeSubVisibilityBeforeEnable = null;
+}
+function syncNativeSubtitleVisibility() {
+  if (!enabled || !nativeSubtitlePlaybackActive) return;
+  acquireNativeSubtitleVisibilityOwnership();
+  try {
+    const target = nativeSubtitleVisibilityTarget({
+      enabled,
+      experimental: experimentalNativeSubtitleMode(),
+      hideNative: prefBool("hideNativeSubtitles", true),
+      backendReady: canHideNativeSubtitlesForCurrentLanguage(),
+      original: nativeSubVisibilityBeforeEnable,
+    });
+    if (target !== null && target !== undefined)
+      mpv.set("sub-visibility", target);
   } catch (error) {
     console.warn(
       "Could not update native subtitle visibility: " + compactError(error),
@@ -373,9 +458,44 @@ function pollSubtitle() {
   refreshPollingInterval();
   syncNativeSubtitleVisibility();
   const sub = readCurrentSubtitle();
-  if (sub === lastSubtitle) return;
   lastSubtitle = sub;
-  publishSubtitle(sub);
+  if (!experimentalNativeSubtitleMode()) {
+    const identity = "legacy:" + sub;
+    if (identity === lastSubtitleCueIdentity) return;
+    lastSubtitleCueIdentity = identity;
+    publishSubtitle(sub, null);
+    return;
+  }
+  const experimentalLookupText = readExperimentalLookupSubtitle();
+  let nativeCue = nativeSubtitleCueSnapshot(experimentalLookupText);
+  if (nativeCue && !nativeCue.reason)
+    nativeCue.lookupText = experimentalLookupText;
+  const layoutFingerprint = JSON.stringify(
+    nativeCue && nativeCue.layout ? nativeCue.layout : nativeCue.reason || "",
+  );
+  if (layoutFingerprint !== lastNativeLayoutFingerprint) {
+    lastNativeLayoutFingerprint = layoutFingerprint;
+    nativeLayoutStablePolls = 0;
+  } else {
+    nativeLayoutStablePolls++;
+  }
+  if (nativeCue.layout && !nativeCue.reason && nativeLayoutStablePolls < 1) {
+    nativeCue = {
+      reason: "unstable-osd-dimensions",
+      trackId: nativeCue.trackId,
+    };
+    if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+      scheduleExperimentalNativeLayoutRebuild();
+  }
+  const identity = JSON.stringify({
+    subtitle: experimentalLookupText,
+    cue: currentSubtitleCueIdentity(nativeCue),
+    layoutFingerprint,
+    stable: nativeLayoutStablePolls > 0,
+  });
+  if (identity === lastSubtitleCueIdentity) return;
+  lastSubtitleCueIdentity = identity;
+  publishSubtitle(sub, nativeCue);
 }
 function charsOf(text) {
   return Array.from(String(text || ""));

@@ -9,6 +9,9 @@ const DEFAULT_ANKI_FIELD_TEMPLATES_JSON = "{}";
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
+  experimentalNativeSubtitleHitLayer: false,
+  experimentalNativeSubtitleHitBoxes: false,
+  experimentalNativeSubtitleTextOpacity: 0,
   pauseWhilePopupVisible: true,
   audioAutoPlay: false,
   audioSourcesJson: DEFAULT_AUDIO_SOURCES_JSON,
@@ -205,6 +208,18 @@ function normalizeProfilePreferences(prefs) {
   out.flattenSubtitleLineBreaks = normalizeProfilePreferenceBoolValue(
     out.flattenSubtitleLineBreaks,
     PROFILE_PREFERENCE_DEFAULTS.flattenSubtitleLineBreaks,
+  );
+  out.experimentalNativeSubtitleHitLayer = normalizeProfilePreferenceBoolValue(
+    out.experimentalNativeSubtitleHitLayer,
+    PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitLayer,
+  );
+  out.experimentalNativeSubtitleHitBoxes = normalizeProfilePreferenceBoolValue(
+    out.experimentalNativeSubtitleHitBoxes,
+    PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitBoxes,
+  );
+  out.experimentalNativeSubtitleTextOpacity = Math.max(
+    0,
+    Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,

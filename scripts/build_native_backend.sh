@@ -23,7 +23,15 @@ add_subdirectory("$SRC_DIR" hoshidicts-build)
 add_executable(iina-hoshi-dicts "$ROOT/src/native/iina_hoshi.cpp")
 set_property(TARGET iina-hoshi-dicts PROPERTY CXX_STANDARD 23)
 set_property(TARGET iina-hoshi-dicts PROPERTY CXX_STANDARD_REQUIRED ON)
-target_link_libraries(iina-hoshi-dicts PRIVATE hoshidicts)
+find_library(CORETEXT_FRAMEWORK CoreText REQUIRED)
+find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+target_link_libraries(
+  iina-hoshi-dicts
+  PRIVATE
+  hoshidicts
+  "\${CORETEXT_FRAMEWORK}"
+  "\${COREFOUNDATION_FRAMEWORK}"
+)
 CMAKEEOF
 
 cmake -S "$WRAPPER_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release

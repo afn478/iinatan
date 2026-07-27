@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -8,6 +9,7 @@
 #include <functional>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <signal.h>
@@ -16,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <CoreText/CoreText.h>
 #include <utf8.h>
 
 #include "hoshidicts/deinflector.hpp"
@@ -23,7 +27,9 @@
 #include "hoshidicts/lookup.hpp"
 #include "hoshidicts/query.hpp"
 
-static constexpr const char* WRAPPER_VERSION = "1.6.0";
+static constexpr const char* WRAPPER_VERSION = "1.8.0";
+static constexpr int FONT_METRIC_RESOLVER_VERSION = 2;
+static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v2";
 namespace fs = std::filesystem;
 
 static std::string json_escape(const std::string& s) {
@@ -58,6 +64,354 @@ static void print_string_array(const std::vector<std::string>& values) {
   std::cout << "]";
 }
 static int to_int(const std::string& s, int fallback) { try { return std::stoi(s); } catch (...) { return fallback; } }
+static bool to_bool(const std::string& s, bool fallback) {
+  std::string value;
+  value.reserve(s.size());
+  for (unsigned char c : s) value += static_cast<char>(std::tolower(c));
+  if (value == "yes" || value == "true" || value == "1" || value == "on") return true;
+  if (value == "no" || value == "false" || value == "0" || value == "off") return false;
+  return fallback;
+}
+static std::string cf_string_utf8(CFStringRef value) {
+  if (!value) return "";
+  CFIndex length = CFStringGetLength(value);
+  CFIndex capacity = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+  std::vector<char> buffer(static_cast<size_t>(std::max<CFIndex>(capacity, 1)));
+  if (!CFStringGetCString(value, buffer.data(), capacity, kCFStringEncodingUTF8)) return "";
+  return std::string(buffer.data());
+}
+static CFStringRef utf8_cf_string(const std::string& value) {
+  return CFStringCreateWithBytes(
+      kCFAllocatorDefault,
+      reinterpret_cast<const UInt8*>(value.data()),
+      static_cast<CFIndex>(value.size()),
+      kCFStringEncodingUTF8,
+      false);
+}
+static std::string normalized_font_name(const std::string& value) {
+  std::string normalized;
+  normalized.reserve(value.size());
+  for (unsigned char c : value) {
+    if (c >= 0x80) normalized += static_cast<char>(c);
+    else if (std::isalnum(c)) normalized += static_cast<char>(std::tolower(c));
+  }
+  return normalized;
+}
+static bool font_name_matches(const std::string& requested, const std::string& candidate) {
+  const std::string left = normalized_font_name(requested);
+  const std::string right = normalized_font_name(candidate);
+  return !left.empty() && left == right;
+}
+static bool libass_font_name_matches(
+    const std::string& requested, const std::string& candidate) {
+  if (requested.size() != candidate.size() || requested.empty()) return false;
+  for (size_t index = 0; index < requested.size(); ++index) {
+    const unsigned char left =
+        static_cast<unsigned char>(requested[index]);
+    const unsigned char right =
+        static_cast<unsigned char>(candidate[index]);
+    if (left < 0x80 && right < 0x80) {
+      if (std::tolower(left) != std::tolower(right)) return false;
+    } else if (left != right) {
+      return false;
+    }
+  }
+  return true;
+}
+static std::string libass_coretext_font_substitution(
+    const std::string& requested) {
+  std::string normalized;
+  normalized.reserve(requested.size());
+  for (unsigned char character : requested)
+    normalized += static_cast<char>(std::tolower(character));
+  if (normalized == "sans-serif") return "Helvetica";
+  if (normalized == "serif") return "Times";
+  if (normalized == "monospace") return "Courier";
+  return requested;
+}
+static std::string cf_url_path(CFURLRef url) {
+  if (!url) return "";
+  CFStringRef path = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
+  const std::string result = cf_string_utf8(path);
+  if (path) CFRelease(path);
+  return result;
+}
+static std::string font_descriptor_name(
+    CTFontDescriptorRef descriptor, CFStringRef attribute) {
+  if (!descriptor) return "";
+  CFTypeRef value = CTFontDescriptorCopyAttribute(descriptor, attribute);
+  if (!value) return "";
+  const std::string result =
+      CFGetTypeID(value) == CFStringGetTypeID()
+      ? cf_string_utf8(static_cast<CFStringRef>(value))
+      : "";
+  CFRelease(value);
+  return result;
+}
+static std::string font_descriptor_path(CTFontDescriptorRef descriptor) {
+  if (!descriptor) return "";
+  CFTypeRef value =
+      CTFontDescriptorCopyAttribute(descriptor, kCTFontURLAttribute);
+  if (!value) return "";
+  const std::string result =
+      CFGetTypeID(value) == CFURLGetTypeID()
+      ? cf_url_path(static_cast<CFURLRef>(value))
+      : "";
+  CFRelease(value);
+  return result;
+}
+static CTFontFormat coretext_font_format(CTFontRef font) {
+  if (!font) return kCTFontFormatUnrecognized;
+  CFTypeRef value = CTFontCopyAttribute(font, kCTFontFormatAttribute);
+  int raw_format = static_cast<int>(kCTFontFormatUnrecognized);
+  if (value && CFGetTypeID(value) == CFNumberGetTypeID())
+    CFNumberGetValue(
+        static_cast<CFNumberRef>(value), kCFNumberIntType, &raw_format);
+  if (value) CFRelease(value);
+  return static_cast<CTFontFormat>(raw_format);
+}
+static std::string libass_coretext_discovered_path(
+    const std::string& requested_font, const std::string& resolved_postscript) {
+  CFStringRef requested = utf8_cf_string(requested_font);
+  if (!requested) return "";
+  const CFStringRef attributes[] = {
+      kCTFontFamilyNameAttribute,
+      kCTFontDisplayNameAttribute,
+      kCTFontNameAttribute,
+  };
+  CTFontDescriptorRef descriptors[3] = {nullptr, nullptr, nullptr};
+  std::string result;
+  for (size_t index = 0; index < 3; ++index) {
+    const void* keys[] = {attributes[index]};
+    const void* values[] = {requested};
+    CFDictionaryRef dictionary = CFDictionaryCreate(
+        kCFAllocatorDefault,
+        keys,
+        values,
+        1,
+        &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    if (dictionary) {
+      descriptors[index] = CTFontDescriptorCreateWithAttributes(dictionary);
+      CFRelease(dictionary);
+    }
+  }
+  CFArrayRef descriptor_array = CFArrayCreate(
+      kCFAllocatorDefault,
+      reinterpret_cast<const void**>(descriptors),
+      3,
+      &kCFTypeArrayCallBacks);
+  int remove_duplicates = 1;
+  CFNumberRef remove_duplicates_value = CFNumberCreate(
+      kCFAllocatorDefault, kCFNumberIntType, &remove_duplicates);
+  const void* option_keys[] = {kCTFontCollectionRemoveDuplicatesOption};
+  const void* option_values[] = {remove_duplicates_value};
+  CFDictionaryRef options =
+      remove_duplicates_value
+      ? CFDictionaryCreate(
+            kCFAllocatorDefault,
+            option_keys,
+            option_values,
+            1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks)
+      : nullptr;
+  CTFontCollectionRef collection =
+      descriptor_array && options
+      ? CTFontCollectionCreateWithFontDescriptors(descriptor_array, options)
+      : nullptr;
+  CFArrayRef matches =
+      collection
+      ? CTFontCollectionCreateMatchingFontDescriptors(collection)
+      : nullptr;
+  if (matches) {
+    for (CFIndex index = 0; index < CFArrayGetCount(matches); ++index) {
+      CTFontDescriptorRef descriptor = static_cast<CTFontDescriptorRef>(
+          const_cast<void*>(CFArrayGetValueAtIndex(matches, index)));
+      const std::string postscript =
+          font_descriptor_name(descriptor, kCTFontNameAttribute);
+      const std::string path = font_descriptor_path(descriptor);
+      std::error_code error;
+      if (libass_font_name_matches(resolved_postscript, postscript) &&
+          !path.empty() && fs::is_regular_file(path, error) && !error) {
+        result = path;
+        break;
+      }
+    }
+  }
+  if (matches) CFRelease(matches);
+  if (collection) CFRelease(collection);
+  if (options) CFRelease(options);
+  if (remove_duplicates_value) CFRelease(remove_duplicates_value);
+  if (descriptor_array) CFRelease(descriptor_array);
+  for (CTFontDescriptorRef descriptor : descriptors)
+    if (descriptor) CFRelease(descriptor);
+  CFRelease(requested);
+  return result;
+}
+static bool libass_name_can_select_face(
+    const std::string& requested_font,
+    const std::string& postscript,
+    const std::vector<std::string>& legacy_families,
+    const std::vector<std::string>& legacy_full_names,
+    CTFontFormat format) {
+  for (const std::string& family : legacy_families)
+    if (libass_font_name_matches(requested_font, family)) return true;
+  const bool matches_full_name = std::any_of(
+      legacy_full_names.begin(),
+      legacy_full_names.end(),
+      [&](const std::string& full_name) {
+        return libass_font_name_matches(requested_font, full_name);
+      });
+  const bool matches_postscript_name =
+      libass_font_name_matches(requested_font, postscript);
+  if (matches_full_name == matches_postscript_name)
+    return matches_full_name;
+  // libass only treats a PostScript-name-only match as authoritative for a
+  // PostScript-outline face. Conversely, its full-name-only match is
+  // authoritative for TrueType outlines.
+  const bool postscript_outlines =
+      format == kCTFontFormatOpenTypePostScript ||
+      format == kCTFontFormatPostScript;
+  return postscript_outlines
+      ? matches_postscript_name
+      : matches_full_name;
+}
+static std::string read_private_font_metric_cue(const fs::path& path) {
+  const std::string filename = path.filename().string();
+  if (filename.rfind("iinatan-font-metrics-cue-", 0) != 0)
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  std::error_code error;
+  if (!fs::is_regular_file(path, error) || error)
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  const fs::perms permissions = fs::status(path, error).permissions();
+  const fs::perms non_owner_permissions =
+      fs::perms::group_all | fs::perms::others_all;
+  if (error || (permissions & non_owner_permissions) != fs::perms::none) {
+    fs::remove(path, error);
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  }
+  const uintmax_t size = fs::file_size(path, error);
+  if (error || size > 128 * 1024) {
+    fs::remove(path, error);
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  }
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open()) {
+    fs::remove(path, error);
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  }
+  // Unlink immediately after opening so a timeout, crash, or plugin reload
+  // cannot leave subtitle text behind on disk.
+  fs::remove(path, error);
+  if (error) {
+    input.close();
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  }
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  const bool read_ok = input.good() || input.eof();
+  input.close();
+  if (!read_ok)
+    throw std::runtime_error("font-metrics-invalid-cue-input");
+  return contents.str();
+}
+static uint16_t read_be_u16(const UInt8* bytes, CFIndex length, CFIndex offset) {
+  if (!bytes || offset < 0 || offset + 2 > length)
+    throw std::runtime_error("font-metrics-invalid-table");
+  return static_cast<uint16_t>(
+      (static_cast<uint16_t>(bytes[offset]) << 8) |
+      static_cast<uint16_t>(bytes[offset + 1]));
+}
+static std::vector<std::string> microsoft_font_names(
+    CTFontRef font, uint16_t requested_name_id) {
+  std::vector<std::string> names;
+  CFDataRef table = CTFontCopyTable(
+      font, kCTFontTableName, kCTFontTableOptionNoOptions);
+  if (!table) return names;
+  const UInt8* bytes = CFDataGetBytePtr(table);
+  const CFIndex length = CFDataGetLength(table);
+  try {
+    const uint16_t count = read_be_u16(bytes, length, 2);
+    const uint16_t string_offset = read_be_u16(bytes, length, 4);
+    for (uint16_t index = 0; index < count; ++index) {
+      const CFIndex record = 6 + static_cast<CFIndex>(index) * 12;
+      const uint16_t platform = read_be_u16(bytes, length, record);
+      const uint16_t name_id = read_be_u16(bytes, length, record + 6);
+      const uint16_t byte_length = read_be_u16(bytes, length, record + 8);
+      const uint16_t byte_offset = read_be_u16(bytes, length, record + 10);
+      const CFIndex start =
+          static_cast<CFIndex>(string_offset) + byte_offset;
+      if (platform != 3 || name_id != requested_name_id ||
+          start < 0 || start + byte_length > length)
+        continue;
+      CFStringRef name = CFStringCreateWithBytes(
+          kCFAllocatorDefault,
+          bytes + start,
+          byte_length,
+          kCFStringEncodingUTF16BE,
+          false);
+      const std::string value = cf_string_utf8(name);
+      if (name) CFRelease(name);
+      if (!value.empty() &&
+          std::none_of(
+              names.begin(), names.end(),
+              [&](const std::string& existing) {
+                return font_name_matches(existing, value);
+              }))
+        names.push_back(value);
+    }
+  } catch (...) {
+    names.clear();
+  }
+  CFRelease(table);
+  return names;
+}
+static std::vector<std::string> legacy_family_names(CTFontRef font) {
+  return microsoft_font_names(font, 1);
+}
+static std::vector<std::string> legacy_full_names(CTFontRef font) {
+  return microsoft_font_names(font, 4);
+}
+static bool coverage_codepoint_ignored(uint32_t codepoint) {
+  return codepoint <= 0x20 ||
+      (codepoint >= 0x7f && codepoint <= 0xa0) ||
+      codepoint == 0x1680 ||
+      (codepoint >= 0x2000 && codepoint <= 0x200f) ||
+      (codepoint >= 0x2028 && codepoint <= 0x202f) ||
+      (codepoint >= 0x205f && codepoint <= 0x206f) ||
+      codepoint == 0x3000 ||
+      codepoint == 0xfeff ||
+      (codepoint >= 0xfe00 && codepoint <= 0xfe0f) ||
+      (codepoint >= 0xe0100 && codepoint <= 0xe01ef);
+}
+static std::vector<UniChar> coverage_characters(CFStringRef cue) {
+  std::vector<UniChar> result;
+  if (!cue) return result;
+  const CFIndex length = CFStringGetLength(cue);
+  std::vector<UniChar> characters(static_cast<size_t>(length));
+  if (length > 0)
+    CFStringGetCharacters(cue, CFRangeMake(0, length), characters.data());
+  for (CFIndex index = 0; index < length; ++index) {
+    const UniChar first = characters[static_cast<size_t>(index)];
+    uint32_t codepoint = first;
+    bool surrogate_pair = false;
+    if (CFStringIsSurrogateHighCharacter(first) && index + 1 < length) {
+      const UniChar second = characters[static_cast<size_t>(index + 1)];
+      if (CFStringIsSurrogateLowCharacter(second)) {
+        codepoint = CFStringGetLongCharacterForSurrogatePair(first, second);
+        surrogate_pair = true;
+      }
+    }
+    if (!coverage_codepoint_ignored(codepoint)) {
+      result.push_back(first);
+      if (surrogate_pair)
+        result.push_back(characters[static_cast<size_t>(index + 1)]);
+    }
+    if (surrogate_pair) ++index;
+  }
+  return result;
+}
 static bool process_exists(int pid) {
   if (pid <= 0) return true;
   if (::kill(static_cast<pid_t>(pid), 0) == 0) return true;
@@ -534,17 +888,266 @@ static void cmd_client(int argc, char** argv) {
   std::exit(1);
 }
 
+static void cmd_font_metrics(int argc, char** argv) {
+  std::string requested_font;
+  std::string cue_file;
+  std::string cue;
+  bool requested_bold = false;
+  bool requested_italic = false;
+  for (int index = 2; index < argc; ++index) {
+    const std::string arg = argv[index];
+    if (arg == "--font" && index + 1 < argc)
+      requested_font = argv[++index];
+    else if (arg == "--bold" && index + 1 < argc)
+      requested_bold = to_bool(argv[++index], false);
+    else if (arg == "--italic" && index + 1 < argc)
+      requested_italic = to_bool(argv[++index], false);
+    else if (arg == "--cue-file" && index + 1 < argc)
+      cue_file = argv[++index];
+    else
+      throw std::runtime_error("font-metrics-invalid-arguments");
+  }
+  if (requested_font.empty()) throw std::runtime_error("font-metrics-missing-font");
+  if (cue_file.empty()) throw std::runtime_error("font-metrics-missing-cue-input");
+  cue = read_private_font_metric_cue(cue_file);
+  const std::string selection_font =
+      libass_coretext_font_substitution(requested_font);
+
+  CFStringRef requested_name = utf8_cf_string(selection_font);
+  if (!requested_name) throw std::runtime_error("font-metrics-invalid-font-name");
+  CTFontRef base_font = CTFontCreateWithName(requested_name, 100.0, nullptr);
+  CFRelease(requested_name);
+  if (!base_font) throw std::runtime_error("font-metrics-font-not-found");
+
+  CFStringRef base_postscript_ref = CTFontCopyPostScriptName(base_font);
+  CFStringRef base_family_ref = CTFontCopyFamilyName(base_font);
+  CFStringRef base_full_ref = CTFontCopyFullName(base_font);
+  const std::string base_postscript = cf_string_utf8(base_postscript_ref);
+  const std::string base_family = cf_string_utf8(base_family_ref);
+  const std::string base_full = cf_string_utf8(base_full_ref);
+  std::vector<std::string> base_legacy_families =
+      legacy_family_names(base_font);
+  if (base_legacy_families.empty() && !base_family.empty())
+    base_legacy_families.push_back(base_family);
+  const std::vector<std::string> base_legacy_full_names =
+      legacy_full_names(base_font);
+  if (base_postscript_ref) CFRelease(base_postscript_ref);
+  if (base_family_ref) CFRelease(base_family_ref);
+  if (base_full_ref) CFRelease(base_full_ref);
+  const bool requested_postscript = font_name_matches(selection_font, base_postscript);
+  const bool requested_full = std::any_of(
+      base_legacy_full_names.begin(),
+      base_legacy_full_names.end(),
+      [&](const std::string& full_name) {
+        return font_name_matches(selection_font, full_name);
+      });
+  const bool requested_extended_family =
+      font_name_matches(selection_font, base_family) ||
+      font_name_matches(selection_font, base_full);
+  const bool requested_family = std::any_of(
+      base_legacy_families.begin(),
+      base_legacy_families.end(),
+      [&](const std::string& family) {
+        return libass_font_name_matches(selection_font, family);
+      });
+  if (!requested_postscript && !requested_full && !requested_family) {
+    CFRelease(base_font);
+    throw std::runtime_error(
+        requested_extended_family
+        ? "font-metrics-provider-unverified"
+        : "font-metrics-font-not-found");
+  }
+
+  CTFontRef resolved_font = base_font;
+  if (requested_family) {
+    CTFontSymbolicTraits desired = 0;
+    if (requested_bold) desired |= kCTFontBoldTrait;
+    if (requested_italic) desired |= kCTFontItalicTrait;
+    const CTFontSymbolicTraits mask = kCTFontBoldTrait | kCTFontItalicTrait;
+    CTFontRef styled_font = CTFontCreateCopyWithSymbolicTraits(
+        base_font, 100.0, nullptr, desired, mask);
+    if (!styled_font) {
+      CFRelease(base_font);
+      throw std::runtime_error("font-metrics-style-unavailable");
+    }
+    const CTFontSymbolicTraits styled_traits = CTFontGetSymbolicTraits(styled_font);
+    if ((styled_traits & mask) != desired) {
+      CFRelease(styled_font);
+      CFRelease(base_font);
+      throw std::runtime_error("font-metrics-style-unavailable");
+    }
+    CFStringRef styled_family_ref = CTFontCopyFamilyName(styled_font);
+    const std::string styled_family = cf_string_utf8(styled_family_ref);
+    if (styled_family_ref) CFRelease(styled_family_ref);
+    if (!font_name_matches(base_family, styled_family)) {
+      CFRelease(styled_font);
+      CFRelease(base_font);
+      throw std::runtime_error("font-metrics-family-mismatch");
+    }
+    resolved_font = styled_font;
+  }
+  const CTFontSymbolicTraits traits = CTFontGetSymbolicTraits(resolved_font);
+
+  CFStringRef postscript_ref = CTFontCopyPostScriptName(resolved_font);
+  CFStringRef family_ref = CTFontCopyFamilyName(resolved_font);
+  CFStringRef full_ref = CTFontCopyFullName(resolved_font);
+  CFStringRef version_ref = CTFontCopyName(resolved_font, kCTFontVersionNameKey);
+  const std::string postscript = cf_string_utf8(postscript_ref);
+  const std::string family = cf_string_utf8(family_ref);
+  const std::string full = cf_string_utf8(full_ref);
+  const std::string version = cf_string_utf8(version_ref);
+  std::vector<std::string> resolved_legacy_families =
+      legacy_family_names(resolved_font);
+  if (resolved_legacy_families.empty() && !family.empty())
+    resolved_legacy_families.push_back(family);
+  const std::vector<std::string> resolved_legacy_full_names =
+      legacy_full_names(resolved_font);
+  if (postscript_ref) CFRelease(postscript_ref);
+  if (family_ref) CFRelease(family_ref);
+  if (full_ref) CFRelease(full_ref);
+  if (version_ref) CFRelease(version_ref);
+  if (postscript.empty() || family.empty() || full.empty() || version.empty()) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-missing-name");
+  }
+  const std::string provider_path =
+      libass_coretext_discovered_path(selection_font, postscript);
+  const CTFontFormat font_format = coretext_font_format(resolved_font);
+  if (provider_path.empty() ||
+      !libass_name_can_select_face(
+          selection_font,
+          postscript,
+          resolved_legacy_families,
+          resolved_legacy_full_names,
+          font_format)) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-provider-unverified");
+  }
+
+  CFArrayRef variation_axes = CTFontCopyVariationAxes(resolved_font);
+  const bool variable_font =
+      variation_axes && CFArrayGetCount(variation_axes) > 0;
+  if (variation_axes) CFRelease(variation_axes);
+  if (variable_font) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-variable-font-unsupported");
+  }
+
+  CFDataRef head_table = CTFontCopyTable(
+      resolved_font, kCTFontTableHead, kCTFontTableOptionNoOptions);
+  CFDataRef os2_table = CTFontCopyTable(
+      resolved_font, kCTFontTableOS2, kCTFontTableOptionNoOptions);
+  if (!head_table || !os2_table) {
+    if (head_table) CFRelease(head_table);
+    if (os2_table) CFRelease(os2_table);
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-missing-table");
+  }
+  const uint16_t units_per_em = read_be_u16(
+      CFDataGetBytePtr(head_table), CFDataGetLength(head_table), 18);
+  const uint16_t win_ascent = read_be_u16(
+      CFDataGetBytePtr(os2_table), CFDataGetLength(os2_table), 74);
+  const uint16_t win_descent = read_be_u16(
+      CFDataGetBytePtr(os2_table), CFDataGetLength(os2_table), 76);
+  CFRelease(head_table);
+  CFRelease(os2_table);
+  const uint32_t win_height =
+      static_cast<uint32_t>(win_ascent) + static_cast<uint32_t>(win_descent);
+  if (units_per_em == 0 || win_height == 0) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-invalid-table");
+  }
+  const double metric_scale =
+      static_cast<double>(units_per_em) / static_cast<double>(win_height);
+  if (!std::isfinite(metric_scale) || metric_scale <= 0.1 || metric_scale > 2.0) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-invalid-scale");
+  }
+
+  CFStringRef cue_ref = utf8_cf_string(cue);
+  if (!cue_ref) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-invalid-cue");
+  }
+  const std::vector<UniChar> characters = coverage_characters(cue_ref);
+  CFRelease(cue_ref);
+  std::vector<CGGlyph> glyphs(characters.size());
+  const bool covered = characters.empty() ||
+      CTFontGetGlyphsForCharacters(
+          resolved_font,
+          characters.data(),
+          glyphs.data(),
+          static_cast<CFIndex>(characters.size()));
+  const size_t glyph_count = static_cast<size_t>(
+      std::count_if(glyphs.begin(), glyphs.end(), [](CGGlyph glyph) {
+        return glyph != 0;
+      }));
+  if (!covered || glyph_count != characters.size()) {
+    if (resolved_font != base_font) CFRelease(resolved_font);
+    CFRelease(base_font);
+    throw std::runtime_error("font-metrics-cue-not-covered");
+  }
+
+  CFDictionaryRef traits_dictionary = CTFontCopyTraits(resolved_font);
+  double weight_trait = 0.0;
+  if (traits_dictionary) {
+    CFNumberRef weight_ref = static_cast<CFNumberRef>(
+        CFDictionaryGetValue(traits_dictionary, kCTFontWeightTrait));
+    if (weight_ref)
+      CFNumberGetValue(weight_ref, kCFNumberDoubleType, &weight_trait);
+    CFRelease(traits_dictionary);
+  }
+
+  std::ostringstream output;
+  output << std::setprecision(12);
+  output << "{\"ok\":true"
+      << ",\"metricResolverVersion\":" << FONT_METRIC_RESOLVER_VERSION
+      << ",\"metricSource\":" << json_quote(FONT_METRIC_SOURCE)
+      << ",\"resolvedPostScriptName\":" << json_quote(postscript)
+      << ",\"resolvedFamilyName\":" << json_quote(family)
+      << ",\"resolvedFullName\":" << json_quote(full)
+      << ",\"fontVersion\":" << json_quote(version)
+      << ",\"unitsPerEm\":" << units_per_em
+      << ",\"usWinAscent\":" << win_ascent
+      << ",\"usWinDescent\":" << win_descent
+      << ",\"fontMetricScale\":" << metric_scale
+      << ",\"libassProviderVerified\":true"
+      << ",\"resolvedFontFormat\":" << static_cast<int>(font_format)
+      << ",\"resolvedBold\":"
+      << ((traits & kCTFontBoldTrait) ? "true" : "false")
+      << ",\"resolvedItalic\":"
+      << ((traits & kCTFontItalicTrait) ? "true" : "false")
+      << ",\"syntheticBold\":"
+      << ((requested_bold && !(traits & kCTFontBoldTrait)) ? "true" : "false")
+      << ",\"syntheticItalic\":"
+      << ((requested_italic && !(traits & kCTFontItalicTrait)) ? "true" : "false")
+      << ",\"weightTrait\":" << weight_trait
+      << ",\"cueCoverage\":{\"ok\":true,\"utf16Units\":"
+      << characters.size() << ",\"glyphCount\":" << glyph_count << "}}\n";
+  std::cout << output.str();
+  if (resolved_font != base_font) CFRelease(resolved_font);
+  CFRelease(base_font);
+}
+
 static void cmd_version() {
-  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
+  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"fontMetrics\":true,\"fontMetricResolverVersion\":" << FONT_METRIC_RESOLVER_VERSION << ",\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }
 int main(int argc, char** argv) {
   try {
-    if (argc < 2) { print_error("expected command: import, lookup, worker, client, version"); return 2; }
+    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, version"); return 2; }
     std::string command = argv[1];
     if (command == "import") cmd_import(argc, argv);
     else if (command == "lookup") cmd_lookup(argc, argv);
     else if (command == "worker") cmd_worker(argc, argv);
     else if (command == "client") cmd_client(argc, argv);
+    else if (command == "font-metrics") cmd_font_metrics(argc, argv);
     else if (command == "version") cmd_version();
     else { print_error("unknown command: " + command); return 2; }
     return 0;
