@@ -900,7 +900,10 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
       !ready.assGeometry ||
       ready.assGeometry.protocol !== 1 ||
       ready.assGeometry.available !== true ||
-      ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v1")
+      (payloadValue.cue &&
+        payloadValue.cue.observedPlain !== undefined &&
+        ready.assGeometry.observedPlain !== true) ||
+      ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v2")
   )
     throw new Error("ass-geometry-unavailable");
   const timeout = Math.max(

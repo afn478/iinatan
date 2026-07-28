@@ -317,10 +317,10 @@ function readCurrentSubtitle() {
     return language.normalizeSubtitleText(clean);
   return clean;
 }
-function readExperimentalLookupSubtitle() {
+function readExperimentalLookupSubtitleProperty(property) {
   let sub = "";
   try {
-    sub = mpv.getString("sub-text") || "";
+    sub = mpv.getString(property || "sub-text") || "";
   } catch (_) {
     sub = "";
   }
@@ -338,6 +338,9 @@ function readExperimentalLookupSubtitle() {
       ? language.normalizeText(subtitleNormalized)
       : subtitleNormalized;
   return IINATAN_LANGUAGE_COMMON.normalizeBasic(languageNormalized);
+}
+function readExperimentalLookupSubtitle() {
+  return readExperimentalLookupSubtitleProperty("sub-text");
 }
 function cleanNativeDisplayText(text) {
   // This intentionally differs from lookup cleaning: it preserves authored
@@ -410,6 +413,7 @@ function publishSubtitle(text, nativeCue) {
     nativeReason: (nativeCue && nativeCue.reason) || "",
     nativeLookupSpans: (nativeCue && nativeCue.lookupSpans) || [],
     nativeLayout: (nativeCue && nativeCue.layout) || null,
+    nativeSurfaces: (nativeCue && nativeCue.surfaces) || [],
     renderingMode: experimentalNativeSubtitleMode()
       ? "experimental-native-hit"
       : "legacy",
@@ -497,12 +501,25 @@ function pollSubtitle() {
     publishSubtitle(sub, null);
     return;
   }
-  const experimentalLookupText = readExperimentalLookupSubtitle();
-  let nativeCue = nativeSubtitleCueSnapshot(experimentalLookupText);
-  if (nativeCue && !nativeCue.reason)
-    nativeCue.lookupText = experimentalLookupText;
+  let nativeCue =
+    typeof nativeSubtitleCombinedCueSnapshot === "function"
+      ? nativeSubtitleCombinedCueSnapshot()
+      : nativeSubtitleCueSnapshot(readExperimentalLookupSubtitle());
+  if (
+    nativeCue &&
+    !nativeCue.reason &&
+    typeof nativeCue.lookupText !== "string"
+  )
+    nativeCue.lookupText = readExperimentalLookupSubtitle();
+  const experimentalLookupText = String(
+    (nativeCue && nativeCue.lookupText) || "",
+  );
   const layoutFingerprint = JSON.stringify(
-    nativeCue && nativeCue.layout ? nativeCue.layout : nativeCue.reason || "",
+    nativeCue && nativeCue.surfaces
+      ? nativeCue.surfaces.map((surface) => surface.layout || surface.reason)
+      : nativeCue && nativeCue.layout
+        ? nativeCue.layout
+        : nativeCue.reason || "",
   );
   if (layoutFingerprint !== lastNativeLayoutFingerprint) {
     lastNativeLayoutFingerprint = layoutFingerprint;
@@ -510,7 +527,12 @@ function pollSubtitle() {
   } else {
     nativeLayoutStablePolls++;
   }
-  if (nativeCue.layout && !nativeCue.reason && nativeLayoutStablePolls < 1) {
+  if (
+    nativeCue.surfaces &&
+    nativeCue.surfaces.some((surface) => surface.layout) &&
+    !nativeCue.reason &&
+    nativeLayoutStablePolls < 1
+  ) {
     nativeCue = {
       reason: "unstable-osd-dimensions",
       trackId: nativeCue.trackId,

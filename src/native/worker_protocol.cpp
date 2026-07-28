@@ -380,7 +380,24 @@ GeometryRequest parse_geometry_request(const Json& root) {
   request.cue.time_ms = required(cue, "timeMs").integer();
   request.cue.start_ms = required(cue, "startMs").integer();
   request.cue.end_ms = required(cue, "endMs").integer();
-  request.cue.observed_ass = required(cue, "observedAss").string();
+  const Json* observed_ass = cue.find("observedAss");
+  const Json* observed_plain = cue.find("observedPlain");
+  const Json* observed_format = cue.find("observedFormat");
+  if (!!observed_ass == !!observed_plain ||
+      (observed_ass && !observed_ass->is_string()) ||
+      (observed_plain && !observed_plain->is_string()) ||
+      (observed_format && !observed_format->is_string()) ||
+      (observed_plain &&
+       (!observed_format || observed_format->string() != "plain")) ||
+      (observed_ass && observed_format &&
+       observed_format->string() != "ass"))
+    throw std::runtime_error(
+        "cue requires exactly one observedAss or observedPlain");
+  request.cue.uses_observed_plain = observed_plain != nullptr;
+  if (observed_plain)
+    request.cue.observed_plain = observed_plain->string();
+  else
+    request.cue.observed_ass = observed_ass->string();
 
   const Json& renderer = required(root, "renderer");
   request.renderer.width =
@@ -445,7 +462,8 @@ GeometryRequest parse_geometry_request(const Json& root) {
     throw std::runtime_error("invalid ffIndex");
   if (request.cue.time_ms < 0 || request.cue.start_ms < 0 ||
       request.cue.end_ms <= request.cue.start_ms ||
-      request.cue.observed_ass.size() > 64 * 1024)
+      request.cue.observed_ass.size() > 64 * 1024 ||
+      request.cue.observed_plain.size() > 64 * 1024)
     throw std::runtime_error("invalid cue");
   if (request.renderer.width < 64 || request.renderer.height < 64 ||
       static_cast<int64_t>(request.renderer.width) * request.renderer.height >

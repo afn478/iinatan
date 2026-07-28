@@ -214,7 +214,14 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       result.right = (osd.w - rightOsd) * geometry.scaleX;
     }
     if (alignY === "top") {
-      result.top = (baseTop + marginYOsd) * geometry.scaleY;
+      const topPosition = Math.max(0, Math.min(100, position));
+      const positionOffset = options.positionFromTop
+        ? (topPosition / 100) *
+          Math.max(0, baseBottom - baseTop - marginYOsd * 2)
+        : 0;
+      result.top = (baseTop + marginYOsd + positionOffset) * geometry.scaleY;
+      if (options.positionFromTop && topPosition > 0)
+        transforms.push("translateY(-" + topPosition + "%)");
     } else if (alignY === "center") {
       result.top = ((baseTop + baseBottom) / 2) * geometry.scaleY;
       transforms.push("translateY(-50%)");
@@ -245,13 +252,18 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           finiteNumber(rect.width, 0) > 0 &&
           finiteNumber(rect.height, 0) > 0,
       )
-      .map((rect) => ({
-        left: finiteNumber(rect.left, 0) - pad,
-        top: finiteNumber(rect.top, 0) - pad,
-        right: finiteNumber(rect.right, 0) + pad,
-        bottom: finiteNumber(rect.bottom, 0) + pad,
-        position: rect.position,
-      }));
+      .map((rect) =>
+        Object.assign(
+          {
+            left: finiteNumber(rect.left, 0) - pad,
+            top: finiteNumber(rect.top, 0) - pad,
+            right: finiteNumber(rect.right, 0) + pad,
+            bottom: finiteNumber(rect.bottom, 0) + pad,
+            position: rect.position,
+          },
+          rect.surface === undefined ? {} : { surface: rect.surface },
+        ),
+      );
     boxes.sort((a, b) => {
       const centerDelta = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
       if (centerDelta) return centerDelta;
@@ -320,13 +332,18 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       ordered.push(...row.boxes);
     });
     return ordered
-      .map((box) => ({
-        left: box.left,
-        top: box.top,
-        width: Math.max(0, box.right - box.left),
-        height: Math.max(0, box.bottom - box.top),
-        position: box.position,
-      }))
+      .map((box) =>
+        Object.assign(
+          {
+            left: box.left,
+            top: box.top,
+            width: Math.max(0, box.right - box.left),
+            height: Math.max(0, box.bottom - box.top),
+            position: box.position,
+          },
+          box.surface === undefined ? {} : { surface: box.surface },
+        ),
+      )
       .filter((box) => box.width > 0 && box.height > 0);
   }
 

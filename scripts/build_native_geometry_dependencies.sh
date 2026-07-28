@@ -81,7 +81,7 @@ LIBASS_PATCH_SHA="$(python3 - "$LOCK" <<'PY'
 import json, sys
 lock = json.load(open(sys.argv[1]))
 print(next(value for value in lock["patches"]
-           if value["name"] == "libass-0.17.2-iinatan-unit-ids-v1")["sha256"])
+           if value["name"] == "libass-0.17.2-iinatan-unit-ids-v2")["sha256"])
 PY
 )"
 if [[ ! -f "$LIBASS_PATCH" ]]; then

@@ -929,7 +929,14 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       result.right = (osd.w - rightOsd) * geometry.scaleX;
     }
     if (alignY === "top") {
-      result.top = (baseTop + marginYOsd) * geometry.scaleY;
+      const topPosition = Math.max(0, Math.min(100, position));
+      const positionOffset = options.positionFromTop
+        ? (topPosition / 100) *
+          Math.max(0, baseBottom - baseTop - marginYOsd * 2)
+        : 0;
+      result.top = (baseTop + marginYOsd + positionOffset) * geometry.scaleY;
+      if (options.positionFromTop && topPosition > 0)
+        transforms.push("translateY(-" + topPosition + "%)");
     } else if (alignY === "center") {
       result.top = ((baseTop + baseBottom) / 2) * geometry.scaleY;
       transforms.push("translateY(-50%)");
@@ -960,13 +967,18 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           finiteNumber(rect.width, 0) > 0 &&
           finiteNumber(rect.height, 0) > 0,
       )
-      .map((rect) => ({
-        left: finiteNumber(rect.left, 0) - pad,
-        top: finiteNumber(rect.top, 0) - pad,
-        right: finiteNumber(rect.right, 0) + pad,
-        bottom: finiteNumber(rect.bottom, 0) + pad,
-        position: rect.position,
-      }));
+      .map((rect) =>
+        Object.assign(
+          {
+            left: finiteNumber(rect.left, 0) - pad,
+            top: finiteNumber(rect.top, 0) - pad,
+            right: finiteNumber(rect.right, 0) + pad,
+            bottom: finiteNumber(rect.bottom, 0) + pad,
+            position: rect.position,
+          },
+          rect.surface === undefined ? {} : { surface: rect.surface },
+        ),
+      );
     boxes.sort((a, b) => {
       const centerDelta = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
       if (centerDelta) return centerDelta;
@@ -1035,13 +1047,18 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       ordered.push(...row.boxes);
     });
     return ordered
-      .map((box) => ({
-        left: box.left,
-        top: box.top,
-        width: Math.max(0, box.right - box.left),
-        height: Math.max(0, box.bottom - box.top),
-        position: box.position,
-      }))
+      .map((box) =>
+        Object.assign(
+          {
+            left: box.left,
+            top: box.top,
+            width: Math.max(0, box.right - box.left),
+            height: Math.max(0, box.bottom - box.top),
+            position: box.position,
+          },
+          box.surface === undefined ? {} : { surface: box.surface },
+        ),
+      )
       .filter((box) => box.width > 0 && box.height > 0);
   }
 
@@ -1149,6 +1166,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     nativeReason: "",
     nativeLookupSpans: [],
     nativeLayout: null,
+    nativeSurfaces: [],
     nativeDiagnosticKey: "",
     nativeAcceptedDiagnosticKey: "",
   };
@@ -2814,7 +2832,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     }
   }
 
-  function renderNativeAssAlphaMask(mask, geometry, opacity) {
+  function renderNativeAssAlphaMask(mask, geometry, opacity, copyElement) {
+    const target = copyElement || nativeSubtitleCopyEl;
     if (
       !mask ||
       mask.encoding !== "rle-u8-base64" ||
@@ -2864,15 +2883,15 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       image.data[rgba + 3] = alpha[index];
     }
     context.putImageData(image, 0, 0);
-    nativeSubtitleCopyEl.textContent = "";
-    nativeSubtitleCopyEl.appendChild(canvas);
-    setImportantStyle(nativeSubtitleCopyEl, "all", "initial");
-    setImportantStyle(nativeSubtitleCopyEl, "display", "block");
-    setImportantStyle(nativeSubtitleCopyEl, "position", "fixed");
-    setImportantStyle(nativeSubtitleCopyEl, "inset", "0");
-    setImportantStyle(nativeSubtitleCopyEl, "pointer-events", "none");
-    setImportantStyle(nativeSubtitleCopyEl, "opacity", opacity);
-    setImportantStyle(nativeSubtitleCopyEl, "z-index", "1");
+    target.textContent = "";
+    target.appendChild(canvas);
+    setImportantStyle(target, "all", "initial");
+    setImportantStyle(target, "display", "block");
+    setImportantStyle(target, "position", "fixed");
+    setImportantStyle(target, "inset", "0");
+    setImportantStyle(target, "pointer-events", "none");
+    setImportantStyle(target, "opacity", opacity);
+    setImportantStyle(target, "z-index", "1");
     setImportantStyle(canvas, "all", "initial");
     setImportantStyle(canvas, "display", "block");
     setImportantStyle(canvas, "position", "fixed");
@@ -2881,13 +2900,14 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     setImportantStyle(canvas, "width", mask.w * geometry.scaleX + "px");
     setImportantStyle(canvas, "height", mask.h * geometry.scaleY + "px");
     setImportantStyle(canvas, "pointer-events", "none");
-    nativeSubtitleCopyEl.classList.remove("hidden");
+    target.classList.remove("hidden");
     return true;
   }
 
-  function nativeRangeRects(lookupSpans, start, end) {
+  function nativeRangeRects(lookupSpans, start, end, copyElement) {
+    const target = copyElement || nativeSubtitleCopyEl;
     if (!document.createRange) return [];
-    const node = nativeSubtitleCopyEl.firstChild;
+    const node = target.firstChild;
     const displayStart = lookupSpans[start];
     const displayEnd = lookupSpans[Math.max(start, end - 1)];
     if (
@@ -3026,7 +3046,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     requestedFamily,
     isCurrentCueGeneration,
     resolvedFace,
+    copyElement,
   ) {
+    const target = copyElement || nativeSubtitleCopyEl;
     const family = nativePrimaryFontFamily(requestedFamily);
     if (
       /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system)$/i.test(
@@ -3056,11 +3078,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     ) {
       return nativeSubtitleLocalFont.ready.then((record) => {
         if (!record || !isCurrentCueGeneration()) return null;
-        setImportantStyle(
-          nativeSubtitleCopyEl,
-          "font-family",
-          '"' + record.alias + '"',
-        );
+        setImportantStyle(target, "font-family", '"' + record.alias + '"');
         return {
           cssFamily: '"' + record.alias + '"',
           localFontVerified: true,
@@ -3099,11 +3117,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     });
     return record.ready.then((loadedRecord) => {
       if (!loadedRecord || !isCurrentCueGeneration()) return null;
-      setImportantStyle(
-        nativeSubtitleCopyEl,
-        "font-family",
-        '"' + loadedRecord.alias + '"',
-      );
+      setImportantStyle(target, "font-family", '"' + loadedRecord.alias + '"');
       return {
         cssFamily: '"' + loadedRecord.alias + '"',
         localFontVerified: true,
@@ -3223,6 +3237,298 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       "bottom",
       layout.bottom === undefined ? "auto" : layout.bottom + "px",
     );
+  }
+
+  function renderNativeSurfaceHitBoxes(measured, viewport) {
+    const boxes = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.resolveHitBoxOverlaps(
+      measured,
+      2,
+    );
+    boxes.forEach((box) => {
+      if (
+        box.left < -3 ||
+        box.top < -3 ||
+        box.left + box.width > viewport.width + 3 ||
+        box.top + box.height > viewport.height + 3
+      )
+        return;
+      const hit = document.createElement("div");
+      hit.className =
+        "native-subtitle-hit-box" +
+        (state.config.experimentalNativeSubtitleHitBoxes ? " debug" : "");
+      hit.setAttribute("data-clickable", "true");
+      hit.dataset.pos = String(box.position);
+      if (box.surface) hit.dataset.surface = String(box.surface);
+      setImportantStyle(hit, "all", "initial");
+      setImportantStyle(hit, "display", "block");
+      setImportantStyle(hit, "position", "fixed");
+      setImportantStyle(hit, "left", Math.max(0, box.left) + "px");
+      setImportantStyle(hit, "top", Math.max(0, box.top) + "px");
+      setImportantStyle(hit, "width", box.width + "px");
+      setImportantStyle(hit, "height", box.height + "px");
+      setImportantStyle(hit, "box-sizing", "border-box");
+      setImportantStyle(hit, "pointer-events", "auto");
+      setImportantStyle(hit, "z-index", "3");
+      setImportantStyle(
+        hit,
+        "border",
+        state.config.experimentalNativeSubtitleHitBoxes
+          ? "1px solid rgba(80, 190, 255, .9)"
+          : "0 solid transparent",
+      );
+      setImportantStyle(
+        hit,
+        "background",
+        state.config.experimentalNativeSubtitleHitBoxes
+          ? "rgba(80, 190, 255, .14)"
+          : "transparent",
+      );
+      hit.addEventListener("mouseenter", onCharEnter);
+      hit.addEventListener("click", onCharEnter);
+      hit.addEventListener("mouseleave", scheduleHidePopup);
+      nativeSubtitleHitBoxesEl.appendChild(hit);
+      if (!state.charByPos[box.position]) state.charByPos[box.position] = hit;
+    });
+    if (nativeSubtitleHitBoxesEl.children.length) {
+      setImportantStyle(nativeSubtitleHitBoxesEl, "display", "block");
+      nativeSubtitleHitBoxesEl.classList.remove("hidden");
+    } else {
+      invalidateNativeSubtitleHitLayer("missing-unit-fill");
+    }
+  }
+
+  function renderNativeSubtitleSurfaces(surfaces) {
+    const list = Array.isArray(surfaces)
+      ? surfaces.filter(
+          (surface) => surface && !surface.reason && surface.layout,
+        )
+      : [];
+    if (!list.length) {
+      invalidateNativeSubtitleHitLayer("empty-subtitle");
+      return;
+    }
+    if (
+      surfaces.length === 1 &&
+      list.length === 1 &&
+      String(list[0].surface || list[0].role) === "primary"
+    ) {
+      renderNativeSubtitleHitLayer(
+        String(list[0].displayText || ""),
+        "",
+        list[0].lookupSpans,
+        list[0].layout,
+      );
+      return;
+    }
+    const contextReason = nativeGeometryContextReason();
+    if (contextReason || !ensureNativeSubtitleDom()) {
+      invalidateNativeSubtitleHitLayer(
+        contextReason || "non-coextensive-overlay",
+      );
+      return;
+    }
+    nativeSubtitleCopyEl.textContent = "";
+    setImportantStyle(nativeSubtitleCopyEl, "all", "initial");
+    setImportantStyle(nativeSubtitleCopyEl, "display", "block");
+    setImportantStyle(nativeSubtitleCopyEl, "position", "fixed");
+    setImportantStyle(nativeSubtitleCopyEl, "inset", "0");
+    setImportantStyle(nativeSubtitleCopyEl, "pointer-events", "none");
+    setImportantStyle(nativeSubtitleCopyEl, "overflow", "visible");
+    nativeSubtitleCopyEl.classList.remove("hidden");
+    nativeSubtitleHitBoxesEl.textContent = "";
+    state.charByPos = Object.create(null);
+    const viewport = nativeOverlayViewport();
+    const measured = [];
+    const plainRecords = [];
+    const fontReadiness = [];
+    const generation = state.nativeHitGeneration;
+    const cueLineId = state.lineId;
+    const cueText = state.text;
+    const cueSurfaces = state.nativeSurfaces;
+    const cueCopyRoot = nativeSubtitleCopyEl;
+    const cueHitRoot = nativeSubtitleHitBoxesEl;
+    const isCurrent = () =>
+      generation === state.nativeHitGeneration &&
+      state.enabled &&
+      state.lineId === cueLineId &&
+      state.text === cueText &&
+      state.nativeSurfaces === cueSurfaces &&
+      nativeSubtitleCopyEl === cueCopyRoot &&
+      nativeSubtitleHitBoxesEl === cueHitRoot;
+    const copyOpacity = Math.max(
+      0,
+      Math.min(
+        1,
+        Number(state.config.experimentalNativeSubtitleTextOpacity) || 0,
+      ),
+    );
+    list.forEach((surface, surfaceIndex) => {
+      const role = String(surface.surface || surface.role || surfaceIndex);
+      const layout = surface.layout;
+      const geometry = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.validateGeometry(
+        layout.osd,
+        viewport,
+      );
+      if (!geometry.ok) return;
+      const copy = createNativeSubtitleCopyElement();
+      copy.id = "native-subtitle-copy-" + role;
+      copy.dataset.surface = role;
+      nativeSubtitleCopyEl.appendChild(copy);
+      if (Array.isArray(layout.directRects)) {
+        if (copyOpacity > 0)
+          renderNativeAssAlphaMask(
+            layout.alphaMask,
+            geometry,
+            copyOpacity,
+            copy,
+          );
+        layout.directRects.forEach((unit) => {
+          (unit.rects || []).forEach((rect) => {
+            const left = Number(rect.x) * geometry.scaleX;
+            const top = Number(rect.y) * geometry.scaleY;
+            const width = Number(rect.w) * geometry.scaleX;
+            const height = Number(rect.h) * geometry.scaleY;
+            if (
+              ![left, top, width, height].every(Number.isFinite) ||
+              width <= 0 ||
+              height <= 0
+            )
+              return;
+            measured.push({
+              left,
+              top,
+              right: left + width,
+              bottom: top + height,
+              width,
+              height,
+              position: Number(unit.position),
+              surface: role,
+            });
+          });
+        });
+        return;
+      }
+      const calculated =
+        IINATAN_NATIVE_SUBTITLE_HIT_LAYER.calculatePlainTextLayout(
+          geometry,
+          layout.options,
+        );
+      if (!calculated.ok) return;
+      const previousCopy = nativeSubtitleCopyEl;
+      nativeSubtitleCopyEl = copy;
+      applyNativeLayout(
+        calculated,
+        IINATAN_NATIVE_SUBTITLE_HIT_LAYER.balancedTextWrapSupported(
+          window.CSS,
+          document.createElement("span").style,
+        ),
+      );
+      nativeSubtitleCopyEl = previousCopy;
+      copy.textContent = String(surface.displayText || "");
+      setImportantStyle(copy, "opacity", copyOpacity);
+      copy.classList.remove("hidden");
+      const record = { surface, role, copy, fontReady: true };
+      plainRecords.push(record);
+      const fontSet = document.fonts;
+      if (
+        fontSet &&
+        typeof fontSet.load === "function" &&
+        typeof fontSet.check === "function"
+      ) {
+        fontReadiness.push(
+          nativeSubtitleFontFamilyForMeasurement(
+            layout.options.effectiveFont || layout.options.font,
+            isCurrent,
+            layout.options,
+            copy,
+          )
+            .then((fontResolution) => {
+              if (!fontResolution || !isCurrent()) {
+                record.fontReady = false;
+                return null;
+              }
+              const fontSpec =
+                String(Math.max(1, calculated.fontSize)) +
+                "px " +
+                String(fontResolution.cssFamily || "sans-serif");
+              return Promise.resolve(
+                fontSet.load(fontSpec, String(surface.displayText || "")),
+              ).then(() => ({ fontResolution, fontSpec }));
+            })
+            .then((fontLoad) => {
+              if (!fontLoad) return;
+              record.fontReady =
+                isCurrent() &&
+                fontSet.check(
+                  fontLoad.fontSpec,
+                  String(surface.displayText || ""),
+                ) &&
+                (fontLoad.fontResolution.localFontVerified ||
+                  nativeFontFamilyAvailable(
+                    calculated.fontFamily,
+                    String(surface.displayText || ""),
+                  ));
+            })
+            .catch(() => {
+              record.fontReady = false;
+            }),
+        );
+      }
+    });
+    const finish = () => {
+      if (!isCurrent()) return;
+      plainRecords.forEach((record) => {
+        if (!record.fontReady) return;
+        const lookupStart = Number(record.surface.lookupStart) || 0;
+        const localLength = Array.from(
+          String(record.surface.lookupText || ""),
+        ).length;
+        for (
+          let globalPosition = lookupStart;
+          globalPosition < lookupStart + localLength;
+          globalPosition++
+        ) {
+          if (!isLookupableChar(state.chars[globalPosition])) continue;
+          const unit = lookupUnitForPosition(globalPosition);
+          if (
+            unit.pos !== globalPosition ||
+            unit.preview.start < lookupStart ||
+            unit.preview.end > lookupStart + localLength
+          )
+            continue;
+          nativeRangeRects(
+            record.surface.lookupSpans,
+            unit.preview.start - lookupStart,
+            unit.preview.end - lookupStart,
+            record.copy,
+          ).forEach((rect) => {
+            if (!rect || rect.width <= 0 || rect.height <= 0) return;
+            measured.push({
+              left: rect.left,
+              top: rect.top,
+              right: rect.right,
+              bottom: rect.bottom,
+              width: rect.width,
+              height: rect.height,
+              position: globalPosition,
+              surface: record.role,
+            });
+          });
+        }
+      });
+      renderNativeSurfaceHitBoxes(measured, viewport);
+    };
+    const scheduleFinish = () => {
+      if (!isCurrent()) return;
+      if (
+        plainRecords.length &&
+        typeof window.requestAnimationFrame === "function"
+      )
+        window.requestAnimationFrame(finish);
+      else finish();
+    };
+    if (fontReadiness.length) Promise.all(fontReadiness).then(scheduleFinish);
+    else scheduleFinish();
   }
 
   function renderNativeSubtitleHitLayer(
@@ -3652,6 +3958,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     nativeReason,
     nativeLookupSpans,
     nativeLayout,
+    nativeSurfaces,
   ) {
     state.text = state.config.flattenSubtitleLineBreaks
       ? flattenSubtitleText(text)
@@ -3666,6 +3973,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     );
     state.chars = Array.from(state.text);
     state.lineId = Number(lineId || 0);
+    state.nativeSurfaces = Array.isArray(nativeSurfaces)
+      ? nativeSurfaces.slice()
+      : [];
     Object.keys(state.pendingLookupTimers || {}).forEach((k) =>
       clearTimeout(state.pendingLookupTimers[k]),
     );
@@ -3697,12 +4007,15 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     }
     if (experimentalMode) {
       subtitleEl.classList.add("hidden");
-      renderNativeSubtitleHitLayer(
-        String(displayText || ""),
-        String(nativeReason || ""),
-        nativeLookupSpans,
-        nativeLayout,
-      );
+      if (state.nativeSurfaces.length)
+        renderNativeSubtitleSurfaces(state.nativeSurfaces);
+      else
+        renderNativeSubtitleHitLayer(
+          String(displayText || ""),
+          String(nativeReason || ""),
+          nativeLookupSpans,
+          nativeLayout,
+        );
       return;
     }
     subtitleEl.classList.remove("hidden");
@@ -6760,6 +7073,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         state.nativeReason,
         state.nativeLookupSpans,
         state.nativeLayout,
+        state.nativeSurfaces,
       );
   });
   iina.onMessage("subtitle", (payload) => {
@@ -6773,6 +7087,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         ? payload.nativeLookupSpans
         : [],
       payload && payload.nativeLayout ? payload.nativeLayout : null,
+      payload && Array.isArray(payload.nativeSurfaces)
+        ? payload.nativeSurfaces
+        : [],
     );
   });
   iina.onMessage("line-lookup-reset", (payload) => {

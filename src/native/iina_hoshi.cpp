@@ -780,7 +780,7 @@ static void cmd_worker(int argc, char** argv) {
 #else
       "false"
 #endif
-      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + "}}\n");
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true}}\n");
   std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size() << " dictionaries; sleep_ms=" << sleep_ms << "; owner_pid=" << owner_pid << "\n";
   auto next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (!fs::exists(stop)) {
@@ -1168,6 +1168,7 @@ static void cmd_version() {
             << "false"
 #endif
             << ",\"patch\":" << json_quote(iinatan::ass::kAssGeometryPatch)
+            << ",\"observedPlain\":true"
             << ",\"ffmpeg\":" << json_quote(iinatan::ass::ffmpeg_geometry_version())
             << ",\"libass\":" << json_quote(iinatan::ass::libass_geometry_version())
             << ",\"architecture\":\"arm64\"},\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";

@@ -1,11 +1,12 @@
 diff --git a/libass/ass.h b/libass/ass.h
 --- a/libass/ass.h
 +++ b/libass/ass.h
-@@ -81,5 +81,19 @@ typedef struct ass_image {
+@@ -81,5 +81,20 @@ typedef struct ass_image {
      // New fields can be added here in new ABI-compatible library releases.
  } ASS_Image;
 +
 +typedef struct ass_iinatan_lookup_unit {
++    int read_order;
 +    int start;
 +    int end;
 +    int id;
@@ -21,7 +22,7 @@ diff --git a/libass/ass.h b/libass/ass.h
  
  /*
   * Hinting type. (see ass_set_hinting below)
-@@ -802,5 +816,11 @@ void ass_flush_events(ASS_Track *track);
+@@ -802,5 +817,11 @@ void ass_flush_events(ASS_Track *track);
   */
  long long ass_step_sub(ASS_Track *track, long long now, int movement);
  
@@ -113,7 +114,7 @@ diff --git a/libass/ass_shaper.c b/libass/ass_shaper.c
 diff --git a/libass/ass_render.c b/libass/ass_render.c
 --- a/libass/ass_render.c
 +++ b/libass/ass_render.c
-@@ -2146,6 +2146,16 @@ static bool parse_events(RenderContext *state, ASS_Event *event)
+@@ -2146,6 +2146,17 @@ static bool parse_events(RenderContext *state, ASS_Event *event)
  
          // Clear current GlyphInfo
          memset(info, 0, sizeof(GlyphInfo));
@@ -121,7 +122,8 @@ diff --git a/libass/ass_render.c b/libass/ass_render.c
 +        info->lookup_cluster = text_info->length;
 +        for (int lookup = 0; lookup < state->renderer->lookup_unit_count; lookup++) {
 +            ASS_IinatanLookupUnit *unit = &state->renderer->lookup_units[lookup];
-+            if (text_info->length >= unit->start &&
++            if (event->ReadOrder == unit->read_order &&
++                    text_info->length >= unit->start &&
 +                    text_info->length < unit->end) {
 +                info->lookup_unit = unit->id;
 +                break;

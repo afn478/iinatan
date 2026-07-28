@@ -14,6 +14,6 @@ struct GeometryService {
 const char* libass_geometry_version();
 constexpr int kAssGeometryProtocol = 1;
 constexpr const char* kAssGeometryPatch =
-    "libass-0.17.2-iinatan-unit-ids-v1";
+    "libass-0.17.2-iinatan-unit-ids-v2";
 
 }  // namespace iinatan::ass

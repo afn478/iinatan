@@ -182,7 +182,8 @@ def validate_native_backend() -> None:
     expected = {
         "protocol": 1,
         "available": True,
-        "patch": "libass-0.17.2-iinatan-unit-ids-v1",
+        "patch": "libass-0.17.2-iinatan-unit-ids-v2",
+        "observedPlain": True,
         "ffmpeg": "7.0.1",
         "libass": "0.17.2",
         "architecture": "arm64",

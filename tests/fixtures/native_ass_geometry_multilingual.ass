@@ -9,6 +9,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Dialogue,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,24,24,36,1
 Style: CJK,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,24,24,36,1
 Style: Geometry,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,0,0,2,24,24,36,1
+Style: TopGeometry,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,0,0,8,24,24,36,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -25,3 +26,11 @@ Dialogue: 0,0:00:28.00,0:00:30.00,Dialogue,,0,0,0,,Grüße aus Berlin
 Dialogue: 0,0:00:31.00,0:00:33.00,CJK,,0,0,0,,这是中文测试
 Dialogue: 0,0:00:34.00,0:00:36.00,Geometry,,0,0,0,,é
 Dialogue: 0,0:00:37.00,0:00:39.00,Geometry,,0,0,0,Banner;10;0;20,Animated plain text
+Dialogue: 0,0:00:40.00,0:00:43.00,Geometry,,0,0,0,,Bottom\Nline
+Dialogue: 0,0:00:40.00,0:00:43.00,TopGeometry,,0,0,0,,Top
+Dialogue: 0,0:00:44.00,0:00:47.00,Geometry,,0,0,0,,Duplicate
+Dialogue: 0,0:00:44.00,0:00:47.00,TopGeometry,,0,0,0,,Duplicate
+Dialogue: 0,0:00:48.00,0:00:51.00,Geometry,,0,0,0,,Simple peer
+Dialogue: 0,0:00:48.00,0:00:51.00,TopGeometry,,0,0,0,,{\pos(100,100)}Complex peer
+Dialogue: 0,0:00:52.00,0:00:55.00,Geometry,,0,0,0,,Simple peer
+Dialogue: 0,0:00:52.00,0:00:55.00,TopGeometry,,0,0,0,Banner;10;0;20,Animated peer

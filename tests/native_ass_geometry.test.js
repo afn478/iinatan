@@ -18,15 +18,31 @@ const matroskaFixture = path.join(
   "fixtures",
   "native_ass_geometry_multilingual.mkv",
 );
+const attachmentFixture = path.join(
+  root,
+  "tests",
+  "fixtures",
+  "native_font_attachment.txt",
+);
+const systemFontFixture = "/System/Library/Fonts/Symbol.ttf";
+assert.ok(
+  fs.existsSync(systemFontFixture),
+  "macOS Symbol.ttf is required for native attachment-limit tests",
+);
 
 const version = JSON.parse(
   execFileSync(binary, ["version"], { encoding: "utf8" }),
 );
 assert.strictEqual(version.assGeometry.available, true);
+assert.strictEqual(version.assGeometry.observedPlain, true);
 assert.strictEqual(version.assGeometry.protocol, 1);
 assert.strictEqual(version.assGeometry.ffmpeg, "7.0.1");
 assert.strictEqual(version.assGeometry.libass, "0.17.2");
 assert.strictEqual(version.assGeometry.architecture, "arm64");
+assert.strictEqual(
+  version.assGeometry.patch,
+  "libass-0.17.2-iinatan-unit-ids-v2",
+);
 
 const cases = [
   {
@@ -90,6 +106,10 @@ const cases = [
 ];
 
 function request(testCase) {
+  const observedCue =
+    testCase.observedPlain === undefined
+      ? { observedAss: testCase.text }
+      : { observedFormat: "plain", observedPlain: testCase.observedPlain };
   return {
     type: "ass-geometry",
     protocol: 1,
@@ -103,7 +123,7 @@ function request(testCase) {
       timeMs: testCase.start + 500,
       startMs: testCase.start,
       endMs: testCase.end,
-      observedAss: testCase.text,
+      ...observedCue,
     },
     units: testCase.units.map(([position, start, end]) => ({
       position,
@@ -150,37 +170,46 @@ function invoke(payload) {
   }
 }
 
-function withGeneratedAttachment(size, callback) {
+function withGeneratedAttachments(attachments, callback) {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "iinatan-ass-attachment-"),
   );
-  const attachment = path.join(directory, "boundary-font.ttf");
   const output = path.join(directory, "boundary.mkv");
   try {
-    fs.writeFileSync(attachment, Buffer.alloc(1));
-    fs.truncateSync(attachment, size);
-    execFileSync(
-      "ffmpeg",
-      [
-        "-v",
-        "error",
-        "-y",
-        "-f",
-        "ass",
-        "-i",
-        fixture,
-        "-map",
-        "0:s:0",
-        "-c:s",
-        "copy",
+    const seeds = new Map();
+    const args = [
+      "-v",
+      "error",
+      "-y",
+      "-f",
+      "ass",
+      "-i",
+      fixture,
+      "-map",
+      "0:s:0",
+      "-c:s",
+      "copy",
+    ];
+    attachments.forEach((attachment, index) => {
+      const name = attachment.name || `boundary-font-${index}.ttf`;
+      const attachmentPath = path.join(directory, name);
+      const source = attachment.source || attachmentFixture;
+      if (!seeds.has(source)) seeds.set(source, fs.readFileSync(source));
+      const seed = seeds.get(source);
+      fs.writeFileSync(attachmentPath, seed);
+      if (attachment.size !== undefined)
+        fs.truncateSync(attachmentPath, attachment.size);
+      args.push(
         "-attach",
-        attachment,
-        "-metadata:s:t",
+        attachmentPath,
+        `-metadata:s:t:${index}`,
         "mimetype=application/x-truetype-font",
-        output,
-      ],
-      { stdio: "pipe" },
-    );
+        `-metadata:s:t:${index}`,
+        `filename=${name}`,
+      );
+    });
+    args.push(output);
+    execFileSync("ffmpeg", args, { stdio: "pipe" });
     return callback(output);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -217,7 +246,7 @@ for (const testCase of cases) {
   );
 }
 
-withGeneratedAttachment(23275812, (source) => {
+withGeneratedAttachments([{ size: 23275812 }], (source) => {
   const response = invoke(
     request({
       ...cases[0],
@@ -228,7 +257,24 @@ withGeneratedAttachment(23275812, (source) => {
   assert.strictEqual(response.ok, true, JSON.stringify(response));
 });
 
-withGeneratedAttachment(32 * 1024 * 1024 + 1, (source) => {
+withGeneratedAttachments(
+  Array.from({ length: 33 }, (_, index) => ({
+    name: `small-font-${index}.ttf`,
+    source: systemFontFixture,
+  })),
+  (source) => {
+    const response = invoke(
+      request({
+        ...cases[0],
+        id: "thirty-three-fonts",
+        source,
+      }),
+    );
+    assert.strictEqual(response.ok, true, JSON.stringify(response));
+  },
+);
+
+withGeneratedAttachments([{ size: 32 * 1024 * 1024 + 1 }], (source) => {
   const response = invoke(
     request({
       ...cases[0],
@@ -239,6 +285,42 @@ withGeneratedAttachment(32 * 1024 * 1024 + 1, (source) => {
   assert.strictEqual(response.ok, false, JSON.stringify(response));
   assert.strictEqual(response.reason, "attachment-limit-exceeded");
 });
+
+withGeneratedAttachments(
+  Array.from({ length: 3 }, (_, index) => ({
+    name: `cumulative-font-${index}.ttf`,
+    size: 22 * 1024 * 1024,
+  })),
+  (source) => {
+    const response = invoke(
+      request({
+        ...cases[0],
+        id: "cumulative-font-limit",
+        source,
+      }),
+    );
+    assert.strictEqual(response.ok, false, JSON.stringify(response));
+    assert.strictEqual(response.reason, "attachment-limit-exceeded");
+  },
+);
+
+withGeneratedAttachments(
+  Array.from({ length: 128 }, (_, index) => ({
+    name: `stream-limit-font-${index}.ttf`,
+    size: 1,
+  })),
+  (source) => {
+    const response = invoke(
+      request({
+        ...cases[0],
+        id: "stream-limit",
+        source,
+      }),
+    );
+    assert.strictEqual(response.ok, false, JSON.stringify(response));
+    assert.strictEqual(response.reason, "stream-limit-exceeded");
+  },
+);
 
 const complex = request({
   id: "complex",
@@ -263,6 +345,197 @@ const animatedEffect = invoke(
 assert.strictEqual(animatedEffect.ok, false);
 assert.strictEqual(animatedEffect.reason, "complex-ass-tags");
 assert.strictEqual(animatedEffect.detail, "animated-effect");
+
+const overlappingEvents = invoke(
+  request({
+    id: "overlapping-events",
+    start: 40000,
+    end: 43000,
+    text: "Top\nBottom\\Nline",
+    units: [
+      [0, 0, 3],
+      [1, 4, 10],
+      [2, 11, 15],
+    ],
+    renderer: {
+      overrideMode: "no",
+      fontScale: 1,
+      lineSpacing: 0,
+      linePosition: 0,
+      hinting: "none",
+    },
+  }),
+);
+assert.strictEqual(
+  overlappingEvents.ok,
+  true,
+  JSON.stringify(overlappingEvents),
+);
+assert.strictEqual(overlappingEvents.units.length, 3);
+const topRect = overlappingEvents.units[0].rects[0];
+const bottomRect = overlappingEvents.units[1].rects[0];
+assert.ok(
+  topRect.y + topRect.h < bottomRect.y,
+  "independently positioned overlapping events retain distinct vertical geometry: " +
+    JSON.stringify(overlappingEvents.units),
+);
+
+const plainOverlappingEvents = invoke(
+  request({
+    id: "plain-overlapping-events",
+    start: 40000,
+    end: 43000,
+    text: "",
+    observedPlain: "Top\nBottom\nline",
+    units: [
+      [10, 0, 3],
+      [14, 4, 10],
+      [21, 11, 15],
+    ],
+  }),
+);
+assert.strictEqual(
+  plainOverlappingEvents.ok,
+  true,
+  JSON.stringify(plainOverlappingEvents),
+);
+assert.deepStrictEqual(
+  plainOverlappingEvents.units.map((unit) => unit.position),
+  [10, 14, 21],
+  "plain observations preserve caller-global positions",
+);
+
+const plainDemuxIndependentOrder = invoke(
+  request({
+    id: "plain-demux-independent-order",
+    start: 40000,
+    end: 43000,
+    text: "",
+    observedPlain: "Bottom\nline\nTop",
+    units: [
+      [0, 0, 6],
+      [7, 7, 11],
+      [12, 12, 15],
+    ],
+  }),
+);
+assert.strictEqual(
+  plainDemuxIndependentOrder.ok,
+  true,
+  JSON.stringify(plainDemuxIndependentOrder),
+);
+
+[
+  ["wrong-event", "Wrong\nBottom\\Nline"],
+  ["missing-event", "Top"],
+  ["extra-event", "Top\nBottom\\Nline\nExtra"],
+].forEach(([id, text]) => {
+  const response = invoke(
+    request({
+      id,
+      start: 40000,
+      end: 43000,
+      text,
+      units: [[0, 0, Math.min(3, text.length)]],
+    }),
+  );
+  assert.strictEqual(response.ok, false, JSON.stringify(response));
+  assert.strictEqual(response.reason, "cue-text-mismatch");
+});
+
+const duplicateAmbiguous = invoke(
+  request({
+    id: "duplicate-ambiguous",
+    start: 44000,
+    end: 47000,
+    text: "Duplicate\nDuplicate",
+    units: [
+      [0, 0, 9],
+      [1, 10, 19],
+    ],
+  }),
+);
+assert.strictEqual(duplicateAmbiguous.ok, false);
+assert.strictEqual(duplicateAmbiguous.reason, "ambiguous-ass-event");
+
+const duplicatePlainAmbiguous = invoke(
+  request({
+    id: "duplicate-plain-ambiguous",
+    start: 44000,
+    end: 47000,
+    text: "",
+    observedPlain: "Duplicate\nDuplicate",
+    units: [
+      [0, 0, 9],
+      [10, 10, 19],
+    ],
+  }),
+);
+assert.strictEqual(duplicatePlainAmbiguous.ok, false);
+assert.strictEqual(duplicatePlainAmbiguous.reason, "ambiguous-ass-event");
+
+const complexPeer = invoke(
+  request({
+    id: "complex-peer",
+    start: 48000,
+    end: 51000,
+    text: "Simple peer\n{\\pos(100,100)}Complex peer",
+    units: [[0, 0, 6]],
+  }),
+);
+assert.strictEqual(complexPeer.ok, false);
+assert.strictEqual(complexPeer.reason, "complex-ass-tags");
+
+const animatedPeer = invoke(
+  request({
+    id: "animated-peer",
+    start: 52000,
+    end: 55000,
+    text: "Simple peer\nAnimated peer",
+    units: [[0, 0, 6]],
+  }),
+);
+assert.strictEqual(animatedPeer.ok, false);
+assert.strictEqual(animatedPeer.reason, "complex-ass-tags");
+assert.strictEqual(animatedPeer.detail, "animated-effect");
+
+const crossEventRange = invoke(
+  request({
+    id: "cross-event-range",
+    start: 40000,
+    end: 43000,
+    text: "Top\nBottom\\Nline",
+    units: [[0, 2, 5]],
+  }),
+);
+assert.strictEqual(crossEventRange.ok, false);
+assert.strictEqual(crossEventRange.reason, "text-index-map-failed");
+
+const plainCrossEventRange = invoke(
+  request({
+    id: "plain-cross-event-range",
+    start: 40000,
+    end: 43000,
+    text: "",
+    observedPlain: "Top\nBottom\nline",
+    units: [[0, 2, 5]],
+  }),
+);
+assert.strictEqual(plainCrossEventRange.ok, false);
+assert.strictEqual(plainCrossEventRange.reason, "text-index-map-failed");
+
+const plainMismatch = invoke(
+  request({
+    id: "plain-mismatch",
+    start: 40000,
+    end: 43000,
+    text: "",
+    observedPlain: "Top\nWrong",
+    units: [[0, 0, 3]],
+  }),
+);
+assert.strictEqual(plainMismatch.ok, false);
+assert.strictEqual(plainMismatch.reason, "cue-text-mismatch");
 
 [
   { base: cases[0], start: 22000, end: 24000 },

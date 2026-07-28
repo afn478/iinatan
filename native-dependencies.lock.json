@@ -4,9 +4,9 @@
   "deploymentTarget": "11.0",
   "patches": [
     {
-      "name": "libass-0.17.2-iinatan-unit-ids-v1",
+      "name": "libass-0.17.2-iinatan-unit-ids-v2",
       "file": "patches/libass-0.17.2-iinatan-unit-ids.patch",
-      "sha256": "ae683fbfe20aeabf571aa348d011842c9b3b521be508d8bd8a3ce72545bcd9ba",
+      "sha256": "4b35487aed9f58a3c99283831804d07faa9d7b4f8f57416fb02d3fe01c529a38",
       "upstream": "libass 0.17.2"
     }
   ],

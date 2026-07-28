@@ -118,6 +118,10 @@ assert(
   "Package validation should check the HoshiDicts submodule",
 );
 assert(
+  /"observedPlain": True/.test(buildScript),
+  "Release validation should require the secondary ASS plain-observation capability",
+);
+assert(
   /vendor\/hoshidicts\/include\/hoshidicts\/query\.hpp/.test(buildScript),
   "Submodule validation should check HoshiDicts headers",
 );

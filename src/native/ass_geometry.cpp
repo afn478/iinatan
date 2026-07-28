@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -44,12 +45,18 @@ bool close_time(int64_t left, int64_t right, int64_t tolerance = 150) {
 }
 
 bool split_ass_packet(
-    const std::string& packet, std::string& prefix, std::string& effect,
-    std::string& text) {
+    const std::string& packet, int& read_order, std::string& prefix,
+    std::string& effect, std::string& text) {
   size_t offset = 0;
   for (int field = 0; field < 8; ++field) {
     const size_t comma = packet.find(',', offset);
     if (comma == std::string::npos) return false;
+    if (field == 0) {
+      const char* begin = packet.data() + offset;
+      const char* end = packet.data() + comma;
+      const auto parsed = std::from_chars(begin, end, read_order);
+      if (parsed.ec != std::errc() || parsed.ptr != end) return false;
+    }
     if (field == 7) effect = packet.substr(offset, comma - offset);
     offset = comma + 1;
   }
@@ -116,6 +123,70 @@ struct TextIndex {
   std::vector<int> logical_boundary;
 };
 
+struct ActiveEvent {
+  const SubtitlePacket* packet = nullptr;
+  int read_order = -1;
+  std::string prefix;
+  std::string effect;
+  std::string text;
+  std::string plain_text;
+  TextIndex index;
+  int display_start = 0;
+  int display_end = 0;
+};
+
+std::string dialogue_plain_text(const std::string& text) {
+  std::string plain;
+  plain.reserve(text.size());
+  for (size_t index = 0; index < text.size(); ++index) {
+    if (text[index] == '\\' && index + 1 < text.size() &&
+        (text[index + 1] == 'N' || text[index + 1] == 'n')) {
+      plain.push_back('\n');
+      ++index;
+    } else {
+      plain.push_back(text[index]);
+    }
+  }
+  return plain;
+}
+
+void find_plain_event_orders(
+    const std::string& observed, std::vector<ActiveEvent>& events,
+    size_t offset, std::vector<bool>& used, std::vector<ActiveEvent*>& current,
+    std::vector<ActiveEvent*>& unique, int& matches, int& steps,
+    bool& exhausted) {
+  if (matches > 1 || exhausted) return;
+  if (++steps > 4096) {
+    exhausted = true;
+    return;
+  }
+  if (current.size() == events.size()) {
+    if (offset == observed.size()) {
+      ++matches;
+      if (matches == 1) unique = current;
+    }
+    return;
+  }
+  for (size_t index = 0; index < events.size(); ++index) {
+    if (used[index]) continue;
+    ActiveEvent& event = events[index];
+    if (observed.compare(offset, event.plain_text.size(), event.plain_text) != 0)
+      continue;
+    const size_t next = offset + event.plain_text.size();
+    const bool last = current.size() + 1 == events.size();
+    if ((!last && (next >= observed.size() || observed[next] != '\n')) ||
+        (last && next != observed.size()))
+      continue;
+    used[index] = true;
+    current.push_back(&event);
+    find_plain_event_orders(
+        observed, events, last ? next : next + 1, used, current, unique,
+        matches, steps, exhausted);
+    current.pop_back();
+    used[index] = false;
+  }
+}
+
 bool build_text_index(const std::string& raw, TextIndex& result) {
   result.logical_boundary.clear();
   result.logical_boundary.push_back(0);
@@ -141,28 +212,72 @@ bool build_text_index(const std::string& raw, TextIndex& result) {
 }
 
 bool build_lookup_units(
-    const std::string& raw, const std::vector<GeometryUnitRequest>& units,
+    std::vector<ActiveEvent*>& events,
+    const std::vector<GeometryUnitRequest>& units,
     std::vector<ASS_IinatanLookupUnit>& result) {
-  TextIndex index;
-  if (!build_text_index(raw, index)) return false;
+  int display_offset = 0;
+  for (size_t event_index = 0; event_index < events.size(); ++event_index) {
+    ActiveEvent& event = *events[event_index];
+    if (!build_text_index(event.text, event.index)) return false;
+    event.display_start = display_offset;
+    const size_t logical_length = event.index.logical_boundary.size() - 1;
+    if (logical_length >
+        static_cast<size_t>(
+            std::numeric_limits<int>::max() - display_offset))
+      return false;
+    event.display_end = display_offset + static_cast<int>(logical_length);
+    display_offset = event.display_end;
+    if (event_index + 1 < events.size()) {
+      if (display_offset == std::numeric_limits<int>::max()) return false;
+      ++display_offset;
+    }
+  }
+
   result.clear();
   result.reserve(units.size());
   for (size_t unit_index = 0; unit_index < units.size(); ++unit_index) {
     const GeometryUnitRequest& unit = units[unit_index];
     if (unit.display_start_utf16 < 0 ||
-        unit.display_end_utf16 <= unit.display_start_utf16 ||
-        static_cast<size_t>(unit.display_end_utf16) >=
-            index.logical_boundary.size())
+        unit.display_end_utf16 <= unit.display_start_utf16)
       return false;
-    const int start =
-        index.logical_boundary[static_cast<size_t>(unit.display_start_utf16)];
-    const int end =
-        index.logical_boundary[static_cast<size_t>(unit.display_end_utf16)];
+
+    ActiveEvent* owner = nullptr;
+    for (ActiveEvent* event : events) {
+      if (unit.display_start_utf16 >= event->display_start &&
+          unit.display_end_utf16 <= event->display_end) {
+        if (owner) return false;
+        owner = event;
+      }
+    }
+    if (!owner) return false;
+
+    const size_t local_start = static_cast<size_t>(
+        unit.display_start_utf16 - owner->display_start);
+    const size_t local_end =
+        static_cast<size_t>(unit.display_end_utf16 - owner->display_start);
+    if (local_end >= owner->index.logical_boundary.size()) return false;
+    const int start = owner->index.logical_boundary[local_start];
+    const int end = owner->index.logical_boundary[local_end];
     if (start < 0 || end <= start) return false;
-    result.push_back(
-        ASS_IinatanLookupUnit{start, end, static_cast<int>(unit_index)});
+    result.push_back(ASS_IinatanLookupUnit{
+        owner->read_order, start, end, static_cast<int>(unit_index)});
   }
   return true;
+}
+
+std::vector<std::string> split_observed_events(const std::string& observed) {
+  std::vector<std::string> events;
+  size_t offset = 0;
+  while (true) {
+    const size_t newline = observed.find('\n', offset);
+    if (newline == std::string::npos) {
+      events.push_back(observed.substr(offset));
+      break;
+    }
+    events.push_back(observed.substr(offset, newline - offset));
+    offset = newline + 1;
+  }
+  return events;
 }
 
 #ifdef IINATAN_ASS_GEOMETRY
@@ -212,9 +327,10 @@ void configure_renderer(
   else if (options.hinting == "native") hinting = ASS_HINTING_NATIVE;
   ass_set_hinting(renderer, hinting);
   ass_set_selective_style_override_enabled(
-      renderer, options.override_mode == "scale"
-                    ? ASS_OVERRIDE_BIT_SELECTIVE_FONT_SCALE
-                    : 0);
+      renderer,
+      options.override_mode == "scale"
+          ? ASS_OVERRIDE_BIT_SELECTIVE_FONT_SCALE
+          : 0);
   ass_set_fonts(
       renderer, nullptr, options.default_family.c_str(),
       ASS_FONTPROVIDER_AUTODETECT, nullptr, 1);
@@ -222,8 +338,7 @@ void configure_renderer(
 
 bool populate_track(
     ASS_Library* library, const DemuxedAss& media,
-    const SubtitlePacket& packet, const std::string& packet_data,
-    TrackOwner& track) {
+    const std::vector<ActiveEvent>& events, TrackOwner& track) {
   track.value = ass_new_track(library);
   if (!track.value) return false;
   ass_process_codec_private(
@@ -231,11 +346,14 @@ bool populate_track(
       reinterpret_cast<char*>(
           const_cast<uint8_t*>(media.codec_private.data())),
       static_cast<int>(media.codec_private.size()));
-  ass_process_chunk(
-      track.value, const_cast<char*>(packet_data.data()),
-      static_cast<int>(packet_data.size()), packet.start_ms,
-      packet.duration_ms);
-  return track.value->n_events == 1;
+  for (const ActiveEvent& event : events) {
+    const SubtitlePacket& packet = *event.packet;
+    ass_process_chunk(
+        track.value, const_cast<char*>(packet.data.data()),
+        static_cast<int>(packet.data.size()), packet.start_ms,
+        packet.duration_ms);
+  }
+  return track.value->n_events == static_cast<int>(events.size());
 }
 
 int image_plane(const ASS_Image* image) {
@@ -376,37 +494,81 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
       demux_ass_source(request.source, request.cue.start_ms, request.cue.end_ms);
   if (!demux.ok) return fail(request, demux.reason, demux.detail);
 
-  std::vector<const SubtitlePacket*> active;
+  std::vector<const SubtitlePacket*> active_packets;
   for (const SubtitlePacket& packet : demux.media.packets) {
     const int64_t end =
         packet.start_ms + std::max<int64_t>(packet.duration_ms, 1);
     if (packet.start_ms <= request.cue.time_ms &&
         end > request.cue.time_ms)
-      active.push_back(&packet);
+      active_packets.push_back(&packet);
   }
-  if (active.empty()) return fail(request, "cue-not-found");
-  if (active.size() != 1) return fail(request, "overlapping-events");
-  const SubtitlePacket& packet = *active.front();
-  if (!close_time(packet.start_ms, request.cue.start_ms) ||
-      (packet.duration_ms > 0 &&
-       !close_time(
-           packet.start_ms + packet.duration_ms, request.cue.end_ms, 250)))
-    return fail(request, "cue-timing-mismatch");
+  if (active_packets.empty()) return fail(request, "cue-not-found");
 
-  std::string packet_prefix;
-  std::string event_effect;
-  std::string event_text;
-  if (!split_ass_packet(
-          packet.data, packet_prefix, event_effect, event_text))
-    return fail(request, "ambiguous-ass-event");
-  if (event_text != request.cue.observed_ass)
-    return fail(request, "cue-text-mismatch");
-  if (!simple_dialogue_text(event_text))
-    return fail(request, "complex-ass-tags");
-  if (event_effect.find_first_not_of(" \t") != std::string::npos)
-    return fail(request, "complex-ass-tags", "animated-effect");
+  std::vector<ActiveEvent> active_events;
+  active_events.reserve(active_packets.size());
+  for (const SubtitlePacket* packet : active_packets) {
+    ActiveEvent event;
+    event.packet = packet;
+    if (!split_ass_packet(
+            packet->data, event.read_order, event.prefix, event.effect,
+            event.text))
+      return fail(request, "ambiguous-ass-event");
+    if (!simple_dialogue_text(event.text))
+      return fail(request, "complex-ass-tags");
+    if (event.effect.find_first_not_of(" \t") != std::string::npos)
+      return fail(request, "complex-ass-tags", "animated-effect");
+    for (const ActiveEvent& existing : active_events) {
+      if (existing.read_order == event.read_order)
+        return fail(request, "ambiguous-ass-event");
+    }
+    event.plain_text = dialogue_plain_text(event.text);
+    active_events.push_back(std::move(event));
+  }
+
+  if (active_events.size() == 1) {
+    const SubtitlePacket& packet = *active_events.front().packet;
+    if (!close_time(packet.start_ms, request.cue.start_ms) ||
+        (packet.duration_ms > 0 &&
+         !close_time(
+             packet.start_ms + packet.duration_ms, request.cue.end_ms, 250)))
+      return fail(request, "cue-timing-mismatch");
+  }
+
+  std::vector<ActiveEvent*> ordered_events;
+  ordered_events.reserve(active_events.size());
+  if (request.cue.uses_observed_plain) {
+    std::vector<bool> used(active_events.size(), false);
+    std::vector<ActiveEvent*> current;
+    int matches = 0;
+    int steps = 0;
+    bool exhausted = false;
+    find_plain_event_orders(
+        request.cue.observed_plain, active_events, 0, used, current,
+        ordered_events, matches, steps, exhausted);
+    if (exhausted) return fail(request, "ambiguous-ass-event");
+    if (matches == 0) return fail(request, "cue-text-mismatch");
+    if (matches > 1) return fail(request, "ambiguous-ass-event");
+  } else {
+    const std::vector<std::string> observed_events =
+        split_observed_events(request.cue.observed_ass);
+    if (observed_events.size() != active_events.size())
+      return fail(request, "cue-text-mismatch");
+    std::vector<bool> matched(active_events.size(), false);
+    for (const std::string& observed : observed_events) {
+      ActiveEvent* match = nullptr;
+      for (size_t index = 0; index < active_events.size(); ++index) {
+        if (matched[index] || active_events[index].text != observed) continue;
+        if (match) return fail(request, "ambiguous-ass-event");
+        match = &active_events[index];
+      }
+      if (!match) return fail(request, "cue-text-mismatch");
+      matched[static_cast<size_t>(match - active_events.data())] = true;
+      ordered_events.push_back(match);
+    }
+  }
+
   std::vector<ASS_IinatanLookupUnit> lookup_units;
-  if (!build_lookup_units(event_text, request.units, lookup_units))
+  if (!build_lookup_units(ordered_events, request.units, lookup_units))
     return fail(request, "text-index-map-failed");
 
   LibraryOwner library;
@@ -427,10 +589,9 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
   TrackOwner original_track;
   TrackOwner instrumented_track;
   if (!populate_track(
-          library.value, demux.media, packet, packet.data, original_track) ||
+          library.value, demux.media, active_events, original_track) ||
       !populate_track(
-          library.value, demux.media, packet, packet.data,
-          instrumented_track))
+          library.value, demux.media, active_events, instrumented_track))
     return fail(request, "ambiguous-ass-event");
 
   RendererOwner original_renderer;

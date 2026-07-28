@@ -222,6 +222,9 @@ function loadMainNativeHelpers(properties) {
     cleanNativeDisplayText(text) {
       return String(text || "").replace(/\r/g, "");
     },
+    readExperimentalLookupSubtitleProperty(name) {
+      return String(values[name] || "").replace(/\r/g, "");
+    },
     prefBool(name, fallback) {
       return values["pref:" + name] === undefined
         ? fallback
@@ -283,6 +286,8 @@ globalThis.nativeHelpers = {
   normalizeNativeTrackList,
   nativeSubtitleTrackEligibility,
   parseSimpleNativeAssCue,
+  nativeAssDisplayText,
+  nativeAssGeometryUnits,
   nativeGraphemeBreakFallback,
   nativeGraphemeSegments,
   nativeLookupMapping,
@@ -290,6 +295,7 @@ globalThis.nativeHelpers = {
   nativeAssGeometrySnapshot,
   advanceNativeAssGeometryGeneration,
   nativeSubtitleCueSnapshot,
+  nativeSubtitleCombinedCueSnapshot,
   nativeSubtitleVisibilityTarget,
   testFontMetricEvents: globalThis.__fontMetricEvents,
   testFontMetricLogs: globalThis.__fontMetricLogs,
@@ -395,28 +401,41 @@ function waitForLayout() {
     "bitmap-subtitle",
     "bitmap subtitle codecs fail closed",
   );
+  const independentlySelectedTracks = [
+    {
+      type: "sub",
+      id: 2,
+      selected: true,
+      "main-selection": 0,
+      codec: "subrip",
+    },
+    {
+      type: "sub",
+      id: 3,
+      selected: true,
+      "main-selection": 1,
+      codec: "subrip",
+    },
+  ];
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
-      [
-        {
-          type: "sub",
-          id: 2,
-          selected: true,
-          "main-selection": 0,
-          codec: "subrip",
-        },
-        {
-          type: "sub",
-          id: 3,
-          selected: true,
-          "main-selection": 1,
-          codec: "subrip",
-        },
-      ],
+      independentlySelectedTracks,
       2,
-    ).reason,
-    "secondary-subtitle-active",
-    "an active secondary subtitle rejects the cue",
+      3,
+      "primary",
+    ).track.id,
+    2,
+    "the primary surface keeps its independently selected track",
+  );
+  assertEqual(
+    helpers.nativeSubtitleTrackEligibility(
+      independentlySelectedTracks,
+      2,
+      3,
+      "secondary",
+    ).track.id,
+    3,
+    "the secondary surface resolves its own selected track",
   );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
@@ -431,9 +450,10 @@ function waitForLayout() {
       ],
       2,
       3,
+      "primary",
     ).reason,
-    "secondary-subtitle-active",
-    "the explicit secondary-sid property also rejects the cue",
+    undefined,
+    "an explicit secondary sid does not suppress the primary surface",
   );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
@@ -492,6 +512,38 @@ function waitForLayout() {
     helpers.parseSimpleNativeAssCue("one\ntwo", "strip").reason,
     "ambiguous-ass-event",
     "multiple active ASS events are rejected",
+  );
+  const overlappingAss = helpers.nativeAssDisplayText("Top\nBottom\\Nline");
+  assertEqual(
+    overlappingAss.displayText,
+    "Top\nBottom\nline",
+    "native geometry accepts literal event separators and authored line breaks",
+  );
+  const overlappingMapping = helpers.nativeLookupMapping(
+    overlappingAss.displayText,
+    overlappingAss.displayText,
+    { languageId: "en", flattenLineBreaks: false },
+  );
+  assert(
+    overlappingMapping.ok,
+    "simultaneous native ASS event text remains globally mappable",
+  );
+  assertEqual(
+    helpers.nativeAssGeometryUnits(
+      overlappingMapping,
+      overlappingAss.displayText,
+      {
+        id: "en",
+        lookupUnit: "word",
+        lookupCharacterPolicy: { ranges: [] },
+      },
+    ),
+    [
+      { position: 0, displayStartUtf16: 0, displayEndUtf16: 3 },
+      { position: 4, displayStartUtf16: 4, displayEndUtf16: 10 },
+      { position: 11, displayStartUtf16: 11, displayEndUtf16: 15 },
+    ],
+    "lookup spans retain global UTF-16 positions across event and authored breaks",
   );
 
   let mapping = helpers.nativeLookupMapping(" A  B\nC ", "A B\nC", {
@@ -652,7 +704,7 @@ function waitForLayout() {
       },
     ],
     sid: 4,
-    "sub-text": "Hello",
+    "sub-text": "Hello\nmonde",
     "osd-dimensions": {
       w: 1920,
       h: 1080,
@@ -672,8 +724,8 @@ function waitForLayout() {
     "options/sub-line-spacing": 2,
     "options/sub-ass-force-margins": "yes",
   });
-  const snapshot = snapshotHelpers.nativeSubtitleCueSnapshot("Hello");
-  assertEqual(snapshot.kind, "srt", "full SRT snapshot is eligible");
+  const snapshot = snapshotHelpers.nativeSubtitleCueSnapshot("Hello\nmonde");
+  assertEqual(snapshot.kind, "srt", "multiline SRT snapshots remain eligible");
   assertEqual(snapshot.layout.osd.w, 1920, "OSD dimensions are captured");
   assertEqual(
     snapshot.layout.options.forceMargins,
@@ -806,6 +858,243 @@ function waitForLayout() {
     },
     "authored ASS renderer coordinates and compatibility options match mpv 0.38",
   );
+  const overlappingAssHelpers = loadMainNativeHelpers({
+    ...authoredAssProperties,
+    "sub-text-ass": "Top\nBottom\\Nline",
+  });
+  assertEqual(
+    overlappingAssHelpers.nativeSubtitleCueSnapshot("Top\nBottom\nline").reason,
+    "ass-geometry-pending",
+    "simultaneous authored ASS events start native geometry",
+  );
+  await waitForLayout();
+  const overlappingAssRequest = overlappingAssHelpers.testGeometryRequests[0];
+  assertEqual(
+    overlappingAssRequest.cue.observedAss,
+    "Top\nBottom\\Nline",
+    "native requests preserve literal event separators and authored breaks",
+  );
+  assert(
+    overlappingAssRequest.units.some((unit) => unit.displayStartUtf16 === 4) &&
+      overlappingAssRequest.units.some((unit) => unit.displayStartUtf16 === 11),
+    "native requests use global display positions after both kinds of newline",
+  );
+
+  const dualSrtProperties = {
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        "main-selection": 0,
+        codec: "subrip",
+      },
+      {
+        type: "sub",
+        id: 3,
+        selected: true,
+        "main-selection": 1,
+        codec: "subrip",
+      },
+    ],
+    sid: 2,
+    "secondary-sid": 3,
+    "sub-text": "Same 😀\nline",
+    "secondary-sub-text": "Same 😀",
+    "sub-start": 1,
+    "sub-end": 3,
+    "secondary-sub-start": 1,
+    "secondary-sub-end": 3,
+    "osd-dimensions": authoredAssProperties["osd-dimensions"],
+    "video-params": authoredAssProperties["video-params"],
+  };
+  const dualSrtHelpers = loadMainNativeHelpers(dualSrtProperties);
+  const dualSrt = dualSrtHelpers.nativeSubtitleCombinedCueSnapshot();
+  assertEqual(
+    dualSrt.lookupText,
+    "Same 😀\nline\nSame 😀",
+    "primary and secondary lookup text is combined with one separator",
+  );
+  assertEqual(dualSrt.surfaces.length, 2, "both SRT surfaces are retained");
+  assertEqual(
+    dualSrt.surfaces[1].lookupStart,
+    Array.from("Same 😀\nline").length + 1,
+    "secondary global offsets count code points rather than UTF-16 units",
+  );
+  assertEqual(
+    dualSrt.surfaces[0].lookupSpans.length,
+    Array.from("Same 😀\nline").length,
+    "astral and multiline display spans remain local to the primary surface",
+  );
+
+  const hiddenSecondary = loadMainNativeHelpers({
+    ...dualSrtProperties,
+    "secondary-sub-visibility": "no",
+  }).nativeSubtitleCombinedCueSnapshot();
+  assertEqual(
+    hiddenSecondary.surfaces.length,
+    1,
+    "a hidden secondary surface is omitted without suppressing primary",
+  );
+
+  const unsupportedPrimary = loadMainNativeHelpers({
+    ...dualSrtProperties,
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        "main-selection": 0,
+        codec: "hdmv_pgs_subtitle",
+      },
+      dualSrtProperties["track-list"][1],
+    ],
+  }).nativeSubtitleCombinedCueSnapshot();
+  assertEqual(
+    unsupportedPrimary.lookupText,
+    "Same 😀\nline\nSame 😀",
+    "an unsupported surface retains stable combined lookup offsets",
+  );
+  assertEqual(
+    unsupportedPrimary.surfaces[0].reason,
+    "bitmap-subtitle",
+    "the unsupported primary failure remains surface-local",
+  );
+  assertEqual(
+    unsupportedPrimary.surfaces[1].surface,
+    "secondary",
+    "secondary-only lookup retains its surface identity",
+  );
+
+  const secondaryStripHelpers = loadMainNativeHelpers({
+    ...dualSrtProperties,
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        "main-selection": 0,
+        codec: "hdmv_pgs_subtitle",
+      },
+      {
+        ...dualSrtProperties["track-list"][1],
+        codec: "ass",
+      },
+    ],
+    "secondary-sub-text": "Already plain\nsecondary",
+    "secondary-sub-ass-override": "strip",
+    "secondary-sub-pos": 50,
+  });
+  const secondaryStrip =
+    secondaryStripHelpers.nativeSubtitleCombinedCueSnapshot();
+  assertEqual(
+    secondaryStrip.surfaces[1].displayText,
+    "Already plain\nsecondary",
+    "secondary strip measures mpv's multiline plain property without ASS parsing",
+  );
+  assertEqual(
+    secondaryStripHelpers.testGeometryRequests.length,
+    0,
+    "secondary strip remains on the CSS measurement path",
+  );
+  assertEqual(
+    secondaryStrip.surfaces[1].layout.options.alignY,
+    "top",
+    "secondary converted text retains mpv's independent top surface",
+  );
+  assertEqual(
+    {
+      position: secondaryStrip.surfaces[1].layout.options.position,
+      positionFromTop:
+        secondaryStrip.surfaces[1].layout.options.positionFromTop,
+    },
+    { position: 50, positionFromTop: true },
+    "secondary converted text carries its independent top-relative position",
+  );
+
+  const dualAssHelpers = loadMainNativeHelpers({
+    ...authoredAssProperties,
+    "track-list": [
+      authoredAssProperties["track-list"][0],
+      {
+        type: "sub",
+        id: 3,
+        selected: true,
+        "main-selection": 1,
+        codec: "ass",
+        "ff-index": 1,
+        external: true,
+        "external-filename": "/tmp/secondary.ass",
+      },
+    ],
+    "secondary-sid": 3,
+    "sub-text": "Bonjour",
+    "secondary-sub-text": "Olá",
+    "secondary-sub-start": 10.25,
+    "secondary-sub-end": 12.25,
+    "secondary-sub-delay": 0.25,
+    "secondary-sub-ass-override": "scale",
+    __geometryResponse(request) {
+      return {
+        ok: true,
+        protocol: 1,
+        requestId: request.requestId,
+        rendererWidth: request.renderer.width,
+        rendererHeight: request.renderer.height,
+        units: request.units.map((unit) => ({
+          position: unit.position,
+          rects: [{ x: 10 + unit.position, y: 20, w: 8, h: 12 }],
+        })),
+      };
+    },
+  });
+  dualAssHelpers.nativeSubtitleCombinedCueSnapshot();
+  await waitForLayout();
+  dualAssHelpers.nativeSubtitleCombinedCueSnapshot();
+  await waitForLayout();
+  const dualAss = dualAssHelpers.nativeSubtitleCombinedCueSnapshot();
+  assertEqual(
+    dualAss.surfaces.length,
+    2,
+    "primary native ASS and secondary scale surfaces resolve independently",
+  );
+  const secondaryPlainRequest = dualAssHelpers.testGeometryRequests.find(
+    (request) =>
+      request.cue.observedPlain === "Olá" &&
+      request.units[0] &&
+      request.units[0].position === Array.from("Bonjour").length + 1,
+  );
+  assert(
+    secondaryPlainRequest,
+    "secondary ASS uses the observed-plain helper: " +
+      JSON.stringify(dualAssHelpers.testGeometryRequests),
+  );
+  assertEqual(
+    secondaryPlainRequest.cue.observedFormat,
+    "plain",
+    "secondary plain observations are explicitly typed",
+  );
+  assertEqual(
+    secondaryPlainRequest.cue.timeMs,
+    1250,
+    "secondary delay is removed from source lookup time",
+  );
+  assertEqual(
+    secondaryPlainRequest.cue.startMs,
+    10250,
+    "secondary event start remains in mpv's raw subtitle timing domain",
+  );
+  assertEqual(
+    secondaryPlainRequest.cue.endMs,
+    12250,
+    "secondary event end remains in mpv's raw subtitle timing domain",
+  );
+  assertEqual(
+    secondaryPlainRequest.units[0].position,
+    Array.from("Bonjour").length + 1,
+    "secondary helper requests carry global code-point positions",
+  );
+
   [
     ["options/sub-ass-justify", "yes"],
     ["options/sub-font-provider", "fontconfig"],
@@ -905,6 +1194,50 @@ function waitForLayout() {
     advancingHelpers.testGeometryRequests.length,
     3,
     "cue boundaries and renderer changes each invalidate geometry identity",
+  );
+
+  const concurrentGeometryResolvers = Object.create(null);
+  const concurrentGeometryHelpers = loadMainNativeHelpers({
+    __geometryResponse(request) {
+      return new Promise((resolve) => {
+        concurrentGeometryResolvers[request.cue.observedAss] = () =>
+          resolve(geometryResponse(request));
+      });
+    },
+  });
+  const concurrentGeometryA = {
+    ...geometryRequest,
+    cue: { ...geometryRequest.cue, observedAss: "primary" },
+  };
+  const concurrentGeometryB = {
+    ...geometryRequest,
+    cue: { ...geometryRequest.cue, observedAss: "secondary" },
+  };
+  concurrentGeometryHelpers.nativeAssGeometrySnapshot(concurrentGeometryA);
+  concurrentGeometryHelpers.nativeAssGeometrySnapshot(concurrentGeometryB);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    Object.keys(concurrentGeometryResolvers).sort(),
+    ["primary", "secondary"],
+    "independent subtitle surfaces may hold two geometry requests in flight",
+  );
+  concurrentGeometryResolvers.secondary();
+  await waitForLayout();
+  assert(
+    concurrentGeometryHelpers.nativeAssGeometrySnapshot(concurrentGeometryB).ok,
+    "the second geometry key may complete before the first",
+  );
+  assertEqual(
+    concurrentGeometryHelpers.nativeAssGeometrySnapshot(concurrentGeometryA)
+      .reason,
+    "ass-geometry-pending",
+    "an out-of-order sibling completion does not cancel the first key",
+  );
+  concurrentGeometryResolvers.primary();
+  await waitForLayout();
+  assert(
+    concurrentGeometryHelpers.nativeAssGeometrySnapshot(concurrentGeometryA).ok,
+    "both out-of-order geometry keys remain independently cached",
   );
 
   let resolveStaleGeometry;
@@ -1157,6 +1490,76 @@ function waitForLayout() {
       resolvedYuMinSnapshot.layout.options.fontMetricScale - 1000 / 1662,
     ) < 1e-12,
     "the normalized snapshot retains the exact per-face metric scale",
+  );
+
+  const concurrentMetricLoads = [];
+  const concurrentMetricHelpers = loadMainNativeHelpers({
+    __useActualFontMetricResolver: true,
+    __fontMetricExec(_command, args) {
+      return new Promise((resolve) =>
+        concurrentMetricLoads.push({ args: Array.from(args), resolve }),
+      );
+    },
+  });
+  const concurrentMetricA = {
+    font: "YuMin-Medium",
+    effectiveFont: "YuMin-Medium",
+    bold: false,
+    italic: false,
+  };
+  const concurrentMetricB = {
+    font: "Helvetica",
+    effectiveFont: "Helvetica",
+    bold: false,
+    italic: false,
+  };
+  concurrentMetricHelpers.nativeSubtitleFontMetricSnapshot(
+    concurrentMetricA,
+    "日本",
+  );
+  concurrentMetricHelpers.nativeSubtitleFontMetricSnapshot(
+    concurrentMetricB,
+    "Latin",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    concurrentMetricLoads.length,
+    2,
+    "two subtitle surfaces may resolve distinct font metrics concurrently",
+  );
+  concurrentMetricLoads[1].resolve({
+    status: 0,
+    stdout: JSON.stringify(backendFontMetricResult("Helvetica", 950, 250)),
+    stderr: "",
+  });
+  await waitForLayout();
+  assert(
+    concurrentMetricHelpers.nativeSubtitleFontMetricSnapshot(
+      concurrentMetricB,
+      "Latin",
+    ).ok,
+    "the second font metric key may complete first",
+  );
+  assertEqual(
+    concurrentMetricHelpers.nativeSubtitleFontMetricSnapshot(
+      concurrentMetricA,
+      "日本",
+    ).reason,
+    "font-metrics-pending",
+    "one font completion does not cancel its pending sibling",
+  );
+  concurrentMetricLoads[0].resolve({
+    status: 0,
+    stdout: JSON.stringify(backendFontMetricResult("YuMin-Medium", 1295, 367)),
+    stderr: "",
+  });
+  await waitForLayout();
+  assert(
+    concurrentMetricHelpers.nativeSubtitleFontMetricSnapshot(
+      concurrentMetricA,
+      "日本",
+    ).ok,
+    "both out-of-order font metric keys remain cached",
   );
 
   const staleMetricLoads = [];
@@ -2482,6 +2885,53 @@ function waitForLayout() {
     );
   });
   [
+    [0, 22, "translateX(-50%)", 0],
+    [50, 360, "translateX(-50%) translateY(-50%)", 0.5],
+    [100, 698, "translateX(-50%) translateY(-100%)", 1],
+    [150, 698, "translateX(-50%) translateY(-100%)", 1],
+  ].forEach(
+    ([position, expectedTop, expectedTransform, translatedHeightRatio]) => {
+      const secondaryTopPlacement = geometry.calculatePlainTextLayout(
+        geometry.validateGeometry(
+          { w: 1280, h: 720, ml: 0, mr: 0, mt: 0, mb: 0, par: 1 },
+          { width: 1280, height: 720 },
+        ),
+        Object.assign({}, alignmentBase, {
+          alignY: "top",
+          position,
+          positionFromTop: true,
+          marginY: 22,
+          scaleByWindow: true,
+          scaleWithWindow: true,
+        }),
+      );
+      assertEqual(
+        secondaryTopPlacement.top,
+        expectedTop,
+        "secondary-sub-pos=" +
+          position +
+          " moves converted text down from the top margin",
+      );
+      assertEqual(
+        secondaryTopPlacement.transform,
+        expectedTransform,
+        "secondary-sub-pos=" +
+          position +
+          " anchors the complete rendered subtitle block",
+      );
+      const renderedHeight = 40;
+      const visualTop =
+        secondaryTopPlacement.top - renderedHeight * translatedHeightRatio;
+      const visualBottom = visualTop + renderedHeight;
+      assert(
+        visualTop >= 0 && visualBottom <= 720,
+        "secondary-sub-pos=" +
+          position +
+          " keeps a known rendered block inside the viewport",
+      );
+    },
+  );
+  [
     ["top", "top", 22],
     ["center", "top", 360],
     ["bottom", "bottom", 382],
@@ -2807,6 +3257,7 @@ function waitForLayout() {
   const scheduledRebuilds = [];
   const propertyChangeOrder = [];
   let bootstrapFontMetricGeneration = 0;
+  let bootstrapGeometryGeneration = 0;
   let bootstrapLookupLineInvalidations = 0;
   const bootstrapContext = {
     console,
@@ -2828,6 +3279,9 @@ function waitForLayout() {
     },
     advanceNativeSubtitleFontMetricGeneration() {
       bootstrapFontMetricGeneration++;
+    },
+    advanceNativeAssGeometryGeneration() {
+      bootstrapGeometryGeneration++;
     },
     invalidateCurrentSubtitleLookupLine() {
       bootstrapLookupLineInvalidations++;
@@ -2884,6 +3338,14 @@ function waitForLayout() {
     "track-list",
     "sid",
     "secondary-sid",
+    "secondary-sub-text",
+    "secondary-sub-start",
+    "secondary-sub-end",
+    "secondary-sub-visibility",
+    "options/secondary-sub-pos",
+    "options/secondary-sub-scale",
+    "options/secondary-sub-ass-override",
+    "options/secondary-sub-delay",
     "options/sub-font-size",
     "options/sub-font",
     "sub-font",
@@ -2930,6 +3392,19 @@ function waitForLayout() {
     ["invalidate", "poll"],
     "cue-boundary changes rebuild after their immediate clear",
   );
+  propertyChangeOrder.length = 0;
+  bootstrapHandlers["mpv.options/secondary-sub-delay.changed"]();
+  assertEqual(
+    bootstrapGeometryGeneration > 0,
+    true,
+    "secondary timing and renderer property changes advance geometry generation",
+  );
+  assertEqual(
+    propertyChangeOrder,
+    ["invalidate"],
+    "secondary property changes immediately clear stale surface geometry",
+  );
+  scheduledRebuilds.shift()();
   propertyChangeOrder.length = 0;
   bootstrapHandlers["mpv.sub-font.changed"]();
   assertEqual(
@@ -3084,6 +3559,122 @@ function waitForLayout() {
     loaded.context.document.documentElement.style.color,
     "red",
     "experimental mode does not mutate unrelated root styles",
+  );
+
+  const directSurfaceLayout = (position, x, y) => ({
+    osd: nativeLayerPayload.nativeLayout.osd,
+    directRects: [
+      {
+        position,
+        rects: [{ x, y, w: 80, h: 30 }],
+      },
+    ],
+  });
+  loaded.context.__handlers.subtitle({
+    ...nativeLayerPayload,
+    text: "one\ntwo",
+    displayText: "one\ntwo",
+    nativeLookupSpans: [],
+    nativeLayout: null,
+    nativeSurfaces: [
+      {
+        surface: "primary",
+        lookupStart: 0,
+        lookupText: "one",
+        displayText: "one",
+        lookupSpans: [
+          { startUtf16: 0, endUtf16: 1 },
+          { startUtf16: 1, endUtf16: 2 },
+          { startUtf16: 2, endUtf16: 3 },
+        ],
+        layout: directSurfaceLayout(0, 100, 500),
+      },
+      {
+        surface: "secondary",
+        lookupStart: 4,
+        lookupText: "two",
+        displayText: "two",
+        lookupSpans: [
+          { startUtf16: 0, endUtf16: 1 },
+          { startUtf16: 1, endUtf16: 2 },
+          { startUtf16: 2, endUtf16: 3 },
+        ],
+        layout: directSurfaceLayout(4, 140, 500),
+      },
+    ],
+    lineId: 8,
+  });
+  const surfaceHost = loaded.context.document.getElementById(
+    "native-subtitle-layer-host",
+  );
+  assert(
+    surfaceHost.shadowRoot.getElementById("native-subtitle-copy-primary"),
+    "the primary surface owns a distinct Shadow DOM copy node",
+  );
+  assert(
+    surfaceHost.shadowRoot.getElementById("native-subtitle-copy-secondary"),
+    "the secondary surface owns a distinct Shadow DOM copy node",
+  );
+  const surfaceHits = Array.from(
+    loaded.context.document.getElementById("native-subtitle-hit-boxes")
+      .children,
+  );
+  assertEqual(
+    surfaceHits.map((hit) => Number(hit.dataset.pos)).sort((a, b) => a - b),
+    [0, 4],
+    "merged hit boxes keep numeric global primary/secondary positions",
+  );
+  assertEqual(
+    surfaceHits.map((hit) => hit.dataset.surface).sort(),
+    ["primary", "secondary"],
+    "surface identity remains available as an optional diagnostic",
+  );
+  const primarySurfaceRight =
+    Number.parseFloat(surfaceHits[0].style.left) +
+    Number.parseFloat(surfaceHits[0].style.width);
+  const secondarySurfaceLeft = Number.parseFloat(surfaceHits[1].style.left);
+  assert(
+    primarySurfaceRight <= secondarySurfaceLeft,
+    "overlaps are resolved once across all subtitle surfaces",
+  );
+  loaded.context.__handlers.subtitle({
+    ...nativeLayerPayload,
+    text: "one\nmissing",
+    displayText: "one\nmissing",
+    nativeLookupSpans: [],
+    nativeLayout: null,
+    nativeSurfaces: [
+      {
+        surface: "primary",
+        lookupStart: 0,
+        lookupText: "one",
+        displayText: "one",
+        lookupSpans: [
+          { startUtf16: 0, endUtf16: 1 },
+          { startUtf16: 1, endUtf16: 2 },
+          { startUtf16: 2, endUtf16: 3 },
+        ],
+        layout: directSurfaceLayout(0, 100, 500),
+      },
+      {
+        surface: "secondary",
+        lookupStart: 4,
+        lookupText: "missing",
+        displayText: "missing",
+        lookupSpans: [],
+        reason: "ass-geometry-pending",
+      },
+    ],
+    lineId: 9,
+  });
+  const survivingPrimaryHits = Array.from(
+    loaded.context.document.getElementById("native-subtitle-hit-boxes")
+      .children,
+  );
+  assertEqual(
+    survivingPrimaryHits.map((hit) => Number(hit.dataset.pos)),
+    [0],
+    "a pending secondary surface does not invalidate successful primary hit boxes",
   );
   assert(
     host.parentNode === loaded.context.document.body,
@@ -3921,6 +4512,87 @@ function waitForLayout() {
     currentFontHits.children.length,
     1,
     "stale cue A font failure cannot clear cue B targets",
+  );
+
+  let resolveStaleSurfaceFont;
+  const staleSurface = loadOverlayForTest(["state"], {
+    fontLoad() {
+      return new Promise((resolve) => {
+        resolveStaleSurfaceFont = resolve;
+      });
+    },
+    rangeRects() {
+      return [
+        { left: 20, top: 20, right: 80, bottom: 50, width: 60, height: 30 },
+      ];
+    },
+  });
+  staleSurface.context.__handlers.enabled({ enabled: true });
+  staleSurface.context.__handlers.subtitle({
+    ...fontCuePayload("old", 31),
+    nativeLayout: null,
+    nativeSurfaces: [
+      {
+        surface: "secondary",
+        lookupStart: 0,
+        lookupText: "old",
+        displayText: "old",
+        lookupSpans: [
+          { startUtf16: 0, endUtf16: 1 },
+          { startUtf16: 1, endUtf16: 2 },
+          { startUtf16: 2, endUtf16: 3 },
+        ],
+        layout: fontCuePayload("old", 31).nativeLayout,
+      },
+    ],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(
+    typeof resolveStaleSurfaceFont === "function",
+    "multi-surface measurement reaches its asynchronous font readiness",
+  );
+  staleSurface.context.__handlers.subtitle({
+    ...fontCuePayload("new", 32),
+    nativeLayout: null,
+    nativeSurfaces: [
+      {
+        surface: "secondary",
+        lookupStart: 0,
+        lookupText: "new",
+        displayText: "new",
+        lookupSpans: [
+          { startUtf16: 0, endUtf16: 1 },
+          { startUtf16: 1, endUtf16: 2 },
+          { startUtf16: 2, endUtf16: 3 },
+        ],
+        layout: {
+          osd: fontCuePayload("new", 32).nativeLayout.osd,
+          directRects: [
+            { position: 0, rects: [{ x: 100, y: 100, w: 50, h: 25 }] },
+          ],
+        },
+      },
+    ],
+  });
+  const currentSurfaceHits = staleSurface.context.document.getElementById(
+    "native-subtitle-hit-boxes",
+  );
+  assertEqual(
+    currentSurfaceHits.children.length,
+    1,
+    "the replacement surface renders before stale font readiness resolves",
+  );
+  resolveStaleSurfaceFont([{}]);
+  await waitForLayout();
+  assertEqual(
+    staleSurface.overlay.state.lineId,
+    32,
+    "stale multi-surface font completion leaves the replacement cue current",
+  );
+  assertEqual(
+    Number(currentSurfaceHits.children[0].dataset.pos),
+    0,
+    "stale multi-surface measurement cannot overwrite current global targets",
   );
   assert(
     !staleFontFailure.context.__posted.some(

@@ -27,7 +27,6 @@ constexpr size_t kMaxPacketBytes = 2 * 1024 * 1024;
 constexpr size_t kMaxSubtitlePacketTotal = 16 * 1024 * 1024;
 constexpr size_t kMaxAttachmentBytes = 32 * 1024 * 1024;
 constexpr size_t kMaxAttachmentTotal = 64 * 1024 * 1024;
-constexpr int kMaxAttachments = 32;
 constexpr int kMaxStreams = 128;
 constexpr int kMaxPackets = 50000;
 constexpr int kMaxSelectedSubtitlePackets = 4096;
@@ -202,8 +201,6 @@ DemuxResult demux_ass_source(
     if (!stream || !stream->codecpar ||
         stream->codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT)
       continue;
-    if (media.fonts.size() >= kMaxAttachments)
-      return failure("attachment-limit-exceeded");
     const size_t size =
         stream->codecpar->extradata_size > 0
             ? static_cast<size_t>(stream->codecpar->extradata_size)

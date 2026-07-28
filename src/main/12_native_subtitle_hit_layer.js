@@ -73,7 +73,8 @@ function normalizeNativeVideoDimensions(raw) {
   return { width, height, par };
 }
 
-function nativeSubtitleOptionSnapshot() {
+function nativeSubtitleOptionSnapshot(surfaceName) {
+  const secondary = surfaceName === "secondary";
   const align = (value, allowed, fallback) => {
     const normalized = String(value || "")
       .trim()
@@ -103,7 +104,12 @@ function nativeSubtitleOptionSnapshot() {
       55,
     ),
     scale: clampNumber(
-      mpvNumberProp(["options/sub-scale", "sub-scale"], 1),
+      mpvNumberProp(
+        secondary
+          ? ["options/secondary-sub-scale", "secondary-sub-scale"]
+          : ["options/sub-scale", "sub-scale"],
+        1,
+      ),
       0.1,
       10,
       1,
@@ -144,10 +150,15 @@ function nativeSubtitleOptionSnapshot() {
       22,
     ),
     position: clampNumber(
-      mpvNumberProp(["options/sub-pos", "sub-pos"], 100),
+      mpvNumberProp(
+        secondary
+          ? ["options/secondary-sub-pos", "secondary-sub-pos"]
+          : ["options/sub-pos", "sub-pos"],
+        secondary ? 0 : 100,
+      ),
       0,
       150,
-      100,
+      secondary ? 0 : 100,
     ),
     alignX: align(
       mpvStringProp(["options/sub-align-x", "sub-align-x"], "center"),
@@ -155,10 +166,13 @@ function nativeSubtitleOptionSnapshot() {
       "center",
     ),
     alignY: align(
-      mpvStringProp(["options/sub-align-y", "sub-align-y"], "bottom"),
+      secondary
+        ? "top"
+        : mpvStringProp(["options/sub-align-y", "sub-align-y"], "bottom"),
       ["top", "center", "bottom"],
       "bottom",
     ),
+    positionFromTop: secondary,
     justify: align(
       mpvStringProp(["options/sub-justify", "sub-justify"], "auto"),
       ["auto", "left", "center", "right"],
@@ -477,7 +491,6 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
 
 function advanceNativeSubtitleFontMetricGeneration() {
   nativeSubtitleFontMetricGeneration++;
-  nativeSubtitleFontMetricActiveKey = "";
   // A helper failure can be transient (for example, while IINA is resuming
   // after a lookup-owned pause). Keep verified face metrics, but do not let a
   // failed coverage probe poison later lifecycle generations until restart.
@@ -491,11 +504,7 @@ function advanceNativeSubtitleFontMetricGeneration() {
 }
 
 function notifyNativeSubtitleFontMetricResolution(key, generation) {
-  if (
-    generation !== nativeSubtitleFontMetricGeneration ||
-    key !== nativeSubtitleFontMetricActiveKey
-  )
-    return;
+  if (generation !== nativeSubtitleFontMetricGeneration) return;
   if (typeof invalidateExperimentalNativeLayout === "function")
     invalidateExperimentalNativeLayout("font-metrics-resolved");
   if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
@@ -504,7 +513,6 @@ function notifyNativeSubtitleFontMetricResolution(key, generation) {
 
 function nativeSubtitleFontMetricSnapshot(options, text) {
   const key = nativeSubtitleFontMetricCacheKey(options, text);
-  nativeSubtitleFontMetricActiveKey = key;
   const cached = nativeSubtitleFontMetricCache[key];
   if (cached && cached.status === "ready")
     return { ok: true, metrics: cached.metrics };
@@ -611,16 +619,34 @@ function normalizeNativeTrackList(raw) {
     }));
 }
 
-function nativeSubtitleTrackEligibility(tracks, sid, secondarySid) {
+function nativeSubtitleTrackEligibility(
+  tracks,
+  sid,
+  secondarySid,
+  surfaceName,
+) {
   const list = normalizeNativeTrackList(tracks);
+  const surface = surfaceName === "secondary" ? "secondary" : "primary";
   const selectedId = Number(sid);
   const selectedSecondaryId = Number(secondarySid);
-  if (Number.isFinite(selectedSecondaryId) && selectedSecondaryId > 0)
-    return { reason: "secondary-subtitle-active" };
-  const secondary = list.find(
-    (track) => track.selected && track.mainSelection === 1,
-  );
-  if (secondary) return { reason: "secondary-subtitle-active" };
+  if (surface === "secondary") {
+    const secondary =
+      list.find(
+        (track) =>
+          track.selected &&
+          (track.mainSelection === 1 || track.id === selectedSecondaryId),
+      ) ||
+      list.find((track) => track.id === selectedSecondaryId) ||
+      list.find((track) => track.selected && track.mainSelection === 1);
+    if (!secondary) return { reason: "subtitle-track-unavailable" };
+    if (/pgs|hdmv|dvd|vobsub|dvb|bitmap/.test(secondary.codec))
+      return { reason: "bitmap-subtitle", track: secondary };
+    if (/(^|[^a-z])(subrip|srt)([^a-z]|$)/.test(secondary.codec))
+      return { kind: "srt", track: secondary, surface };
+    if (/(^|[^a-z])(ass|ssa)([^a-z]|$)/.test(secondary.codec))
+      return { kind: "ass", track: secondary, surface };
+    return { reason: "unsupported-codec", track: secondary };
+  }
   const primary =
     list.find(
       (track) =>
@@ -837,7 +863,7 @@ function nativeLookupMapping(displayText, lookupText, options) {
 function nativeAssDisplayText(raw) {
   const text = String(raw || "");
   if (!text) return { reason: "empty-subtitle" };
-  if (/[\r\n{}]/.test(text)) return { reason: "complex-ass-tags" };
+  if (/[\r{}]/.test(text)) return { reason: "complex-ass-tags" };
   if (/\\(?![Nn])/i.test(text)) return { reason: "complex-ass-tags" };
   return {
     displayText: text.replace(/\\N/g, "\n").replace(/\\n/g, "\n"),
@@ -1004,7 +1030,6 @@ function nativeAssGeometryCacheKey(request) {
 
 function nativeAssGeometrySnapshot(request) {
   const key = nativeAssGeometryCacheKey(request);
-  nativeAssGeometryActiveKey = key;
   const cached = nativeAssGeometryCache[key];
   if (cached) return cached;
   const generation = nativeAssGeometryGeneration;
@@ -1019,11 +1044,7 @@ function nativeAssGeometrySnapshot(request) {
         ),
       )
       .then((response) => {
-        if (
-          generation !== nativeAssGeometryGeneration ||
-          key !== nativeAssGeometryActiveKey
-        )
-          return;
+        if (generation !== nativeAssGeometryGeneration) return;
         const normalized = normalizeNativeAssGeometryResponse(
           response,
           liveRequest,
@@ -1034,11 +1055,7 @@ function nativeAssGeometrySnapshot(request) {
           scheduleExperimentalNativeLayoutRebuild();
       })
       .catch((error) => {
-        if (
-          generation !== nativeAssGeometryGeneration ||
-          key !== nativeAssGeometryActiveKey
-        )
-          return;
+        if (generation !== nativeAssGeometryGeneration) return;
         const message = String(
           (error && (error.reason || error.message)) || "ass-geometry-failed",
         );
@@ -1063,47 +1080,78 @@ function nativeAssGeometrySnapshot(request) {
 
 function advanceNativeAssGeometryGeneration() {
   nativeAssGeometryGeneration++;
-  nativeAssGeometryActiveKey = "";
   nativeAssGeometryCache = Object.create(null);
   nativeAssGeometryInFlight = Object.create(null);
 }
 
-function nativeSubtitleCueSnapshot(normalizedText) {
-  nativeSubtitleFontMetricActiveKey = "";
+function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
+  const surface =
+    surfaceOptions && surfaceOptions.surface === "secondary"
+      ? "secondary"
+      : "primary";
   const tracks = nativeSubtitleJsonProperty("track-list", []);
   const sid = mpvNumberProp(["sid", "options/sid"], 0);
   const secondarySid = mpvStringProp(
     ["secondary-sid", "options/secondary-sid"],
     "no",
   );
-  const eligibility = nativeSubtitleTrackEligibility(tracks, sid, secondarySid);
+  const eligibility = nativeSubtitleTrackEligibility(
+    tracks,
+    sid,
+    secondarySid,
+    surface,
+  );
   if (eligibility.reason) return { reason: eligibility.reason };
   let plain = "";
   let ass = "";
   try {
-    plain = String(mpv.getString("sub-text") || "");
+    plain = String(
+      mpv.getString(
+        surface === "secondary" ? "secondary-sub-text" : "sub-text",
+      ) || "",
+    );
   } catch (_) {}
   try {
-    ass = String(mpv.getString("sub-text-ass") || "");
+    ass = String(
+      mpv.getString(
+        surface === "secondary" ? "secondary-sub-text" : "sub-text-ass",
+      ) || "",
+    );
   } catch (_) {}
   let displayText = "";
   if (eligibility.kind === "srt") {
     displayText = cleanNativeDisplayText(plain);
   } else {
     const assOverride = nativeAssOverrideClassification(
-      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
+      surface === "secondary"
+        ? mpvStringProp(
+            [
+              "options/secondary-sub-ass-override",
+              "secondary-sub-ass-override",
+            ],
+            "yes",
+          )
+        : mpvStringProp(
+            ["options/sub-ass-override", "sub-ass-override"],
+            "yes",
+          ),
     );
     if (assOverride.reason) return { reason: assOverride.reason };
-    const parsed = !assOverride.nativeGeometry
-      ? parseSimpleNativeAssCue(ass, assOverride.mode)
-      : nativeAssDisplayText(ass);
+    if (surface === "secondary" && assOverride.mode === "force")
+      return { reason: "unsupported-ass-override" };
+    const parsed =
+      surface === "secondary"
+        ? { displayText: cleanNativeDisplayText(plain), styleRuns: [] }
+        : !assOverride.nativeGeometry
+          ? parseSimpleNativeAssCue(ass, assOverride.mode)
+          : nativeAssDisplayText(ass);
     if (parsed.reason) return { reason: parsed.reason };
     displayText = parsed.displayText;
   }
   const lookupText = String(normalizedText || "");
   if (!displayText || !lookupText)
     return { reason: "empty-subtitle", displayText };
-  const options = nativeSubtitleOptionSnapshot();
+  const options = nativeSubtitleOptionSnapshot(surface);
   let mapping = null;
   let osd = null;
   if (eligibility.kind === "ass") {
@@ -1121,7 +1169,18 @@ function nativeSubtitleCueSnapshot(normalizedText) {
     );
     if (!video) return { reason: "missing-video-dimensions" };
     const assOverride = nativeAssOverrideClassification(
-      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
+      surface === "secondary"
+        ? mpvStringProp(
+            [
+              "options/secondary-sub-ass-override",
+              "secondary-sub-ass-override",
+            ],
+            "yes",
+          )
+        : mpvStringProp(
+            ["options/sub-ass-override", "sub-ass-override"],
+            "yes",
+          ),
     );
     if (assOverride.reason) return { reason: assOverride.reason };
     if (assOverride.nativeGeometry) {
@@ -1147,13 +1206,33 @@ function nativeSubtitleCueSnapshot(normalizedText) {
         mapping,
         lookupText,
         selectedLanguageModule(),
+      ).map((unit) =>
+        Object.assign({}, unit, {
+          position:
+            Number(unit.position) +
+            Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+        }),
       );
       if (!units.length) return { reason: "text-index-map-failed" };
-      const timeMs = Math.round(
+      let timeMs = Math.round(
         mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
       );
-      const startMs = Math.round(mpvNumberProp(["sub-start"], -1) * 1000);
-      const endMs = Math.round(mpvNumberProp(["sub-end"], -1) * 1000);
+      const timingPrefix = surface === "secondary" ? "secondary-" : "";
+      let startMs = Math.round(
+        mpvNumberProp([timingPrefix + "sub-start"], -1) * 1000,
+      );
+      let endMs = Math.round(
+        mpvNumberProp([timingPrefix + "sub-end"], -1) * 1000,
+      );
+      if (surface === "secondary") {
+        const delayMs = Math.round(
+          mpvNumberProp(
+            ["options/secondary-sub-delay", "secondary-sub-delay"],
+            0,
+          ) * 1000,
+        );
+        timeMs -= delayMs;
+      }
       if (
         ![timeMs, startMs, endMs].every(Number.isFinite) ||
         timeMs < 0 ||
@@ -1175,7 +1254,9 @@ function nativeSubtitleCueSnapshot(normalizedText) {
           timeMs,
           startMs,
           endMs,
-          observedAss: ass,
+          ...(surface === "secondary"
+            ? { observedFormat: "plain", observedPlain: plain }
+            : { observedAss: ass }),
         },
         units,
         renderer: {
@@ -1205,7 +1286,20 @@ function nativeSubtitleCueSnapshot(normalizedText) {
           defaultFamily: options.effectiveFont,
           fontProvider: options.fontProvider,
           assJustify: options.assJustify,
-          linePosition: appliesSubtitleOptions ? 100 - options.position : 0,
+          linePosition: appliesSubtitleOptions
+            ? 100 -
+              (surface === "secondary"
+                ? clampNumber(
+                    mpvNumberProp(
+                      ["options/secondary-sub-pos", "secondary-sub-pos"],
+                      0,
+                    ),
+                    0,
+                    150,
+                    0,
+                  )
+                : options.position)
+            : 0,
           hinting: appliesSubtitleOptions
             ? mpvStringProp(
                 ["options/sub-ass-hinting", "sub-ass-hinting"],
@@ -1227,6 +1321,7 @@ function nativeSubtitleCueSnapshot(normalizedText) {
         };
       return {
         kind: "ass-native",
+        surface,
         trackId: eligibility.track.id,
         displayText,
         lookupSpans: mapping.lookupSpans,
@@ -1273,6 +1368,7 @@ function nativeSubtitleCueSnapshot(normalizedText) {
   }
   return {
     kind: eligibility.kind,
+    surface,
     trackId: eligibility.track.id,
     displayText,
     lookupSpans: mapping.lookupSpans,
@@ -1297,7 +1393,94 @@ function currentSubtitleCueIdentity(snapshot) {
     trackId: snapshot && snapshot.trackId,
     start: mpvStringProp(["sub-start"], ""),
     end: mpvStringProp(["sub-end"], ""),
+    secondaryStart: mpvStringProp(["secondary-sub-start"], ""),
+    secondaryEnd: mpvStringProp(["secondary-sub-end"], ""),
+    secondaryDelay: mpvStringProp(
+      ["options/secondary-sub-delay", "secondary-sub-delay"],
+      "",
+    ),
     displayText: snapshot && snapshot.displayText,
+    surfaces:
+      snapshot && Array.isArray(snapshot.surfaces)
+        ? snapshot.surfaces.map((surface) => ({
+            surface: surface.surface,
+            trackId: surface.trackId,
+            displayText: surface.displayText,
+          }))
+        : [],
     reason: snapshot && snapshot.reason,
   });
+}
+
+function nativeSubtitleCombinedCueSnapshot() {
+  const definitions = [
+    { surface: "primary", textProperty: "sub-text" },
+    { surface: "secondary", textProperty: "secondary-sub-text" },
+  ];
+  const surfaces = [];
+  let nextLookupStart = 0;
+  for (const definition of definitions) {
+    if (
+      definition.surface === "secondary" &&
+      !mpvBoolProp(
+        ["options/secondary-sub-visibility", "secondary-sub-visibility"],
+        true,
+      )
+    )
+      continue;
+    const lookupText = readExperimentalLookupSubtitleProperty(
+      definition.textProperty,
+    );
+    if (!lookupText) continue;
+    definition.lookupStart = nextLookupStart;
+    nextLookupStart += Array.from(lookupText).length + 1;
+    const snapshot = nativeSubtitleCueSnapshot(lookupText, definition);
+    if (!snapshot || snapshot.reason) {
+      surfaces.push({
+        surface: definition.surface,
+        lookupText,
+        lookupStart: definition.lookupStart,
+        lookupLength: Array.from(lookupText).length,
+        displayText: cleanNativeDisplayText(
+          mpvStringProp([definition.textProperty], ""),
+        ),
+        lookupSpans: [],
+        reason: (snapshot && snapshot.reason) || "unsupported-codec",
+      });
+      continue;
+    }
+    snapshot.lookupText = lookupText;
+    snapshot.lookupStart = definition.lookupStart;
+    snapshot.lookupLength = Array.from(lookupText).length;
+    surfaces.push(snapshot);
+  }
+  if (!surfaces.length)
+    return {
+      reason: "empty-subtitle",
+      lookupText: "",
+      surfaces: [],
+    };
+
+  surfaces.forEach((surface) => {
+    if (surface.layout && Array.isArray(surface.layout.directRects))
+      surface.layout.directRects.forEach((unit) => {
+        unit.surface = surface.surface;
+      });
+  });
+  const successful = surfaces.filter(
+    (surface) => !surface.reason && surface.layout,
+  );
+  return {
+    kind: "multi-surface",
+    trackId: successful[0] && successful[0].trackId,
+    lookupText: surfaces.map((surface) => surface.lookupText).join("\n"),
+    displayText: surfaces.map((surface) => surface.displayText).join("\n"),
+    surfaces,
+    lookupSpans: [],
+    layout: null,
+    reason: successful.length
+      ? ""
+      : surfaces.map((surface) => surface.reason).filter(Boolean)[0] ||
+        "empty-subtitle",
+  };
 }

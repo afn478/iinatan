@@ -71,6 +71,8 @@ struct GeometryCueRequest {
   int64_t start_ms = -1;
   int64_t end_ms = -1;
   std::string observed_ass;
+  std::string observed_plain;
+  bool uses_observed_plain = false;
 };
 
 struct GeometryRendererRequest {
