@@ -266,6 +266,19 @@ function openExternalUrlFromOverlay(rawUrl) {
   }
 }
 
+function resetHoverLookupQueue() {
+  hoverLookupGeneration++;
+  pendingHoverLookup = null;
+  hoverLookupActiveKey = "";
+}
+function hoverLookupJobIsCurrent(job) {
+  return (
+    !!job &&
+    job.generation === hoverLookupGeneration &&
+    enabled &&
+    job.lineId === currentSubtitleLineId
+  );
+}
 function handleBridgeLookup(payload) {
   const requestId =
     payload && payload.requestId !== undefined
@@ -296,6 +309,16 @@ function handleBridgeLookup(payload) {
     });
     return;
   }
+  const lookupInput = subtitleLookupInputForLine(lineId);
+  if (lookupInput === null) {
+    postToOverlay("line-lookup-result", {
+      lineId,
+      position,
+      ok: false,
+      error: "Canonical subtitle lookup text is unavailable for this line.",
+    });
+    return;
+  }
 
   if (
     hoverLookupActiveKey === key ||
@@ -322,6 +345,8 @@ function handleBridgeLookup(payload) {
     position,
     key,
     seq: ++hoverLookupSequence,
+    generation: hoverLookupGeneration,
+    lookupInput,
   };
   debugVerbose(
     "hover lookup queued requestId=" +
@@ -345,15 +370,9 @@ function processHoverLookupQueue() {
       while (pendingHoverLookup) {
         const job = pendingHoverLookup;
         pendingHoverLookup = null;
-        const { requestId, lineId, position, key, seq } = job;
+        const { requestId, lineId, position, key, seq, lookupInput } = job;
         hoverLookupActiveKey = key;
-        if (!enabled || lineId !== currentSubtitleLineId) {
-          postToOverlay("line-lookup-result", {
-            lineId,
-            position,
-            ok: false,
-            error: "Subtitle line changed before lookup completed.",
-          });
+        if (!hoverLookupJobIsCurrent(job)) {
           hoverLookupActiveKey = "";
           continue;
         }
@@ -368,7 +387,7 @@ function processHoverLookupQueue() {
           );
           const hoverStartedAt = Date.now();
           const result = await lookupAtPosition(
-            lastSubtitle || "",
+            lookupInput,
             position,
             requestId,
           );
@@ -380,7 +399,7 @@ function processHoverLookupQueue() {
               " elapsedMs=" +
               (Date.now() - hoverStartedAt),
           );
-          if (!enabled || lineId !== currentSubtitleLineId) {
+          if (!hoverLookupJobIsCurrent(job)) {
             hoverLookupActiveKey = "";
             continue;
           }
@@ -402,7 +421,7 @@ function processHoverLookupQueue() {
               (result && result.results ? result.results.length : 0),
           );
         } catch (error) {
-          if (!enabled || lineId !== currentSubtitleLineId) {
+          if (!hoverLookupJobIsCurrent(job)) {
             hoverLookupActiveKey = "";
             continue;
           }

@@ -277,6 +277,49 @@ function nativeSubtitlePrivateCueDirectory() {
   return String(dataRoot()).replace(/\/+$/, "") + "/private-font-metric-cues";
 }
 
+const NATIVE_SUBTITLE_FONT_METRIC_MAX_ATTEMPTS = 2;
+const NATIVE_SUBTITLE_FONT_METRIC_RETRY_DELAY_MS = 500;
+const NATIVE_SUBTITLE_DETERMINISTIC_FONT_METRIC_FAILURES = {
+  "font-metrics-missing-font": true,
+  "font-metrics-invalid-font-name": true,
+  "font-metrics-font-not-found": true,
+  "font-metrics-provider-unverified": true,
+  "font-metrics-style-unavailable": true,
+  "font-metrics-family-mismatch": true,
+  "font-metrics-missing-name": true,
+  "font-metrics-variable-font-unsupported": true,
+  "font-metrics-missing-table": true,
+  "font-metrics-invalid-table": true,
+  "font-metrics-invalid-scale": true,
+  "font-metrics-cue-not-covered": true,
+};
+
+function nativeSubtitleFontMetricFailure(code, retryable) {
+  const error = new Error(String(code || "font-metrics-command-failed"));
+  error.nativeSubtitleFontMetricCode = String(
+    code || "font-metrics-command-failed",
+  );
+  error.nativeSubtitleFontMetricRetryable = retryable !== false;
+  return error;
+}
+
+function nativeSubtitleFontMetricCommandFailure(result) {
+  let code = "font-metrics-command-failed";
+  try {
+    const parsed = parseBackendJsonOutput(
+      result && result.stdout,
+      result && result.stderr,
+    );
+    if (parsed && parsed.error) code = String(parsed.error);
+  } catch (_) {}
+  if (!/^font-metrics-[a-z0-9-]+$/.test(code))
+    code = "font-metrics-command-failed";
+  return nativeSubtitleFontMetricFailure(
+    code,
+    !NATIVE_SUBTITLE_DETERMINISTIC_FONT_METRIC_FAILURES[code],
+  );
+}
+
 function prepareNativeSubtitlePrivateCueDirectory() {
   if (nativeSubtitlePrivateCueDirectoryPromise)
     return nativeSubtitlePrivateCueDirectoryPromise;
@@ -343,13 +386,16 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
       utils.exec(binPath(), args, dataRoot()),
       new Promise((_, reject) => {
         timeoutId = setTimeout(
-          () => reject(new Error("font-metrics-timeout")),
+          () =>
+            reject(
+              nativeSubtitleFontMetricFailure("font-metrics-timeout", true),
+            ),
           8000,
         );
       }),
     ]);
     if (!result || Number(result.status) !== 0)
-      throw new Error("font-metrics-command-failed");
+      throw nativeSubtitleFontMetricCommandFailure(result);
     const parsed = parseBackendJsonOutput(result.stdout, result.stderr);
     return normalizeNativeSubtitleFontMetricResult(parsed);
   } finally {
@@ -361,6 +407,16 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
 function advanceNativeSubtitleFontMetricGeneration() {
   nativeSubtitleFontMetricGeneration++;
   nativeSubtitleFontMetricActiveKey = "";
+  // A helper failure can be transient (for example, while IINA is resuming
+  // after a lookup-owned pause). Keep verified face metrics, but do not let a
+  // failed coverage probe poison later lifecycle generations until restart.
+  Object.keys(nativeSubtitleFontMetricCache).forEach((key) => {
+    if (
+      nativeSubtitleFontMetricCache[key] &&
+      nativeSubtitleFontMetricCache[key].status === "failed"
+    )
+      delete nativeSubtitleFontMetricCache[key];
+  });
 }
 
 function notifyNativeSubtitleFontMetricResolution(key, generation) {
@@ -381,8 +437,21 @@ function nativeSubtitleFontMetricSnapshot(options, text) {
   const cached = nativeSubtitleFontMetricCache[key];
   if (cached && cached.status === "ready")
     return { ok: true, metrics: cached.metrics };
-  if (cached && cached.status === "failed")
+  const failedAttempts =
+    cached && cached.status === "failed"
+      ? Math.max(1, Number(cached.attempts) || 1)
+      : 0;
+  if (
+    failedAttempts &&
+    (cached.retryable !== true ||
+      failedAttempts >= NATIVE_SUBTITLE_FONT_METRIC_MAX_ATTEMPTS)
+  )
     return { reason: "font-metrics-unavailable" };
+  if (
+    failedAttempts &&
+    Date.now() < Number(cached.retryAt || Number.POSITIVE_INFINITY)
+  )
+    return { reason: "font-metrics-pending" };
   const generation = nativeSubtitleFontMetricGeneration;
   const inFlightKey = String(generation) + ":" + key;
   if (!nativeSubtitleFontMetricInFlight[inFlightKey]) {
@@ -395,9 +464,41 @@ function nativeSubtitleFontMetricSnapshot(options, text) {
           };
         return metrics;
       })
-      .catch(() => {
-        if (generation === nativeSubtitleFontMetricGeneration)
-          nativeSubtitleFontMetricCache[key] = { status: "failed" };
+      .catch((error) => {
+        if (generation === nativeSubtitleFontMetricGeneration) {
+          const retryable =
+            !error || error.nativeSubtitleFontMetricRetryable !== false;
+          const attempts = failedAttempts + 1;
+          const reportedCode = String(
+            (error && error.nativeSubtitleFontMetricCode) ||
+              (error && error.message) ||
+              "font-metrics-command-failed",
+          );
+          const code = /^font-metrics-[a-z0-9-]+$/.test(reportedCode)
+            ? reportedCode
+            : "font-metrics-command-failed";
+          nativeSubtitleFontMetricCache[key] = {
+            status: "failed",
+            attempts,
+            retryable,
+            retryAt:
+              retryable && attempts < NATIVE_SUBTITLE_FONT_METRIC_MAX_ATTEMPTS
+                ? Date.now() + NATIVE_SUBTITLE_FONT_METRIC_RETRY_DELAY_MS
+                : 0,
+          };
+          // The cache key and cue are intentionally omitted: diagnostics may
+          // identify the failure class, but must never include subtitle text.
+          debugWarn(
+            "native subtitle font metrics failed code=" +
+              code +
+              " retryable=" +
+              String(retryable) +
+              " attempt=" +
+              attempts +
+              "/" +
+              NATIVE_SUBTITLE_FONT_METRIC_MAX_ATTEMPTS,
+          );
+        }
         return null;
       })
       .then((metrics) => {
@@ -682,6 +783,9 @@ function nativeSubtitleCueSnapshot(normalizedText) {
     if (parsed.reason) return { reason: parsed.reason };
     displayText = parsed.displayText;
   }
+  const lookupText = String(normalizedText || "");
+  if (!displayText || !lookupText)
+    return { reason: "empty-subtitle", displayText };
   const options = nativeSubtitleOptionSnapshot();
   const fontCompatibility = nativeSubtitleFontCompatibility(
     options.effectiveFont,
@@ -701,7 +805,7 @@ function nativeSubtitleCueSnapshot(normalizedText) {
       layout: { options },
     };
   Object.assign(options, fontMetrics.metrics);
-  const mapping = nativeLookupMapping(displayText, normalizedText, {
+  const mapping = nativeLookupMapping(displayText, lookupText, {
     flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     languageId: selectedLanguageModule().id,
   });

@@ -1183,11 +1183,22 @@ function appendLookupResultEntries(target, seen, candidateResult, limit) {
   }
   return target.length;
 }
-async function lookupAtPosition(text, position, requestId) {
-  const language = selectedLanguageModule();
-  const clean = language.normalizeText(
-    cleanSubtitleText(text, prefBool("flattenSubtitleLineBreaks", false)),
+function canonicalSubtitleLookupInput(text) {
+  return {
+    kind: "canonical-subtitle",
+    text: String(text || ""),
+  };
+}
+function lookupAtPositionText(input, language) {
+  if (input && typeof input === "object" && input.kind === "canonical-subtitle")
+    return String(input.text || "");
+  return language.normalizeText(
+    cleanSubtitleText(input, prefBool("flattenSubtitleLineBreaks", false)),
   );
+}
+async function lookupAtPosition(input, position, requestId) {
+  const language = selectedLanguageModule();
+  const clean = lookupAtPositionText(input, language);
   const chars = charsOf(clean);
   const pos = Math.max(0, Math.min(Number(position) || 0, chars.length));
   const scanLength = Math.max(1, prefNumber("scanLength", 24));

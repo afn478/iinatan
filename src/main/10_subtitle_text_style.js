@@ -333,9 +333,11 @@ function readExperimentalLookupSubtitle() {
     language && typeof language.normalizeSubtitleText === "function"
       ? language.normalizeSubtitleText(clean)
       : clean;
-  if (language && typeof language.normalizeText === "function")
-    return language.normalizeText(subtitleNormalized);
-  return IINATAN_LANGUAGE_COMMON.normalizeBasic(subtitleNormalized);
+  const languageNormalized =
+    language && typeof language.normalizeText === "function"
+      ? language.normalizeText(subtitleNormalized)
+      : subtitleNormalized;
+  return IINATAN_LANGUAGE_COMMON.normalizeBasic(languageNormalized);
 }
 function cleanNativeDisplayText(text) {
   // This intentionally differs from lookup cleaning: it preserves authored
@@ -349,6 +351,22 @@ function cleanNativeDisplayText(text) {
 function experimentalNativeSubtitleMode() {
   return prefBool("experimentalNativeSubtitleHitLayer", false);
 }
+function resetExperimentalSubtitleLookupBinding() {
+  experimentalSubtitleLookupBinding = null;
+}
+function invalidateCurrentSubtitleLookupLine() {
+  currentSubtitleLineId = ++subtitleLineSerial;
+  resetExperimentalSubtitleLookupBinding();
+  resetHoverLookupQueue();
+}
+function subtitleLookupInputForLine(lineId) {
+  const binding = experimentalSubtitleLookupBinding;
+  if (experimentalNativeSubtitleMode()) {
+    if (binding && binding.lineId === Number(lineId)) return binding.input;
+    return null;
+  }
+  return lastSubtitle || "";
+}
 function publishSubtitle(text, nativeCue) {
   const legacyText = text || "";
   const lookupText =
@@ -356,6 +374,19 @@ function publishSubtitle(text, nativeCue) {
       ? nativeCue.lookupText
       : legacyText;
   currentSubtitleLineId = ++subtitleLineSerial;
+  resetHoverLookupQueue();
+  resetExperimentalSubtitleLookupBinding();
+  if (
+    experimentalNativeSubtitleMode() &&
+    nativeCue &&
+    !nativeCue.reason &&
+    typeof nativeCue.lookupText === "string"
+  ) {
+    experimentalSubtitleLookupBinding = {
+      lineId: currentSubtitleLineId,
+      input: canonicalSubtitleLookupInput(lookupText),
+    };
+  }
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
   debugVerbose(

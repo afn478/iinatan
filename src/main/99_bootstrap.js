@@ -11,6 +11,7 @@ event.on("iina.window-loaded", () => {
 });
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
+  invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
   lastSubtitle = null;
   lastSubtitleCueIdentity = null;

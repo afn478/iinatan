@@ -86,11 +86,9 @@ function initializeOverlay() {
 }
 function prepareRuntimeAfterProfileChange() {
   advanceNativeSubtitleFontMetricGeneration();
+  invalidateCurrentSubtitleLookupLine();
   lookupBackendReadyForNativeHide = false;
   lookupInFlight = Object.create(null);
-  hoverLookupInFlight = false;
-  pendingHoverLookup = null;
-  hoverLookupActiveKey = "";
   lastSubtitle = null;
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
@@ -212,6 +210,7 @@ function stopPolling() {
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
   lookupInFlight = Object.create(null);
+  invalidateCurrentSubtitleLookupLine();
 }
 async function prepareLookupBackendForEnabledOverlay(language, dicts) {
   const lang = language || selectedLanguageModule();
@@ -238,6 +237,7 @@ async function prepareLookupBackendForEnabledOverlay(language, dicts) {
   return ready;
 }
 function setEnabled(next) {
+  const wasEnabled = enabled;
   debugLog(
     "setEnabled requested next=" +
       String(!!next) +
@@ -245,6 +245,10 @@ function setEnabled(next) {
       String(enabled),
   );
   enabled = !!next;
+  if (enabled !== wasEnabled) {
+    advanceNativeSubtitleFontMetricGeneration();
+    invalidateCurrentSubtitleLookupLine();
+  }
   lookupBackendReadyForNativeHide = false;
   initializeOverlay();
   overlay.setClickable(enabled);

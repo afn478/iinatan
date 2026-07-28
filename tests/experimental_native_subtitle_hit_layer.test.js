@@ -72,6 +72,7 @@ function assertEqual(actual, expected, message) {
 function loadMainNativeHelpers(properties) {
   const values = Object.assign({}, properties || {});
   const fontMetricEvents = [];
+  const fontMetricLogs = [];
   const privateFiles = Object.assign(
     Object.create(null),
     values.__privateFiles || {},
@@ -94,6 +95,13 @@ function loadMainNativeHelpers(properties) {
     Promise,
     setTimeout,
     clearTimeout,
+    Date: values.__clock
+      ? {
+          now() {
+            return Number(values.__clock.now) || 0;
+          },
+        }
+      : Date,
     nativeSubtitleFontMetricCache: Object.create(null),
     nativeSubtitleFontMetricInFlight: Object.create(null),
     nativeSubtitleFontMetricGeneration: 0,
@@ -103,6 +111,7 @@ function loadMainNativeHelpers(properties) {
     __testUseActualFontMetrics: !!values.__useActualFontMetricResolver,
     __testDefaultFontMetrics: TEST_FONT_METRICS,
     __fontMetricEvents: fontMetricEvents,
+    __fontMetricLogs: fontMetricLogs,
     __testPrivateFiles: privateFiles,
     __testExecEvents: execEvents,
     async ensureBundledBackendInstalled() {},
@@ -147,6 +156,9 @@ function loadMainNativeHelpers(properties) {
     },
     scheduleExperimentalNativeLayoutRebuild() {
       fontMetricEvents.push("schedule");
+    },
+    debugWarn(message) {
+      fontMetricLogs.push(String(message || ""));
     },
     mpv: {
       getNative(name) {
@@ -247,6 +259,7 @@ globalThis.nativeHelpers = {
   nativeSubtitleCueSnapshot,
   nativeSubtitleVisibilityTarget,
   testFontMetricEvents: globalThis.__fontMetricEvents,
+  testFontMetricLogs: globalThis.__fontMetricLogs,
   testPrivateFiles: globalThis.__testPrivateFiles,
   testExecEvents: globalThis.__testExecEvents
 };`,
@@ -476,6 +489,81 @@ function waitForLayout() {
     helpers.nativeLookupMapping("Ａ", "A", { languageId: "en" }).ok,
     "authoritative NFKC normalization keeps fullwidth forms mappable",
   );
+  const japaneseCueSequence = [
+    {
+      displayText: "マジかよ",
+      lookupText: "マジかよ",
+    },
+    {
+      displayText: "（下呂）マジかよ",
+      lookupText: "(下呂)マジかよ",
+    },
+    {
+      displayText: "（花巻）\nギュフフ… 油断してただろ",
+      lookupText: "(花巻)\nギュフフ... 油断してただろ",
+    },
+    {
+      displayText: "油断してただろ",
+      lookupText: "油断してただろ",
+    },
+  ];
+  const japaneseCueMappings = japaneseCueSequence.map((cue) =>
+    helpers.nativeLookupMapping(cue.displayText, cue.lookupText, {
+      languageId: "ja",
+      flattenLineBreaks: false,
+    }),
+  );
+  japaneseCueMappings.forEach((cueMapping, index) => {
+    assert(
+      cueMapping.ok,
+      "Japanese playback cue " + (index + 1) + " retains a native text map",
+    );
+    assertEqual(
+      cueMapping.lookupText,
+      japaneseCueSequence[index].lookupText,
+      "Japanese playback cue " + (index + 1) + " uses canonical lookup text",
+    );
+  });
+  assertEqual(
+    japaneseCueMappings[1].lookupSpans,
+    [
+      { startUtf16: 0, endUtf16: 1 },
+      { startUtf16: 1, endUtf16: 2 },
+      { startUtf16: 2, endUtf16: 3 },
+      { startUtf16: 3, endUtf16: 4 },
+      { startUtf16: 4, endUtf16: 5 },
+      { startUtf16: 5, endUtf16: 6 },
+      { startUtf16: 6, endUtf16: 7 },
+      { startUtf16: 7, endUtf16: 8 },
+    ],
+    "a fullwidth speaker label maps canonical punctuation to display UTF-16 spans",
+  );
+  assertEqual(
+    japaneseCueMappings[2].lookupSpans,
+    [
+      { startUtf16: 0, endUtf16: 1 },
+      { startUtf16: 1, endUtf16: 2 },
+      { startUtf16: 2, endUtf16: 3 },
+      { startUtf16: 3, endUtf16: 4 },
+      { startUtf16: 4, endUtf16: 5 },
+      { startUtf16: 5, endUtf16: 6 },
+      { startUtf16: 6, endUtf16: 7 },
+      { startUtf16: 7, endUtf16: 8 },
+      { startUtf16: 8, endUtf16: 9 },
+      { startUtf16: 9, endUtf16: 10 },
+      { startUtf16: 9, endUtf16: 10 },
+      { startUtf16: 9, endUtf16: 10 },
+      { startUtf16: 10, endUtf16: 11 },
+      { startUtf16: 11, endUtf16: 12 },
+      { startUtf16: 12, endUtf16: 13 },
+      { startUtf16: 13, endUtf16: 14 },
+      { startUtf16: 14, endUtf16: 15 },
+      { startUtf16: 15, endUtf16: 16 },
+      { startUtf16: 16, endUtf16: 17 },
+      { startUtf16: 17, endUtf16: 18 },
+    ],
+    "the multiline cue maps three canonical dots to its single displayed ellipsis glyph",
+  );
 
   const snapshotHelpers = loadMainNativeHelpers({
     "track-list": [
@@ -541,6 +629,45 @@ function waitForLayout() {
     snapshot.layout.options.lineSpacing,
     2,
     "line spacing is captured",
+  );
+  let emptyMetricExecCount = 0;
+  [
+    { displayText: "", lookupText: "" },
+    { displayText: "", lookupText: "lookup-only" },
+    { displayText: "display-only", lookupText: "" },
+  ].forEach((cue) => {
+    const emptySnapshotHelpers = loadMainNativeHelpers({
+      __useActualFontMetricResolver: true,
+      __fontMetricExec() {
+        emptyMetricExecCount++;
+        throw new Error("empty cues must not launch native font metrics");
+      },
+      "track-list": [
+        {
+          type: "sub",
+          id: 4,
+          selected: true,
+          "main-selection": 0,
+          codec: "subrip",
+        },
+      ],
+      sid: 4,
+      "sub-text": cue.displayText,
+      "sub-font": "YuMin-Medium",
+      "options/sub-font": "YuMin-Medium",
+      languageId: "ja",
+    });
+    assertEqual(
+      emptySnapshotHelpers.nativeSubtitleCueSnapshot(cue.lookupText).reason,
+      "empty-subtitle",
+      "an empty display or lookup representation fails closed before measurement",
+    );
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    emptyMetricExecCount,
+    0,
+    "empty cues launch zero native font metric helper processes",
   );
 
   const liveFontOptions = loadMainNativeHelpers({
@@ -788,6 +915,12 @@ function waitForLayout() {
       .ok,
     "the current helper result is cached for the matching coverage set",
   );
+  staleMetricHelpers.advanceNativeSubtitleFontMetricGeneration();
+  assert(
+    staleMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "日本")
+      .ok && staleMetricLoads.length === 2,
+    "lifecycle generation changes preserve verified metric cache entries",
+  );
 
   let failedMetricExecCount = 0;
   const failedMetricHelpers = loadMainNativeHelpers({
@@ -812,12 +945,21 @@ function waitForLayout() {
     failedMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "日本")
       .reason,
     "font-metrics-unavailable",
-    "a failed face/coverage result is cached fail closed",
+    "deterministic face/coverage failures remain cached and fail closed",
   );
   assertEqual(
     failedMetricExecCount,
     1,
-    "the same failed face/coverage request is not repeated",
+    "deterministic face/coverage failures are not retried",
+  );
+  assert(
+    failedMetricHelpers.testFontMetricLogs.some(
+      (line) =>
+        line.includes("code=font-metrics-cue-not-covered") &&
+        line.includes("retryable=false") &&
+        !line.includes("日本"),
+    ),
+    "font metric diagnostics identify deterministic failures without cue text",
   );
   assertEqual(
     failedMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "漢字")
@@ -830,6 +972,115 @@ function waitForLayout() {
     failedMetricExecCount,
     2,
     "failure caching does not poison a different coverage set",
+  );
+
+  const transientClock = { now: 1000 };
+  let transientMetricExecCount = 0;
+  const transientMetricHelpers = loadMainNativeHelpers({
+    __useActualFontMetricResolver: true,
+    __clock: transientClock,
+    async __fontMetricExec() {
+      transientMetricExecCount++;
+      if (transientMetricExecCount === 1)
+        return { status: 1, stdout: "", stderr: "temporary exec failure" };
+      return {
+        status: 0,
+        stdout: JSON.stringify(
+          backendFontMetricResult("YuKyo-Medium", 1085, 376),
+        ),
+        stderr: "",
+      };
+    },
+  });
+  assertEqual(
+    transientMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "次")
+      .reason,
+    "font-metrics-pending",
+    "the next cue begins a transient metric request",
+  );
+  await waitForLayout();
+  assertEqual(
+    transientMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "次")
+      .reason,
+    "font-metrics-pending",
+    "a transient failure remains pending during bounded backoff",
+  );
+  assertEqual(
+    transientMetricExecCount,
+    1,
+    "the 120ms subtitle poll cannot hot-loop the native helper during backoff",
+  );
+  transientClock.now += 500;
+  assertEqual(
+    transientMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "次")
+      .reason,
+    "font-metrics-pending",
+    "the transient request retries after its bounded backoff",
+  );
+  await waitForLayout();
+  assert(
+    transientMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "次")
+      .ok,
+    "the next cue recovers when its one transient retry succeeds",
+  );
+  assertEqual(
+    transientMetricExecCount,
+    2,
+    "a recovered next cue uses exactly one retry",
+  );
+  assert(
+    transientMetricHelpers.testFontMetricLogs.some(
+      (line) =>
+        line.includes("code=font-metrics-command-failed") &&
+        line.includes("retryable=true") &&
+        !line.includes("次"),
+    ),
+    "transient diagnostics preserve cue privacy",
+  );
+
+  const toggleClock = { now: 2000 };
+  let toggleMetricExecCount = 0;
+  const toggleMetricHelpers = loadMainNativeHelpers({
+    __useActualFontMetricResolver: true,
+    __clock: toggleClock,
+    async __fontMetricExec() {
+      toggleMetricExecCount++;
+      return { status: 1, stdout: "", stderr: "temporary exec failure" };
+    },
+  });
+  assertEqual(
+    toggleMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "復帰")
+      .reason,
+    "font-metrics-pending",
+    "toggle recovery starts from a transient request",
+  );
+  await waitForLayout();
+  toggleClock.now += 500;
+  assertEqual(
+    toggleMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "復帰")
+      .reason,
+    "font-metrics-pending",
+    "the transient request uses its bounded retry",
+  );
+  await waitForLayout();
+  assertEqual(
+    toggleMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "復帰")
+      .reason,
+    "font-metrics-unavailable",
+    "two transient failures stop retrying in the current generation",
+  );
+  toggleMetricHelpers.advanceNativeSubtitleFontMetricGeneration();
+  assertEqual(
+    toggleMetricHelpers.nativeSubtitleFontMetricSnapshot(yuKyoOptions, "復帰")
+      .reason,
+    "font-metrics-pending",
+    "Shift+H's fresh lifecycle generation clears failed retry state",
+  );
+  await waitForLayout();
+  assertEqual(
+    toggleMetricExecCount,
+    3,
+    "toggle recovery starts one fresh metric request without touching verified caches",
   );
 
   let invalidMetricRejected = false;
@@ -885,19 +1136,38 @@ function waitForLayout() {
     "utf8",
   );
   assert(
-    /function prepareRuntimeAfterProfileChange\(\)\s*\{\s*advanceNativeSubtitleFontMetricGeneration\(\)/.test(
+    /function prepareRuntimeAfterProfileChange\(\)\s*\{\s*advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
       lifecycleSource,
     ),
-    "profile changes advance the asynchronous font metric generation",
+    "profile changes advance font metrics and invalidate the prior lookup line",
+  );
+  assert(
+    /function setEnabled\(next\)\s*\{\s*const wasEnabled = enabled;[\s\S]*?enabled = !!next;\s*if \(enabled !== wasEnabled\) \{\s*advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
+      lifecycleSource,
+    ),
+    "Shift+H lifecycle transitions advance metrics and invalidate the prior lookup line",
+  );
+  assert(
+    /function stopPolling\(\)[\s\S]*?lookupInFlight = Object\.create\(null\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
+      lifecycleSource,
+    ),
+    "stopping playback polling invalidates the prior lookup line",
   );
   const readSubtitleSource = subtitleStyleSource.slice(
     subtitleStyleSource.indexOf("function readCurrentSubtitle"),
     subtitleStyleSource.indexOf("function cleanNativeDisplayText"),
   );
+  let readSubtitleInput = "Cafe\u0301 Ａ";
+  let readSubtitleLanguage = {
+    id: "fr",
+    normalizeText(text) {
+      return String(text || "").normalize("NFKC");
+    },
+  };
   const readSubtitleContext = {
     mpv: {
       getString() {
-        return "Cafe\u0301 Ａ";
+        return readSubtitleInput;
       },
     },
     cleanSubtitleText(text) {
@@ -907,12 +1177,7 @@ function waitForLayout() {
       return fallback;
     },
     selectedLanguageModule() {
-      return {
-        id: "fr",
-        normalizeText(text) {
-          return String(text || "").normalize("NFKC");
-        },
-      };
+      return readSubtitleLanguage;
     },
     IINATAN_LANGUAGE_COMMON: {
       normalizeBasic(text) {
@@ -936,6 +1201,30 @@ function waitForLayout() {
     "Café A",
     "experimental lookup uses a separate authoritative canonical representation",
   );
+  readSubtitleLanguage = {
+    id: "ja",
+    normalizeSubtitleText(text) {
+      return String(text || "");
+    },
+    normalizeText(text) {
+      return String(text || "");
+    },
+  };
+  japaneseCueSequence.forEach((cue, index) => {
+    readSubtitleInput = cue.displayText;
+    assertEqual(
+      readSubtitleContext.readSubtitleApi.readCurrentSubtitle(),
+      cue.displayText,
+      "legacy Japanese cue " + (index + 1) + " remains byte-for-byte unchanged",
+    );
+    assertEqual(
+      readSubtitleContext.readSubtitleApi.readExperimentalLookupSubtitle(),
+      cue.lookupText,
+      "experimental Japanese cue " +
+        (index + 1) +
+        " receives final common canonicalization",
+    );
+  });
   const visibilitySource = subtitleStyleSource.slice(
     subtitleStyleSource.indexOf(
       "function acquireNativeSubtitleVisibilityOwnership",
@@ -1079,6 +1368,325 @@ function waitForLayout() {
     published[published.length - 1].cue.lookupText,
     "Café A",
     "the experimental cue carries its separate exact backend lookup string",
+  );
+
+  const bridgePauseSource = fs.readFileSync(
+    path.join(root, "src/main/50_overlay_bridge_pause.js"),
+    "utf8",
+  );
+  const backendLookupSource = fs.readFileSync(
+    path.join(root, "src/main/30_backend_import_worker_lookup.js"),
+    "utf8",
+  );
+  const subtitleCleaningSource = subtitleStyleSource.slice(
+    0,
+    subtitleStyleSource.indexOf("function isJapaneseish"),
+  );
+  const lookupAtPositionSource = backendLookupSource.slice(
+    backendLookupSource.indexOf("function canonicalSubtitleLookupInput"),
+    backendLookupSource.indexOf("function parseLookupPayload"),
+  );
+  const publishHandoffSource = subtitleStyleSource.slice(
+    subtitleStyleSource.indexOf(
+      "function resetExperimentalSubtitleLookupBinding",
+    ),
+    subtitleStyleSource.indexOf(
+      "function canHideNativeSubtitlesForCurrentLanguage",
+    ),
+  );
+  const hoverLookupHandoffSource = bridgePauseSource.slice(
+    bridgePauseSource.indexOf("function resetHoverLookupQueue"),
+    bridgePauseSource.indexOf("function pauseState"),
+  );
+  const profileResetSource = lifecycleSource.slice(
+    lifecycleSource.indexOf("function prepareRuntimeAfterProfileChange"),
+    lifecycleSource.indexOf("function warmActiveProfileBackend"),
+  );
+  let experimentalBridgeMode = true;
+  let bridgeLanguageNormalizationCalls = 0;
+  const backendLookupRequests = [];
+  const bridgePosts = [];
+  const bridgeLanguage = {
+    id: "ja",
+    normalizeText(text) {
+      bridgeLanguageNormalizationCalls++;
+      return String(text || "");
+    },
+    lookupRequest(text, position) {
+      backendLookupRequests.push({ text, position });
+      return null;
+    },
+    hasLookupText(text) {
+      return !!String(text || "");
+    },
+  };
+  const bridgeContext = {
+    console,
+    JSON,
+    Object,
+    Array,
+    Promise,
+    Date,
+    Math,
+    Number,
+    String,
+    enabled: true,
+    subtitleLineSerial: 40,
+    currentSubtitleLineId: 0,
+    experimentalSubtitleLookupBinding: null,
+    lastSubtitle: null,
+    requestSerial: 0,
+    hoverLookupInFlight: false,
+    pendingHoverLookup: null,
+    hoverLookupSequence: 0,
+    hoverLookupGeneration: 0,
+    hoverLookupActiveKey: "",
+    lookupBackendReadyForNativeHide: true,
+    lookupInFlight: Object.create(null),
+    lookupCache: Object.create(null),
+    lastSubtitleCueIdentity: null,
+    lastNativeLayoutFingerprint: "",
+    nativeLayoutStablePolls: 0,
+    experimentalNativeSubtitleMode() {
+      return experimentalBridgeMode;
+    },
+    selectedLanguageModule() {
+      return bridgeLanguage;
+    },
+    activeDictionaryPaths() {
+      return [];
+    },
+    overlayConfig() {
+      return {};
+    },
+    postToOverlay(name, payload) {
+      bridgePosts.push({ name, payload });
+    },
+    debugVerbose() {},
+    debugLog() {},
+    compactError(error) {
+      return String(error);
+    },
+    prefBool(_name, fallback) {
+      return fallback;
+    },
+    prefNumber(_name, fallback) {
+      return fallback;
+    },
+    charsOf(text) {
+      return Array.from(String(text || ""));
+    },
+    advanceNativeSubtitleFontMetricGeneration() {},
+    resetLookupPopupPause() {},
+  };
+  vm.createContext(bridgeContext);
+  vm.runInContext(
+    subtitleCleaningSource +
+      lookupAtPositionSource +
+      publishHandoffSource +
+      hoverLookupHandoffSource +
+      profileResetSource +
+      ";globalThis.bridgeApi={" +
+      "publishSubtitle,handleBridgeLookup,invalidateCurrentSubtitleLookupLine," +
+      "prepareRuntimeAfterProfileChange," +
+      "getCurrentLineId:()=>currentSubtitleLineId," +
+      "getExperimentalBinding:()=>experimentalSubtitleLookupBinding};",
+    bridgeContext,
+  );
+  const experimentalBridgeCases = [
+    {
+      requestId: "experimental-after-ellipsis",
+      displayText: japaneseCueSequence[2].displayText,
+      lookupText: japaneseCueSequence[2].lookupText,
+      position: 13,
+    },
+    {
+      requestId: "experimental-after-angle-tag",
+      displayText: "＜漢字＞ 油",
+      lookupText: "<漢字> 油",
+      position: 5,
+    },
+    {
+      requestId: "experimental-after-entity",
+      displayText: "＆ａｍｐ；油",
+      lookupText: "&amp;油",
+      position: 5,
+    },
+    {
+      requestId: "experimental-after-ass-break",
+      displayText: "＼Ｎ油",
+      lookupText: "\\N油",
+      position: 2,
+    },
+  ];
+  for (const cue of experimentalBridgeCases) {
+    bridgeContext.lastSubtitle = cue.displayText;
+    bridgeContext.bridgeApi.publishSubtitle(cue.displayText, {
+      lookupText: cue.lookupText,
+      displayText: cue.displayText,
+      lookupSpans: [],
+      layout: {},
+    });
+    const lineId = bridgeContext.bridgeApi.getCurrentLineId();
+    bridgeContext.bridgeApi.handleBridgeLookup({
+      requestId: cue.requestId,
+      lineId,
+      position: cue.position,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const request = backendLookupRequests[backendLookupRequests.length - 1];
+    assertEqual(
+      request,
+      { text: cue.lookupText, position: cue.position },
+      cue.requestId + " reaches lookupAtPosition without a second clean pass",
+    );
+    assertEqual(
+      request.text.slice(request.position, request.position + 1),
+      "油",
+      cue.requestId + " retains the canonical target position",
+    );
+  }
+  assertEqual(
+    bridgeLanguageNormalizationCalls,
+    0,
+    "canonical experimental inputs bypass language normalization as well as presentation cleaning",
+  );
+
+  experimentalBridgeMode = false;
+  const legacyBoundaryText = "＜漢字＞ 油";
+  bridgeContext.lastSubtitle = legacyBoundaryText;
+  bridgeContext.bridgeApi.publishSubtitle(legacyBoundaryText, null);
+  const legacyBridgeLine = bridgeContext.bridgeApi.getCurrentLineId();
+  bridgeContext.bridgeApi.handleBridgeLookup({
+    requestId: "legacy-cleaning-path",
+    lineId: legacyBridgeLine,
+    position: 5,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    backendLookupRequests[backendLookupRequests.length - 1],
+    { text: legacyBoundaryText, position: 5 },
+    "legacy bridge lookups continue through the existing presentation-cleaning path",
+  );
+  assertEqual(
+    bridgeLanguageNormalizationCalls,
+    1,
+    "legacy bridge lookup still performs language normalization exactly once",
+  );
+
+  experimentalBridgeMode = true;
+  bridgeContext.bridgeApi.invalidateCurrentSubtitleLookupLine();
+  const missingBindingLine = bridgeContext.bridgeApi.getCurrentLineId();
+  assertEqual(
+    bridgeContext.bridgeApi.getExperimentalBinding(),
+    null,
+    "lifecycle invalidation clears the experimental line binding",
+  );
+  bridgeContext.bridgeApi.handleBridgeLookup({
+    requestId: "missing-experimental-binding",
+    lineId: missingBindingLine,
+    position: 0,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    backendLookupRequests.length,
+    experimentalBridgeCases.length + 1,
+    "a current experimental line without its canonical binding cannot fall back to lastSubtitle",
+  );
+  assert(
+    bridgePosts.some(
+      (message) =>
+        message.name === "line-lookup-result" &&
+        message.payload &&
+        message.payload.lineId === missingBindingLine &&
+        message.payload.ok === false &&
+        /canonical subtitle lookup text/i.test(message.payload.error),
+    ),
+    "a missing canonical line binding fails closed at the bridge boundary",
+  );
+
+  let releaseOldOwnershipLookup;
+  const oldOwnershipLookup = new Promise((resolve) => {
+    releaseOldOwnershipLookup = resolve;
+  });
+  let activeOwnershipLookups = 0;
+  let maxOwnershipLookupConcurrency = 0;
+  const ownershipLookupCalls = [];
+  bridgeContext.lookupAtPosition = async (input, position, requestId) => {
+    activeOwnershipLookups++;
+    maxOwnershipLookupConcurrency = Math.max(
+      maxOwnershipLookupConcurrency,
+      activeOwnershipLookups,
+    );
+    ownershipLookupCalls.push({
+      text: input && typeof input === "object" ? input.text : input,
+      position,
+      requestId,
+    });
+    if (requestId === "old-profile-lookup") await oldOwnershipLookup;
+    activeOwnershipLookups--;
+    return { ok: true, position, results: [] };
+  };
+  bridgeContext.lastSubtitle = "旧";
+  bridgeContext.bridgeApi.publishSubtitle("旧", {
+    lookupText: "旧",
+    displayText: "旧",
+  });
+  const oldOwnershipLine = bridgeContext.bridgeApi.getCurrentLineId();
+  bridgeContext.bridgeApi.handleBridgeLookup({
+    requestId: "old-profile-lookup",
+    lineId: oldOwnershipLine,
+    position: 0,
+  });
+  bridgeContext.bridgeApi.prepareRuntimeAfterProfileChange();
+  bridgeContext.lastSubtitle = "新";
+  bridgeContext.bridgeApi.publishSubtitle("新", {
+    lookupText: "新",
+    displayText: "新",
+  });
+  const newOwnershipLine = bridgeContext.bridgeApi.getCurrentLineId();
+  bridgeContext.bridgeApi.handleBridgeLookup({
+    requestId: "new-profile-lookup",
+    lineId: newOwnershipLine,
+    position: 0,
+  });
+  assertEqual(
+    ownershipLookupCalls.length,
+    1,
+    "a new profile lookup waits while the old queue owner is still awaiting",
+  );
+  assertEqual(
+    maxOwnershipLookupConcurrency,
+    1,
+    "profile reset never creates a second concurrent hover lookup owner",
+  );
+  releaseOldOwnershipLookup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    ownershipLookupCalls,
+    [
+      { text: "旧", position: 0, requestId: "old-profile-lookup" },
+      { text: "新", position: 0, requestId: "new-profile-lookup" },
+    ],
+    "the durable owner drains the new profile job after the old lookup settles",
+  );
+  assertEqual(
+    maxOwnershipLookupConcurrency,
+    1,
+    "old and new profile backend lookups remain serialized",
+  );
+  const ownershipResults = bridgePosts.filter(
+    (message) =>
+      message.name === "line-lookup-result" &&
+      message.payload &&
+      message.payload.ok === true &&
+      (message.payload.requestId === "old-profile-lookup" ||
+        message.payload.requestId === "new-profile-lookup"),
+  );
+  assertEqual(
+    ownershipResults.map((message) => message.payload.requestId),
+    ["new-profile-lookup"],
+    "only the current profile lookup result is posted after ownership handoff",
   );
 
   const managerSource = fs.readFileSync(
@@ -1682,6 +2290,7 @@ function waitForLayout() {
   const scheduledRebuilds = [];
   const propertyChangeOrder = [];
   let bootstrapFontMetricGeneration = 0;
+  let bootstrapLookupLineInvalidations = 0;
   const bootstrapContext = {
     console,
     JSON,
@@ -1703,6 +2312,11 @@ function waitForLayout() {
     advanceNativeSubtitleFontMetricGeneration() {
       bootstrapFontMetricGeneration++;
     },
+    invalidateCurrentSubtitleLookupLine() {
+      bootstrapLookupLineInvalidations++;
+    },
+    acquireNativeSubtitleVisibilityOwnership() {},
+    startPolling() {},
     debugWarn() {},
     postToOverlay(name) {
       if (name === "native-layout-invalidate")
@@ -1763,6 +2377,13 @@ function waitForLayout() {
       "IINA mpv property-change events are registered: " + property,
     );
   });
+  bootstrapHandlers["mpv.file-loaded"]();
+  assertEqual(
+    bootstrapLookupLineInvalidations,
+    1,
+    "loading a new file invalidates the prior line-bound lookup text",
+  );
+  bootstrapFontMetricGeneration = 0;
   bootstrapHandlers["mpv.sub-text.changed"]();
   assertEqual(
     propertyChangeOrder,
