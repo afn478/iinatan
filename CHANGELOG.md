@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Extended the experimental native-subtitle lookup layer to Japanese, English, German, French, Chinese, and Korean through shared language character policies.
+- Added appearance-preserving ASS/SSA hit boxes to the experimental native-subtitle layer. The existing arm64 helper now uses a pinned static FFmpeg/libass stack and a narrowly patched libass unit-ID channel, follows mpv 0.38's authored-ASS `no`/`yes`/`scale` renderer settings, returns a bounded fill-alpha mask for copied-text diagnostics, verifies byte-identical character/outline/shadow alpha planes, and fails closed for ambiguous cues, unsupported styling, or shaping clusters that cross lookup-unit boundaries.
+- Raised the native ASS helper's individual embedded-font allowance to 32 MiB for common Arial Unicode attachments while retaining its 64 MiB cumulative and 32-font safety limits.
+- Made native ASS releases reproducible and relinkable: macOS CI now rebuilds the geometry-enabled helper at a macOS 11.0 deployment target, verifies a self-contained corresponding-source archive, publishes it beside the plugin, and packages complete third-party license texts.
 - Added an opt-in experimental native-subtitle lookup layer for SubRip cues. It keeps mpv subtitles visible and uses a Shadow-DOM-isolated measurement flow with libass-calibrated WebKit glyph metrics and native nominal multiline advance for invisible hit boxes; simple ASS is best-effort only when mpv is already forcing or stripping styling. Complex/ambiguous ASS (including signs that mpv 0.38 cannot reliably identify), bitmap subtitles, OCR, image fallbacks, and geometry-distorting overlay ancestor CSS remain native-only. Advanced settings include hit-box and copied-text-opacity diagnostics.
 - Preserved subtitle line breaks by default, added an opt-in profile setting to flatten them, and anchored popup spacing to the selected subtitle row.
 - Split Anki card context and glossary formatting into a dedicated source module with focused test-suite coverage.
@@ -11,6 +15,7 @@
 
 ### Fixed
 
+- Stabilized native ASS hit geometry while playback advances, rejected animated ASS Effect events, and preserved every visual-row hit box when padded boxes overlap.
 - Recovered experimental native-subtitle hit boxes and their hover lookups after playback resumes or a Japanese fullwidth speaker-label cue appears by preserving one canonical representation across display-span mapping and the line-bound backend handoff, failing closed on missing line bindings, keeping hover lookup ownership serialized across lifecycle resets, skipping native metric probes for empty cues, retrying one transient native font-metric failure, and clearing only failed metric entries when Shift+H or another runtime lifecycle transition starts a fresh generation.
 - Made the experimental native-subtitle layer follow the live mpv subtitle font, resolve and coverage-check installed macOS faces through CoreText without silent fallback, verify libass-compatible legacy family/full/PostScript selection (failing closed when CoreText and libass would choose different faces), derive each verified face's libass-to-WebKit size ratio from its OpenType Win metrics, keep cue text out of logged process arguments via short-lived private files, model synthetic bold/italic, reject known symbol/icon fonts for CJK cues, reset stale font generations, and require balanced WebKit wrapping when libass automatically wraps a cue.
 - Added an invisible safety corridor between dictionary popups and their selected subtitle words so pointer travel into a popup does not trigger an intervening subtitle lookup while adjacent words remain available.

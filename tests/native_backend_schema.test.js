@@ -46,9 +46,9 @@ assert(
   "Native worker should exit when its owner process disappears",
 );
 assert(
-  /WRAPPER_VERSION = "1\.8\.0"/.test(nativeSource) &&
+  /WRAPPER_VERSION = "1\.9\.0"/.test(nativeSource) &&
     /command == "font-metrics"/.test(nativeSource),
-  "Native wrapper 1.8 should expose the read-only font-metrics command",
+  "Native wrapper 1.9 should preserve the read-only font-metrics command",
 );
 assert(
   /CTFontCreateWithName/.test(nativeSource) &&

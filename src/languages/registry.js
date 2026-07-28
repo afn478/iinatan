@@ -22,6 +22,9 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
 
   function overlayConfig(language) {
     const selectedLanguage = language || selected();
+    const lookupCharacterPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.normalize(
+      selectedLanguage.lookupCharacterPolicy,
+    );
     return {
       id: selectedLanguage.id,
       label: selectedLanguage.label,
@@ -36,6 +39,7 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       deinflectionMode:
         selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
       dictionaryCompatibility: selectedLanguage.dictionaryCompatibility,
+      lookupCharacterPolicy,
     };
   }
 

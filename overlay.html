@@ -625,6 +625,94 @@
     <div id="popup-row-safety-zone" class="hidden" data-clickable="true" aria-hidden="true"></div>
   </div>
 <script>
+const IINATAN_LOOKUP_CHARACTER_POLICY = (() => {
+  const MAX_CODE_POINT = 0x10ffff;
+  const policies = {
+    japanese: {
+      ranges: [
+        { start: 0x3040, end: 0x30ff },
+        { start: 0x3400, end: 0x9fff },
+      ],
+      additionalCharacters: "々〆",
+    },
+    latinWord: {
+      ranges: [
+        { start: 0x30, end: 0x39 },
+        { start: 0x41, end: 0x5a },
+        { start: 0x61, end: 0x7a },
+        { start: 0xc0, end: 0xd6 },
+        { start: 0xd8, end: 0xf6 },
+        { start: 0xf8, end: 0x24f },
+        { start: 0x1e00, end: 0x1eff },
+      ],
+      additionalCharacters: "'’ʼ＇‘‛-‐‑‒–—",
+    },
+    chinese: {
+      ranges: [
+        { start: 0x3400, end: 0x9fff },
+        { start: 0xf900, end: 0xfaff },
+      ],
+      additionalCharacters: "",
+    },
+    korean: {
+      ranges: [
+        { start: 0x1100, end: 0x11ff },
+        { start: 0x3130, end: 0x318f },
+        { start: 0xac00, end: 0xd7af },
+      ],
+      additionalCharacters: "",
+    },
+  };
+
+  function normalizedRange(value) {
+    if (!value || typeof value !== "object") return null;
+    const start = Number(value.start);
+    const end = Number(value.end);
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end > MAX_CODE_POINT
+    )
+      return null;
+    return { start, end };
+  }
+
+  function normalize(value) {
+    if (!value || typeof value !== "object") return null;
+    if (!Array.isArray(value.ranges)) return null;
+    const ranges = [];
+    for (let index = 0; index < value.ranges.length; index++) {
+      const range = normalizedRange(value.ranges[index]);
+      if (!range) return null;
+      ranges.push(range);
+    }
+    const additionalCharacters =
+      typeof value.additionalCharacters === "string"
+        ? value.additionalCharacters
+        : "";
+    if (!ranges.length && !additionalCharacters) return null;
+    return { ranges, additionalCharacters };
+  }
+
+  function matches(value, character) {
+    const policy = normalize(value);
+    const chars = Array.from(String(character || ""));
+    if (!policy || chars.length !== 1) return false;
+    const codePoint = chars[0].codePointAt(0);
+    if (
+      policy.ranges.some(
+        (range) => codePoint >= range.start && codePoint <= range.end,
+      )
+    )
+      return true;
+    return Array.from(policy.additionalCharacters).includes(chars[0]);
+  }
+
+  return { policies, normalize, matches };
+})();
+
 const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   function finiteNumber(value, fallback) {
     const number = Number(value);
@@ -710,8 +798,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       normalized.mt + normalized.mb >= normalized.h
     )
       return { ok: false, reason: "missing-osd-dimensions" };
-    if (normalized.par < 0.95 || normalized.par > 1.05)
-      return { ok: false, reason: "non-coextensive-overlay" };
+    if (normalized.par < 0.1 || normalized.par > 10)
+      return { ok: false, reason: "missing-osd-dimensions" };
     const scaleX = width / normalized.w;
     const scaleY = height / normalized.h;
     const anisotropy =
@@ -878,28 +966,75 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         right: finiteNumber(rect.right, 0) + pad,
         bottom: finiteNumber(rect.bottom, 0) + pad,
         position: rect.position,
-      }))
-      .sort((a, b) =>
-        Math.abs(a.top - b.top) < 3 ? a.left - b.left : a.top - b.top,
-      );
-    for (let index = 1; index < boxes.length; index++) {
-      const previous = boxes[index - 1];
-      const current = boxes[index];
-      const sameLine =
-        Math.abs(previous.top - current.top) <
-        Math.max(
-          3,
-          Math.min(
-            previous.bottom - previous.top,
-            current.bottom - current.top,
-          ) * 0.35,
+      }));
+    boxes.sort((a, b) => {
+      const centerDelta = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
+      if (centerDelta) return centerDelta;
+      if (a.top !== b.top) return a.top - b.top;
+      if (a.left !== b.left) return a.left - b.left;
+      return 0;
+    });
+    const rows = [];
+    boxes.forEach((box) => {
+      const height = box.bottom - box.top;
+      const center = (box.top + box.bottom) / 2;
+      let selected = null;
+      let selectedScore = -1;
+      rows.forEach((row) => {
+        const overlap = Math.max(
+          0,
+          Math.min(box.bottom, row.bottom) - Math.max(box.top, row.top),
         );
-      if (!sameLine || previous.right <= current.left) continue;
-      const midpoint = (previous.right + current.left) / 2;
-      previous.right = midpoint;
-      current.left = midpoint;
-    }
-    return boxes
+        const overlapRatio =
+          overlap / Math.max(1, Math.min(height, row.averageHeight));
+        const centerDistance = Math.abs(center - row.center);
+        const centerMatch =
+          centerDistance <=
+          Math.max(2, Math.min(height, row.averageHeight) * 0.35);
+        if (overlapRatio < 0.3 && !centerMatch) return;
+        const score = overlapRatio * 1000 - centerDistance;
+        if (score <= selectedScore) return;
+        selected = row;
+        selectedScore = score;
+      });
+      if (!selected) {
+        rows.push({
+          boxes: [box],
+          top: box.top,
+          bottom: box.bottom,
+          center,
+          averageHeight: height,
+        });
+        return;
+      }
+      selected.boxes.push(box);
+      const count = selected.boxes.length;
+      selected.center = (selected.center * (count - 1) + center) / count;
+      selected.averageHeight =
+        (selected.averageHeight * (count - 1) + height) / count;
+      selected.top = Math.min(selected.top, box.top);
+      selected.bottom = Math.max(selected.bottom, box.bottom);
+    });
+    rows.sort((a, b) => a.center - b.center || a.top - b.top);
+    const ordered = [];
+    rows.forEach((row) => {
+      row.boxes.sort((a, b) => a.left - b.left || a.right - b.right);
+      for (let index = 1; index < row.boxes.length; index++) {
+        const previous = row.boxes[index - 1];
+        const current = row.boxes[index];
+        if (previous.right <= current.left) continue;
+        const minimum = Math.max(previous.left, current.left);
+        const maximum = Math.min(previous.right, current.right);
+        if (maximum <= minimum) continue;
+        const midpoint = (previous.right + current.left) / 2;
+        const boundary = Math.max(minimum, Math.min(maximum, midpoint));
+        if (boundary <= previous.left || boundary >= current.right) continue;
+        previous.right = boundary;
+        current.left = boundary;
+      }
+      ordered.push(...row.boxes);
+    });
+    return ordered
       .map((box) => ({
         left: box.left,
         top: box.top,
@@ -974,6 +1109,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         label: "Japanese",
         lookupUnit: "character",
         wordMode: "rightward-prefix",
+        lookupCharacterPolicy:
+          IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese,
       },
       hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false,
@@ -2125,18 +2262,15 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
 
   function isLookupableChar(ch) {
     const lang = activeLanguage();
-    const s = String(ch || "");
-    if (
-      lang.wordMode === "latin-word" ||
-      lang.id === "en" ||
-      lang.id === "fr" ||
-      lang.id === "de"
-    )
-      return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/.test(s);
-    if (lang.id === "ko")
-      return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(s);
-    if (lang.id === "zh") return /[\u3400-\u9fff\uf900-\ufaff]/.test(s);
-    return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(s);
+    const configuredPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.normalize(
+      lang.lookupCharacterPolicy,
+    );
+    const policy =
+      configuredPolicy ||
+      (lang.id === "ja"
+        ? IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese
+        : null);
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(policy, ch);
   }
 
   function findLookupRun(pos) {
@@ -2649,14 +2783,15 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         scaleY: Number(geometry.scaleY),
       },
       layoutMetrics: {
-        fontSize: Number(layout.fontSize),
-        lineHeight: Number(layout.lineHeight),
-        letterSpacing: Number(layout.letterSpacing),
-        fontFamily: String(layout.fontFamily || ""),
-        fontWeight: String(layout.fontWeight || ""),
-        fontStyle: String(layout.fontStyle || ""),
-        maxWidth: Number(layout.maxWidth),
-        textAlign: String(layout.textAlign || ""),
+        mode: layout ? "html-text" : "native-ass-mask",
+        fontSize: Number((layout && layout.fontSize) || 0),
+        lineHeight: Number((layout && layout.lineHeight) || 0),
+        letterSpacing: Number((layout && layout.letterSpacing) || 0),
+        fontFamily: String((layout && layout.fontFamily) || ""),
+        fontWeight: String((layout && layout.fontWeight) || ""),
+        fontStyle: String((layout && layout.fontStyle) || ""),
+        maxWidth: Number((layout && layout.maxWidth) || 0),
+        textAlign: String((layout && layout.textAlign) || ""),
       },
       dpr: Number(window.devicePixelRatio || 0),
       hidpiScale: Number((nativeLayout && nativeLayout.hidpiScale) || 0),
@@ -2677,6 +2812,77 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     } else {
       element.style[name] = String(value);
     }
+  }
+
+  function renderNativeAssAlphaMask(mask, geometry, opacity) {
+    if (
+      !mask ||
+      mask.encoding !== "rle-u8-base64" ||
+      typeof mask.data !== "string"
+    )
+      return false;
+    let encoded;
+    try {
+      const decode =
+        typeof window.atob === "function"
+          ? window.atob.bind(window)
+          : typeof atob === "function"
+            ? atob
+            : null;
+      if (!decode) return false;
+      encoded = decode(mask.data);
+    } catch (_) {
+      return false;
+    }
+    const pixelCount = Number(mask.w) * Number(mask.h);
+    if (!Number.isInteger(pixelCount) || pixelCount <= 0 || pixelCount > 262144)
+      return false;
+    const alpha = new Uint8ClampedArray(pixelCount);
+    let pixelOffset = 0;
+    for (let offset = 0; offset + 1 < encoded.length; offset += 2) {
+      const run = encoded.charCodeAt(offset);
+      const value = encoded.charCodeAt(offset + 1);
+      if (!run || pixelOffset + run > pixelCount) return false;
+      alpha.fill(value, pixelOffset, pixelOffset + run);
+      pixelOffset += run;
+    }
+    if (pixelOffset !== pixelCount || encoded.length % 2) return false;
+    const canvas = document.createElement("canvas");
+    canvas.width = mask.w;
+    canvas.height = mask.h;
+    const context =
+      typeof canvas.getContext === "function"
+        ? canvas.getContext("2d", { alpha: true })
+        : null;
+    if (!context || typeof context.createImageData !== "function") return false;
+    const image = context.createImageData(mask.w, mask.h);
+    for (let index = 0; index < pixelCount; index++) {
+      const rgba = index * 4;
+      image.data[rgba] = 255;
+      image.data[rgba + 1] = 255;
+      image.data[rgba + 2] = 255;
+      image.data[rgba + 3] = alpha[index];
+    }
+    context.putImageData(image, 0, 0);
+    nativeSubtitleCopyEl.textContent = "";
+    nativeSubtitleCopyEl.appendChild(canvas);
+    setImportantStyle(nativeSubtitleCopyEl, "all", "initial");
+    setImportantStyle(nativeSubtitleCopyEl, "display", "block");
+    setImportantStyle(nativeSubtitleCopyEl, "position", "fixed");
+    setImportantStyle(nativeSubtitleCopyEl, "inset", "0");
+    setImportantStyle(nativeSubtitleCopyEl, "pointer-events", "none");
+    setImportantStyle(nativeSubtitleCopyEl, "opacity", opacity);
+    setImportantStyle(nativeSubtitleCopyEl, "z-index", "1");
+    setImportantStyle(canvas, "all", "initial");
+    setImportantStyle(canvas, "display", "block");
+    setImportantStyle(canvas, "position", "fixed");
+    setImportantStyle(canvas, "left", mask.x * geometry.scaleX + "px");
+    setImportantStyle(canvas, "top", mask.y * geometry.scaleY + "px");
+    setImportantStyle(canvas, "width", mask.w * geometry.scaleX + "px");
+    setImportantStyle(canvas, "height", mask.h * geometry.scaleY + "px");
+    setImportantStyle(canvas, "pointer-events", "none");
+    nativeSubtitleCopyEl.classList.remove("hidden");
+    return true;
   }
 
   function nativeRangeRects(lookupSpans, start, end) {
@@ -3060,6 +3266,122 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       nativeLayout.osd,
       viewport,
     );
+    if (geometry.ok && Array.isArray(nativeLayout.directRects)) {
+      const copyOpacity = Math.max(
+        0,
+        Math.min(
+          1,
+          Number(state.config.experimentalNativeSubtitleTextOpacity) || 0,
+        ),
+      );
+      const maskRendered =
+        copyOpacity > 0 &&
+        renderNativeAssAlphaMask(nativeLayout.alphaMask, geometry, copyOpacity);
+      if (copyOpacity > 0 && !maskRendered)
+        overlayDebug(
+          "native subtitle copied-text mask is unavailable for this native ASS cue; character-box diagnostics remain available",
+        );
+      if (!maskRendered) {
+        nativeSubtitleCopyEl.textContent = "";
+        setImportantStyle(nativeSubtitleCopyEl, "display", "none");
+        nativeSubtitleCopyEl.classList.add("hidden");
+      }
+      nativeSubtitleHitBoxesEl.textContent = "";
+      state.charByPos = Object.create(null);
+      const measured = [];
+      nativeLayout.directRects.forEach((unit) => {
+        if (!unit || !Number.isInteger(Number(unit.position))) return;
+        (unit.rects || []).forEach((rect) => {
+          const left = Number(rect.x) * geometry.scaleX;
+          const top = Number(rect.y) * geometry.scaleY;
+          const width = Number(rect.w) * geometry.scaleX;
+          const height = Number(rect.h) * geometry.scaleY;
+          if (
+            ![left, top, width, height].every(Number.isFinite) ||
+            width <= 0 ||
+            height <= 0
+          )
+            return;
+          measured.push({
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+            width,
+            height,
+            position: Number(unit.position),
+          });
+        });
+      });
+      const boxes = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.resolveHitBoxOverlaps(
+        measured,
+        2,
+      );
+      boxes.forEach((box) => {
+        if (
+          box.left < -3 ||
+          box.top < -3 ||
+          box.left + box.width > viewport.width + 3 ||
+          box.top + box.height > viewport.height + 3
+        )
+          return;
+        const hit = document.createElement("div");
+        hit.className =
+          "native-subtitle-hit-box" +
+          (state.config.experimentalNativeSubtitleHitBoxes ? " debug" : "");
+        hit.setAttribute("data-clickable", "true");
+        hit.dataset.pos = String(box.position);
+        setImportantStyle(hit, "all", "initial");
+        setImportantStyle(hit, "display", "block");
+        setImportantStyle(hit, "position", "fixed");
+        setImportantStyle(hit, "left", Math.max(0, box.left) + "px");
+        setImportantStyle(hit, "top", Math.max(0, box.top) + "px");
+        setImportantStyle(hit, "width", box.width + "px");
+        setImportantStyle(hit, "height", box.height + "px");
+        setImportantStyle(hit, "box-sizing", "border-box");
+        setImportantStyle(hit, "pointer-events", "auto");
+        setImportantStyle(hit, "margin", "0");
+        setImportantStyle(hit, "padding", "0");
+        setImportantStyle(hit, "z-index", "3");
+        setImportantStyle(hit, "opacity", "1");
+        setImportantStyle(hit, "visibility", "visible");
+        setImportantStyle(hit, "contain", "strict");
+        setImportantStyle(hit, "overflow", "visible");
+        setImportantStyle(hit, "font-size", "0");
+        setImportantStyle(
+          hit,
+          "border",
+          state.config.experimentalNativeSubtitleHitBoxes
+            ? "1px solid rgba(80, 190, 255, .9)"
+            : "0 solid transparent",
+        );
+        setImportantStyle(
+          hit,
+          "background",
+          state.config.experimentalNativeSubtitleHitBoxes
+            ? "rgba(80, 190, 255, .14)"
+            : "transparent",
+        );
+        hit.addEventListener("mouseenter", onCharEnter);
+        hit.addEventListener("click", onCharEnter);
+        hit.addEventListener("mouseleave", scheduleHidePopup);
+        nativeSubtitleHitBoxesEl.appendChild(hit);
+        if (!state.charByPos[box.position]) state.charByPos[box.position] = hit;
+      });
+      if (nativeSubtitleHitBoxesEl.children.length) {
+        setImportantStyle(nativeSubtitleHitBoxesEl, "display", "block");
+        nativeSubtitleHitBoxesEl.classList.remove("hidden");
+        publishAcceptedNativeLayoutDiagnostic(
+          null,
+          geometry,
+          viewport,
+          nativeLayout,
+        );
+      } else {
+        invalidateNativeSubtitleHitLayer("missing-unit-fill");
+      }
+      return;
+    }
     const layout = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.calculatePlainTextLayout(
       geometry,
       nativeLayout.options,

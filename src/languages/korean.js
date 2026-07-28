@@ -1,12 +1,13 @@
 const IINATAN_KOREAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const lookupCharacterPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.policies.korean;
 
   function isHoverableChar(ch) {
-    return common.KOREAN_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.KOREAN_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -54,6 +55,7 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     deinflectionMode: "none",
     dictionaryCompatibility:
       "Yomitan-compatible term dictionaries; exact contiguous-Hangul lookup only.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,

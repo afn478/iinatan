@@ -1,6 +1,8 @@
 const IINATAN_FRENCH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_RULES =
     typeof IINATAN_FRENCH_YOMITAN_SUFFIX_RULES !== "undefined"
       ? IINATAN_FRENCH_YOMITAN_SUFFIX_RULES
@@ -80,11 +82,11 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -223,6 +225,7 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-french",
     dictionaryCompatibility:
       "Yomitan-compatible French-headword term dictionaries; apostrophe/elision-aware exact lookup.",
+    lookupCharacterPolicy,
     upstreamRuleCount: YOMITAN_RULES.length,
     isHoverableChar,
     hasLookupText,

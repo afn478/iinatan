@@ -4,6 +4,7 @@ const vm = require("vm");
 const {
   assert,
   loadOverlayForTest,
+  lookupCharacterPolicies,
 } = require("./helpers/overlay_test_context");
 
 const root = path.resolve(__dirname, "..");
@@ -26,6 +27,10 @@ const TEST_FONT_METRICS = {
   syntheticItalic: false,
   weightTrait: 0,
 };
+const LATIN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.latinWord;
+const JAPANESE_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.japanese;
+const CHINESE_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.chinese;
+const KOREAN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.korean;
 
 function backendFontMetricResult(
   resolvedPostScriptName,
@@ -78,6 +83,7 @@ function loadMainNativeHelpers(properties) {
     values.__privateFiles || {},
   );
   const execEvents = [];
+  const geometryRequests = [];
   const fontMetricExec =
     values.__fontMetricExec ||
     (async () => {
@@ -106,6 +112,10 @@ function loadMainNativeHelpers(properties) {
     nativeSubtitleFontMetricInFlight: Object.create(null),
     nativeSubtitleFontMetricGeneration: 0,
     nativeSubtitleFontMetricActiveKey: "",
+    nativeAssGeometryCache: Object.create(null),
+    nativeAssGeometryInFlight: Object.create(null),
+    nativeAssGeometryGeneration: 0,
+    nativeAssGeometryActiveKey: "",
     nativeSubtitlePrivateCueSerial: 0,
     nativeSubtitlePrivateCueDirectoryPromise: null,
     __testUseActualFontMetrics: !!values.__useActualFontMetricResolver,
@@ -114,7 +124,14 @@ function loadMainNativeHelpers(properties) {
     __fontMetricLogs: fontMetricLogs,
     __testPrivateFiles: privateFiles,
     __testExecEvents: execEvents,
+    __testGeometryRequests: geometryRequests,
     async ensureBundledBackendInstalled() {},
+    async runWorkerQueueRequestDirect(request) {
+      geometryRequests.push(request);
+      if (typeof values.__geometryResponse === "function")
+        return values.__geometryResponse(request);
+      throw new Error("unexpected native ASS geometry request");
+    },
     utils: {
       async exec(command, args, cwd) {
         execEvents.push({ command, args: Array.from(args || []), cwd });
@@ -210,8 +227,20 @@ function loadMainNativeHelpers(properties) {
         ? fallback
         : !!values["pref:" + name];
     },
+    prefNumber(name, fallback) {
+      const value = Number(values["pref:" + name]);
+      return Number.isFinite(value) ? value : fallback;
+    },
+    IINATAN_LOOKUP_CHARACTER_POLICY: {
+      matches(_policy, character) {
+        return /[\p{L}\p{N}]/u.test(character);
+      },
+    },
     selectedLanguageModule() {
-      return { id: values.languageId || "en" };
+      return {
+        id: values.languageId || "en",
+        lookupCharacterPolicy: { ranges: [] },
+      };
     },
   };
   vm.createContext(context);
@@ -241,6 +270,7 @@ if (!globalThis.__testUseActualFontMetrics) {
 }
 globalThis.nativeHelpers = {
   normalizeNativeOsdDimensions,
+  normalizeNativeVideoDimensions,
   nativeSubtitleOptionSnapshot,
   nativeSubtitleFontCompatibility,
   nativeSubtitleFontMetricScale,
@@ -256,12 +286,16 @@ globalThis.nativeHelpers = {
   nativeGraphemeBreakFallback,
   nativeGraphemeSegments,
   nativeLookupMapping,
+  nativeAssGeometryCacheKey,
+  nativeAssGeometrySnapshot,
+  advanceNativeAssGeometryGeneration,
   nativeSubtitleCueSnapshot,
   nativeSubtitleVisibilityTarget,
   testFontMetricEvents: globalThis.__fontMetricEvents,
   testFontMetricLogs: globalThis.__fontMetricLogs,
   testPrivateFiles: globalThis.__testPrivateFiles,
-  testExecEvents: globalThis.__testExecEvents
+  testExecEvents: globalThis.__testExecEvents,
+  testGeometryRequests: globalThis.__testGeometryRequests
 };`,
     context,
   );
@@ -273,9 +307,15 @@ function loadGeometryHelpers() {
   vm.createContext(context);
   vm.runInContext(
     fs.readFileSync(
-      path.join(root, "src/overlay/native_subtitle_hit_layer.js"),
+      path.join(root, "src/languages/lookup_character_policy.js"),
       "utf8",
-    ) + ";globalThis.geometryHelpers=IINATAN_NATIVE_SUBTITLE_HIT_LAYER;",
+    ) +
+      "\n" +
+      fs.readFileSync(
+        path.join(root, "src/overlay/native_subtitle_hit_layer.js"),
+        "utf8",
+      ) +
+      ";globalThis.geometryHelpers=IINATAN_NATIVE_SUBTITLE_HIT_LAYER;",
     context,
   );
   return context.geometryHelpers;
@@ -286,6 +326,42 @@ function waitForLayout() {
 }
 
 (async () => {
+  const policyOverlay = loadOverlayForTest(["applyConfig", "isLookupableChar"]);
+  [
+    ["ja", "猫", JAPANESE_LOOKUP_CHARACTER_POLICY],
+    ["en", "w", LATIN_LOOKUP_CHARACTER_POLICY],
+    ["fr", "œ", LATIN_LOOKUP_CHARACTER_POLICY],
+    ["de", "ẞ", LATIN_LOOKUP_CHARACTER_POLICY],
+    ["zh", "中", CHINESE_LOOKUP_CHARACTER_POLICY],
+    ["ko", "한", KOREAN_LOOKUP_CHARACTER_POLICY],
+  ].forEach(([id, character, lookupCharacterPolicy]) => {
+    policyOverlay.overlay.applyConfig({
+      language: { id, lookupCharacterPolicy },
+    });
+    assert(
+      policyOverlay.overlay.isLookupableChar(character),
+      id + " native hit-layer policy accepts its representative character",
+    );
+  });
+  policyOverlay.overlay.applyConfig({
+    language: {
+      id: "en",
+      lookupCharacterPolicy: {
+        ranges: [{ start: -1, end: 10 }],
+        additionalCharacters: "",
+      },
+    },
+  });
+  assert(
+    !policyOverlay.overlay.isLookupableChar("w"),
+    "invalid non-Japanese native hit-layer policies fail closed",
+  );
+  policyOverlay.overlay.applyConfig({ language: { id: "ja" } });
+  assert(
+    policyOverlay.overlay.isLookupableChar("猫"),
+    "Japanese keeps its built-in compatibility policy when config omits it",
+  );
+
   const helpers = loadMainNativeHelpers();
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
@@ -594,10 +670,27 @@ function waitForLayout() {
     "options/sub-align-y": "bottom",
     "options/sub-spacing": 1,
     "options/sub-line-spacing": 2,
+    "options/sub-ass-force-margins": "yes",
   });
   const snapshot = snapshotHelpers.nativeSubtitleCueSnapshot("Hello");
   assertEqual(snapshot.kind, "srt", "full SRT snapshot is eligible");
   assertEqual(snapshot.layout.osd.w, 1920, "OSD dimensions are captured");
+  assertEqual(
+    snapshot.layout.options.forceMargins,
+    true,
+    "ASS force-margins is captured independently of plain-text margins",
+  );
+  assertEqual(
+    snapshotHelpers.normalizeNativeVideoDimensions({
+      w: 720,
+      h: 480,
+      dw: 864,
+      dh: 480,
+      rotate: 0,
+    }),
+    { width: 720, height: 480, par: 1.2 },
+    "storage size and pixel aspect are derived from video parameters",
+  );
   assertEqual(
     {
       font: snapshot.layout.options.font,
@@ -629,6 +722,217 @@ function waitForLayout() {
     snapshot.layout.options.lineSpacing,
     2,
     "line spacing is captured",
+  );
+  const authoredAssProperties = {
+    __geometryResponse(request) {
+      return {
+        ok: true,
+        protocol: 1,
+        rendererWidth: request.renderer.width,
+        rendererHeight: request.renderer.height,
+        units: request.units.map((unit) => ({
+          position: unit.position,
+          rects: [{ x: 100, y: 600, w: 30, h: 40 }],
+        })),
+      };
+    },
+    "track-list": [
+      {
+        type: "sub",
+        id: 8,
+        selected: true,
+        "main-selection": 0,
+        codec: "ass",
+        "ff-index": 2,
+        external: true,
+        "external-filename": "/tmp/test.ass",
+      },
+    ],
+    sid: 8,
+    "sub-text-ass": "Bonjour",
+    "time-pos": 1.5,
+    "sub-start": 1,
+    "sub-end": 2,
+    "osd-dimensions": {
+      w: 1280,
+      h: 720,
+      ml: 0,
+      mr: 0,
+      mt: 20,
+      mb: 40,
+      par: 1.1,
+    },
+    "video-params": { w: 1920, h: 1080, par: 1.2, rotate: 0 },
+    "sub-font": "Helvetica",
+    "options/sub-scale": 1.25,
+    "options/sub-pos": 65,
+    "options/sub-ass-scale-with-window": "yes",
+    "options/sub-ass-vsfilter-blur-compat": "no",
+  };
+  const authoredAssHelpers = loadMainNativeHelpers(authoredAssProperties);
+  assertEqual(
+    authoredAssHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "ass-geometry-pending",
+    "mpv's default authored-ASS yes mode starts native geometry",
+  );
+  await waitForLayout();
+  const authoredAss = authoredAssHelpers.nativeSubtitleCueSnapshot("Bonjour");
+  assertEqual(
+    authoredAss.kind,
+    "ass-native",
+    "mpv's default authored-ASS yes mode accepts returned geometry",
+  );
+  const authoredRenderer = authoredAssHelpers.testGeometryRequests[0].renderer;
+  assertEqual(
+    {
+      overrideMode: authoredRenderer.overrideMode,
+      linePosition: authoredRenderer.linePosition,
+      pixelAspect: authoredRenderer.pixelAspect,
+      fontScale: authoredRenderer.fontScale,
+      useStorageSize: authoredRenderer.useStorageSize,
+      defaultFamily: authoredRenderer.defaultFamily,
+      fontProvider: authoredRenderer.fontProvider,
+      assJustify: authoredRenderer.assJustify,
+    },
+    {
+      overrideMode: "yes",
+      linePosition: 35,
+      pixelAspect: 1.32,
+      fontScale: 1.25 * (720 / 660),
+      useStorageSize: false,
+      defaultFamily: "Helvetica",
+      fontProvider: "auto",
+      assJustify: false,
+    },
+    "authored ASS renderer coordinates and compatibility options match mpv 0.38",
+  );
+  [
+    ["options/sub-ass-justify", "yes"],
+    ["options/sub-font-provider", "fontconfig"],
+  ].forEach(([property, value]) => {
+    const unsupportedHelpers = loadMainNativeHelpers({
+      ...authoredAssProperties,
+      [property]: value,
+    });
+    assertEqual(
+      unsupportedHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+      "unsupported-renderer-option",
+      property + " fails closed before requesting mismatched ASS geometry",
+    );
+    assertEqual(
+      unsupportedHelpers.testGeometryRequests.length,
+      0,
+      property + " launches no native geometry request",
+    );
+  });
+
+  const geometryResponse = (request) => ({
+    ok: true,
+    protocol: 1,
+    rendererWidth: request.renderer.width,
+    rendererHeight: request.renderer.height,
+    units: request.units.map((unit) => ({
+      position: unit.position,
+      rects: [{ x: 10, y: 20, w: 30, h: 40 }],
+    })),
+  });
+  let resolveAdvancingGeometry;
+  const advancingGeometryPromise = new Promise((resolve) => {
+    resolveAdvancingGeometry = resolve;
+  });
+  let advancingCalls = 0;
+  const advancingHelpers = loadMainNativeHelpers({
+    __geometryResponse(request) {
+      advancingCalls++;
+      return advancingCalls === 1
+        ? advancingGeometryPromise
+        : geometryResponse(request);
+    },
+  });
+  const geometryRequest = {
+    type: "ass-geometry",
+    protocol: 1,
+    source: { path: "/tmp/test.ass", ffIndex: 0, external: true },
+    cue: {
+      timeMs: 1100,
+      startMs: 1000,
+      endMs: 2000,
+      observedAss: "Bonjour",
+    },
+    units: [{ position: 0, displayStartUtf16: 0, displayEndUtf16: 7 }],
+    renderer: { width: 1280, height: 720 },
+  };
+  assertEqual(
+    advancingHelpers.nativeAssGeometrySnapshot(geometryRequest).reason,
+    "ass-geometry-pending",
+    "the first live cue time starts geometry",
+  );
+  assertEqual(
+    advancingHelpers.nativeAssGeometrySnapshot({
+      ...geometryRequest,
+      cue: { ...geometryRequest.cue, timeMs: 1300 },
+    }).reason,
+    "ass-geometry-pending",
+    "advancing playback reuses the same in-flight cue geometry",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEqual(
+    advancingHelpers.testGeometryRequests.map((request) => request.cue.timeMs),
+    [1100],
+    "the in-flight request retains its first live render time",
+  );
+  resolveAdvancingGeometry(
+    geometryResponse(advancingHelpers.testGeometryRequests[0]),
+  );
+  await waitForLayout();
+  assert(
+    advancingHelpers.nativeAssGeometrySnapshot({
+      ...geometryRequest,
+      cue: { ...geometryRequest.cue, timeMs: 1600 },
+    }).ok,
+    "a completed same-cue response is reused at a later live time",
+  );
+  advancingHelpers.nativeAssGeometrySnapshot({
+    ...geometryRequest,
+    cue: { ...geometryRequest.cue, endMs: 2100, timeMs: 1700 },
+  });
+  advancingHelpers.nativeAssGeometrySnapshot({
+    ...geometryRequest,
+    renderer: { ...geometryRequest.renderer, width: 1279 },
+  });
+  await waitForLayout();
+  assertEqual(
+    advancingHelpers.testGeometryRequests.length,
+    3,
+    "cue boundaries and renderer changes each invalidate geometry identity",
+  );
+
+  let resolveStaleGeometry;
+  let generationCalls = 0;
+  const generationHelpers = loadMainNativeHelpers({
+    __geometryResponse(request) {
+      generationCalls++;
+      if (generationCalls > 1) return geometryResponse(request);
+      return new Promise((resolve) => {
+        resolveStaleGeometry = resolve;
+      });
+    },
+  });
+  generationHelpers.nativeAssGeometrySnapshot(geometryRequest);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  generationHelpers.advanceNativeAssGeometryGeneration();
+  resolveStaleGeometry(geometryResponse(geometryRequest));
+  await waitForLayout();
+  assertEqual(
+    generationHelpers.nativeAssGeometrySnapshot(geometryRequest).reason,
+    "ass-geometry-pending",
+    "generation invalidation discards a deferred stale response",
+  );
+  await waitForLayout();
+  assertEqual(
+    generationHelpers.testGeometryRequests.length,
+    2,
+    "generation invalidation launches one fresh geometry request",
   );
   let emptyMetricExecCount = 0;
   [
@@ -1840,6 +2144,219 @@ function waitForLayout() {
       !geometry.rectanglesSpanMultipleLines([{ top: 10 }, { top: 10.8 }]),
     "automatic wrapping is distinguished from same-row fragments",
   );
+  const liveFrenchBoxes = geometry.resolveHitBoxOverlaps(
+    [
+      {
+        left: 566,
+        top: 894,
+        right: 719,
+        bottom: 939,
+        width: 153,
+        height: 45,
+        position: 0,
+      },
+      {
+        left: 738,
+        top: 893,
+        right: 804,
+        bottom: 939,
+        width: 66,
+        height: 46,
+        position: 1,
+      },
+      {
+        left: 827,
+        top: 893,
+        right: 871,
+        bottom: 939,
+        width: 44,
+        height: 46,
+        position: 2,
+      },
+      {
+        left: 891,
+        top: 893,
+        right: 1098,
+        bottom: 939,
+        width: 207,
+        height: 46,
+        position: 3,
+      },
+      {
+        left: 1119,
+        top: 893,
+        right: 1354,
+        bottom: 939,
+        width: 235,
+        height: 46,
+        position: 4,
+      },
+      {
+        left: 757,
+        top: 966,
+        right: 803,
+        bottom: 1008,
+        width: 46,
+        height: 42,
+        position: 5,
+      },
+      {
+        left: 859,
+        top: 966,
+        right: 972,
+        bottom: 1008,
+        width: 113,
+        height: 42,
+        position: 6,
+      },
+      {
+        left: 1044,
+        top: 963,
+        right: 1193,
+        bottom: 1009,
+        width: 149,
+        height: 46,
+        position: 7,
+      },
+    ],
+    2,
+  );
+  assertEqual(
+    liveFrenchBoxes,
+    [
+      { left: 564, top: 892, width: 157, height: 49, position: 0 },
+      { left: 736, top: 891, width: 70, height: 50, position: 1 },
+      { left: 825, top: 891, width: 48, height: 50, position: 2 },
+      { left: 889, top: 891, width: 211, height: 50, position: 3 },
+      { left: 1117, top: 891, width: 239, height: 50, position: 4 },
+      { left: 755, top: 964, width: 50, height: 46, position: 5 },
+      { left: 857, top: 964, width: 117, height: 46, position: 6 },
+      { left: 1042, top: 961, width: 153, height: 50, position: 7 },
+    ],
+    "all eight live French word boxes survive deterministic row clustering",
+  );
+  assertEqual(
+    geometry
+      .resolveHitBoxOverlaps(
+        [
+          {
+            left: 50,
+            top: 46,
+            right: 70,
+            bottom: 58,
+            width: 20,
+            height: 12,
+            position: 2,
+          },
+          {
+            left: 30,
+            top: 12,
+            right: 50,
+            bottom: 26,
+            width: 20,
+            height: 14,
+            position: 1,
+          },
+          {
+            left: 10,
+            top: 10,
+            right: 32,
+            bottom: 24,
+            width: 22,
+            height: 14,
+            position: 0,
+          },
+        ],
+        0,
+      )
+      .map((box) => box.position),
+    [0, 1, 2],
+    "multiline boxes cluster by visual row before horizontal order",
+  );
+  const cjkBoxes = geometry.resolveHitBoxOverlaps(
+    [
+      {
+        left: 10,
+        top: 10,
+        right: 22,
+        bottom: 30,
+        width: 12,
+        height: 20,
+        position: 0,
+      },
+      {
+        left: 20,
+        top: 10,
+        right: 32,
+        bottom: 30,
+        width: 12,
+        height: 20,
+        position: 1,
+      },
+      {
+        left: 40,
+        top: 10,
+        right: 70,
+        bottom: 30,
+        width: 30,
+        height: 20,
+        position: 2,
+      },
+      {
+        left: 50,
+        top: 10,
+        right: 60,
+        bottom: 30,
+        width: 10,
+        height: 20,
+        position: 3,
+      },
+    ],
+    0,
+  );
+  assert(
+    cjkBoxes.length === 4 &&
+      cjkBoxes.every((box) => box.width > 0 && box.height > 0),
+    "CJK overlap and containment preserve every lookup position",
+  );
+  assertEqual(
+    geometry
+      .resolveHitBoxOverlaps(
+        [
+          {
+            left: 70,
+            top: 10,
+            right: 90,
+            bottom: 30,
+            width: 20,
+            height: 20,
+            position: 0,
+          },
+          {
+            left: 40,
+            top: 10,
+            right: 62,
+            bottom: 30,
+            width: 22,
+            height: 20,
+            position: 1,
+          },
+          {
+            left: 10,
+            top: 10,
+            right: 32,
+            bottom: 30,
+            width: 22,
+            height: 20,
+            position: 2,
+          },
+        ],
+        0,
+      )
+      .map((box) => box.position),
+    [2, 1, 0],
+    "RTL logical positions are preserved in deterministic visual x-order",
+  );
   [
     [1280, 720],
     [1920, 1080],
@@ -2370,6 +2887,10 @@ function waitForLayout() {
     "options/sub-font-size",
     "options/sub-font",
     "sub-font",
+    "options/sub-font-provider",
+    "sub-font-provider",
+    "options/sub-ass-justify",
+    "sub-ass-justify",
     "options/sub-pos",
   ].forEach((property) => {
     assert(
@@ -2530,6 +3051,7 @@ function waitForLayout() {
         id: "en",
         lookupUnit: "word",
         wordMode: "latin-word",
+        lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
       },
     },
   };
@@ -3257,7 +3779,12 @@ function waitForLayout() {
     },
     config: {
       experimentalNativeSubtitleHitLayer: true,
-      language: { id: "en", lookupUnit: "word", wordMode: "latin-word" },
+      language: {
+        id: "en",
+        lookupUnit: "word",
+        wordMode: "latin-word",
+        lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
+      },
     },
   });
   await waitForLayout();
@@ -3291,7 +3818,12 @@ function waitForLayout() {
     },
     config: {
       experimentalNativeSubtitleHitLayer: true,
-      language: { id: "en", lookupUnit: "word", wordMode: "latin-word" },
+      language: {
+        id: "en",
+        lookupUnit: "word",
+        wordMode: "latin-word",
+        lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
+      },
     },
   });
   await waitForLayout();
@@ -3339,7 +3871,12 @@ function waitForLayout() {
     },
     config: {
       experimentalNativeSubtitleHitLayer: true,
-      language: { id: "en", lookupUnit: "word", wordMode: "latin-word" },
+      language: {
+        id: "en",
+        lookupUnit: "word",
+        wordMode: "latin-word",
+        lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
+      },
     },
   });
   staleFontFailure.context.__handlers.enabled({ enabled: true });

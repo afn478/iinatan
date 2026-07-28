@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import argparse
+import hashlib
 import json
+import subprocess
+import tarfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +16,8 @@ REQUIRED_PLUGIN_FILES = [
     "dictionary-manager.html",
     "preferences.html",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "native-dependencies.lock.json",
     "LICENSE",
     "package.json",
 ]
@@ -25,7 +30,26 @@ REQUIRED_PACKAGE_FILES = REQUIRED_PLUGIN_FILES + [
     "bin/iina-hoshi-dicts",
 ]
 PACKAGE_FILE_ALLOWLIST = REQUIRED_PACKAGE_FILES + OPTIONAL_PACKAGE_FILES
+NATIVE_LICENSE_FILES = {
+    "THIRD_PARTY_LICENSES/FFmpeg-LGPL-2.1.txt": "build/native-geometry-deps/sources/FFmpeg/COPYING.LGPLv2.1",
+    "THIRD_PARTY_LICENSES/FreeType.txt": "build/native-geometry-deps/sources/FreeType/LICENSE.TXT",
+    "THIRD_PARTY_LICENSES/FriBidi-LGPL-2.1.txt": "build/native-geometry-deps/sources/FriBidi/COPYING",
+    "THIRD_PARTY_LICENSES/HarfBuzz.txt": "build/native-geometry-deps/sources/HarfBuzz/COPYING",
+    "THIRD_PARTY_LICENSES/libass-ISC.txt": "build/native-geometry-deps/sources/libass/COPYING",
+    "THIRD_PARTY_LICENSES/libunibreak-Zlib.txt": "build/native-geometry-deps/sources/libunibreak/LICENCE",
+    "THIRD_PARTY_LICENSES/zlib.txt": "build/native-geometry-deps/sources/zlib/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-GPL-3.0.txt": "vendor/hoshidicts/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-glaze-MIT.txt": "vendor/hoshidicts/external/glaze/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-kanji-processor.txt": "vendor/hoshidicts/external/kanji-processor/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-libdeflate-MIT.txt": "vendor/hoshidicts/external/libdeflate/COPYING",
+    "THIRD_PARTY_LICENSES/HoshiDicts-unordered_dense-MIT.txt": "vendor/hoshidicts/external/unordered_dense/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-utf8proc-MIT.txt": "vendor/hoshidicts/external/utf8proc/LICENSE.md",
+    "THIRD_PARTY_LICENSES/HoshiDicts-utfcpp-BSL-1.0.txt": "vendor/hoshidicts/external/utfcpp/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-xxHash-BSD-2-Clause.txt": "vendor/hoshidicts/external/xxHash/LICENSE",
+    "THIRD_PARTY_LICENSES/HoshiDicts-zstd-BSD-3-Clause.txt": "vendor/hoshidicts/external/zstd/LICENSE",
+}
 LANGUAGE_PARTS = [
+    "lookup_character_policy.js",
     "common.js",
     "deinflection.js",
     "japanese.js",
@@ -64,6 +88,7 @@ def build_files() -> None:
     template = (overlay_dir / "overlay.template.html").read_text()
     html = template.replace("{{OVERLAY_CSS}}", (overlay_dir / "overlay.css").read_text())
     overlay_js = "\n".join([
+        (language_dir / "lookup_character_policy.js").read_text(),
         (overlay_dir / "native_subtitle_hit_layer.js").read_text(),
         (overlay_dir / "overlay.js").read_text(),
     ])
@@ -98,6 +123,11 @@ def package(output: Path) -> None:
             path = ROOT / rel_name
             if path.is_file() and should_package(path, output):
                 z.write(path, rel_name)
+        for archive_name, source_name in NATIVE_LICENSE_FILES.items():
+            source = ROOT / source_name
+            if not source.is_file():
+                raise SystemExit("Missing native dependency license: " + source_name)
+            z.write(source, archive_name)
     validate_package(output)
 
 def validate_root_layout(require_backend: bool = False) -> None:
@@ -107,6 +137,8 @@ def validate_root_layout(require_backend: bool = False) -> None:
     if missing:
         raise SystemExit("Missing required plugin files: " + ", ".join(missing))
     validate_hoshidicts_submodule()
+    if require_backend:
+        validate_native_backend()
 
     info = json.loads((ROOT / "Info.json").read_text())
     required_info = {
@@ -133,6 +165,125 @@ def validate_root_layout(require_backend: bool = False) -> None:
         raise SystemExit("Info.json preferencesPage must be preferences.html")
     if "/" not in info["ghRepo"]:
         raise SystemExit("Info.json ghRepo must be in owner/repo form")
+
+def validate_native_backend() -> None:
+    backend = ROOT / "bin" / "iina-hoshi-dicts"
+    try:
+        result = subprocess.run(
+            [str(backend), "version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        version = json.loads(result.stdout)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        raise SystemExit("Could not inspect native backend: " + str(error))
+    geometry = version.get("assGeometry", {})
+    expected = {
+        "protocol": 1,
+        "available": True,
+        "patch": "libass-0.17.2-iinatan-unit-ids-v1",
+        "ffmpeg": "7.0.1",
+        "libass": "0.17.2",
+        "architecture": "arm64",
+    }
+    bad = [
+        key
+        for key, expected_value in expected.items()
+        if geometry.get(key) != expected_value
+    ]
+    if bad:
+        raise SystemExit(
+            "Native backend has an incompatible ASS geometry capability: "
+            + ", ".join(bad)
+        )
+    dependencies = subprocess.run(
+        ["otool", "-L", str(backend)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()[1:]
+    non_system = [
+        line.strip().split(" ", 1)[0]
+        for line in dependencies
+        if not line.strip().startswith(("/usr/lib/", "/System/Library/"))
+    ]
+    if non_system:
+        raise SystemExit(
+            "Native backend has non-system dynamic dependencies: "
+            + ", ".join(non_system)
+        )
+    source = ROOT / "dist" / "iina-hoshi-dicts-native-source.tar.gz"
+    if not source.is_file():
+        raise SystemExit(
+            "Missing native corresponding-source archive: "
+            + str(source)
+            + ". Run scripts/package_native_source.sh."
+        )
+    with tarfile.open(source, "r:gz") as archive:
+        names = set(archive.getnames())
+        required = {
+            "iinatan-native-source/src/native/ass_geometry.cpp",
+            "iinatan-native-source/src/native/media_demux.cpp",
+            "iinatan-native-source/scripts/build_native_backend.sh",
+            "iinatan-native-source/scripts/build_native_geometry_dependencies.sh",
+            "iinatan-native-source/native-dependencies.lock.json",
+            "iinatan-native-source/NATIVE_RELINKING.md",
+            "iinatan-native-source/patches/libass-0.17.2-iinatan-unit-ids.patch",
+            "iinatan-native-source/vendor/hoshidicts/CMakeLists.txt",
+            "iinatan-native-source/vendor/hoshidicts/src/query.cpp",
+            "iinatan-native-source/vendor/hoshidicts/external/glaze/CMakeLists.txt",
+            "iinatan-native-source/vendor/hoshidicts/external/zstd/CMakeLists.txt",
+            "iinatan-native-source/vendor/hoshidicts/external/unordered_dense/CMakeLists.txt",
+            "iinatan-native-source/vendor/hoshidicts/external/libdeflate/CMakeLists.txt",
+            "iinatan-native-source/vendor/hoshidicts/external/utf8proc/CMakeLists.txt",
+        }
+        missing = sorted(required - names)
+        if missing:
+            raise SystemExit(
+                "Native corresponding-source archive is incomplete: "
+                + ", ".join(missing)
+            )
+        forbidden = sorted(
+            name
+            for name in names
+            if "/.git/" in name
+            or name.endswith("/.git")
+            or "/.build/" in name
+            or name.endswith("/.build")
+        )
+        if forbidden:
+            raise SystemExit(
+                "Native corresponding-source archive contains build/VCS artifacts: "
+                + ", ".join(forbidden[:10])
+            )
+        lock_member = archive.extractfile(
+            "iinatan-native-source/native-dependencies.lock.json"
+        )
+        if lock_member is None:
+            raise SystemExit("Could not read native dependency lock from source archive")
+        source_lock = json.load(lock_member)
+        for dependency in source_lock.get("dependencies", []):
+            archive_name = dependency["url"].rsplit("/", 1)[-1]
+            member_name = "iinatan-native-source/upstream/" + archive_name
+            member = archive.extractfile(member_name)
+            if member is None:
+                raise SystemExit(
+                    "Native corresponding-source archive is missing " + member_name
+                )
+            digest = hashlib.sha256(member.read()).hexdigest()
+            if digest != dependency["sha256"]:
+                raise SystemExit(
+                    "Native source archive checksum mismatch for "
+                    + dependency["name"]
+                )
+        for patch in source_lock.get("patches", []):
+            member_name = "iinatan-native-source/" + patch["file"]
+            member = archive.extractfile(member_name)
+            if member is None or hashlib.sha256(member.read()).hexdigest() != patch["sha256"]:
+                raise SystemExit(
+                    "Native source archive patch checksum mismatch for " + patch["name"]
+                )
 
 def validate_hoshidicts_submodule() -> None:
     gitmodules = ROOT / ".gitmodules"
@@ -163,6 +314,9 @@ def validate_package(path: Path) -> None:
     with zipfile.ZipFile(path, "r") as z:
         names = set(z.namelist())
         missing = [name for name in REQUIRED_PACKAGE_FILES if name not in names]
+        missing.extend(
+            name for name in NATIVE_LICENSE_FILES if name not in names
+        )
         if missing:
             raise SystemExit("Package is missing required files: " + ", ".join(missing))
         forbidden_prefixes = (".git/", ".github/", "build/", "dist/", "vendor/", "src/")

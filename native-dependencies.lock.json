@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "architecture": "arm64",
+  "deploymentTarget": "11.0",
+  "patches": [
+    {
+      "name": "libass-0.17.2-iinatan-unit-ids-v1",
+      "file": "patches/libass-0.17.2-iinatan-unit-ids.patch",
+      "sha256": "ae683fbfe20aeabf571aa348d011842c9b3b521be508d8bd8a3ce72545bcd9ba",
+      "upstream": "libass 0.17.2"
+    }
+  ],
+  "dependencies": [
+    {
+      "name": "pkgconf",
+      "version": "2.2.0",
+      "url": "https://distfiles.ariadne.space/pkgconf/pkgconf-2.2.0.tar.xz",
+      "sha256": "b06ff63a83536aa8c2f6422fa80ad45e4833f590266feb14eaddfe1d4c853c69",
+      "license": "ISC",
+      "buildToolOnly": true
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "license": "Zlib"
+    },
+    {
+      "name": "FreeType",
+      "version": "2.13.2",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.xz",
+      "sha256": "12991c4e55c506dd7f9b765933e62fd2be2e06d421505d7950a132e4f1bb484d",
+      "license": "FTL OR GPL-2.0-or-later"
+    },
+    {
+      "name": "FriBidi",
+      "version": "1.0.13",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.13/fribidi-1.0.13.tar.xz",
+      "sha256": "7fa16c80c81bd622f7b198d31356da139cc318a63fc7761217af4130903f54a2",
+      "license": "LGPL-2.1-or-later"
+    },
+    {
+      "name": "HarfBuzz",
+      "version": "8.5.0",
+      "url": "https://github.com/harfbuzz/harfbuzz/releases/download/8.5.0/harfbuzz-8.5.0.tar.xz",
+      "sha256": "77e4f7f98f3d86bf8788b53e6832fb96279956e1c3961988ea3d4b7ca41ddc27",
+      "license": "MIT"
+    },
+    {
+      "name": "libunibreak",
+      "version": "6.1",
+      "url": "https://github.com/adah1972/libunibreak/releases/download/libunibreak_6_1/libunibreak-6.1.tar.gz",
+      "sha256": "cc4de0099cf7ff05005ceabff4afed4c582a736abc38033e70fdac86335ce93f",
+      "license": "Zlib"
+    },
+    {
+      "name": "libass",
+      "version": "0.17.2",
+      "url": "https://github.com/libass/libass/releases/download/0.17.2/libass-0.17.2.tar.xz",
+      "sha256": "e8261b51d66ba933fe99248c6fdd8767ed96c5a7e5363c83992c735a2c2fbf74",
+      "license": "ISC"
+    },
+    {
+      "name": "FFmpeg",
+      "version": "7.0.1",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.0.1.tar.xz",
+      "sha256": "bce9eeb0f17ef8982390b1f37711a61b4290dc8c2a0c1a37b5857e85bfb0e4ff",
+      "license": "LGPL-2.1-or-later"
+    }
+  ]
+}

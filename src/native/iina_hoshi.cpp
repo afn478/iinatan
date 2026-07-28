@@ -26,8 +26,10 @@
 #include "hoshidicts/importer.hpp"
 #include "hoshidicts/lookup.hpp"
 #include "hoshidicts/query.hpp"
+#include "ass_geometry.hpp"
+#include "worker_protocol.hpp"
 
-static constexpr const char* WRAPPER_VERSION = "1.8.0";
+static constexpr const char* WRAPPER_VERSION = "1.9.0";
 static constexpr int FONT_METRIC_RESOLVER_VERSION = 2;
 static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v2";
 namespace fs = std::filesystem;
@@ -771,7 +773,14 @@ static void cmd_worker(int argc, char** argv) {
   add_all_dictionary_types(dict_query, cfg.dicts);
   Deinflector deinflector;
   Lookup lookup(dict_query, deinflector);
-  write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + "}\n");
+  iinatan::ass::GeometryService geometry_service;
+  write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + ",\"assGeometry\":{\"protocol\":1,\"available\":" +
+#ifdef IINATAN_ASS_GEOMETRY
+      "true"
+#else
+      "false"
+#endif
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + "}}\n");
   std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size() << " dictionaries; sleep_ms=" << sleep_ms << "; owner_pid=" << owner_pid << "\n";
   auto next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (!fs::exists(stop)) {
@@ -797,6 +806,21 @@ static void cmd_worker(int argc, char** argv) {
         std::string provided_id = json_get_string(body, "requestId");
         if (!provided_id.empty()) request_id = provided_id;
         resp = responses / (request_id + ".json");
+        iinatan::protocol::Json parsed_request =
+            iinatan::protocol::Json::parse(body);
+        if (iinatan::protocol::is_geometry_request(parsed_request)) {
+          const iinatan::protocol::GeometryRequest geometry_request =
+              iinatan::protocol::parse_geometry_request(parsed_request);
+          const std::string out =
+              geometry_service.handle(geometry_request).dump() + "\n";
+          if (out.size() > 1024 * 1024)
+            throw std::runtime_error("geometry response exceeds 1 MiB");
+          write_file_atomic(resp, out);
+          std::cerr << "ass geometry response " << request_id
+                    << " bytes=" << out.size() << "\n";
+          fs::remove(req, ec);
+          continue;
+        }
         std::string text = json_get_string(body, "text");
         std::string mode = json_get_string(body, "mode");
         if (mode.empty()) mode = "yomitan-japanese";
@@ -1137,17 +1161,41 @@ static void cmd_font_metrics(int argc, char** argv) {
 }
 
 static void cmd_version() {
-  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"fontMetrics\":true,\"fontMetricResolverVersion\":" << FONT_METRIC_RESOLVER_VERSION << ",\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
+  std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"fontMetrics\":true,\"fontMetricResolverVersion\":" << FONT_METRIC_RESOLVER_VERSION << ",\"assGeometry\":{\"protocol\":" << iinatan::ass::kAssGeometryProtocol << ",\"available\":"
+#ifdef IINATAN_ASS_GEOMETRY
+            << "true"
+#else
+            << "false"
+#endif
+            << ",\"patch\":" << json_quote(iinatan::ass::kAssGeometryPatch)
+            << ",\"ffmpeg\":" << json_quote(iinatan::ass::ffmpeg_geometry_version())
+            << ",\"libass\":" << json_quote(iinatan::ass::libass_geometry_version())
+            << ",\"architecture\":\"arm64\"},\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
+}
+static void cmd_ass_geometry(int argc, char** argv) {
+  if (argc != 3) {
+    print_error("usage: ass-geometry <request_json_path>");
+    std::exit(2);
+  }
+  const std::string body = read_file(argv[2]);
+  const iinatan::protocol::Json root = iinatan::protocol::Json::parse(body);
+  if (!iinatan::protocol::is_geometry_request(root))
+    throw std::runtime_error("request type must be ass-geometry");
+  iinatan::ass::GeometryService service;
+  std::cout
+      << service.handle(iinatan::protocol::parse_geometry_request(root)).dump()
+      << "\n";
 }
 int main(int argc, char** argv) {
   try {
-    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, version"); return 2; }
+    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, ass-geometry, version"); return 2; }
     std::string command = argv[1];
     if (command == "import") cmd_import(argc, argv);
     else if (command == "lookup") cmd_lookup(argc, argv);
     else if (command == "worker") cmd_worker(argc, argv);
     else if (command == "client") cmd_client(argc, argv);
     else if (command == "font-metrics") cmd_font_metrics(argc, argv);
+    else if (command == "ass-geometry") cmd_ass_geometry(argc, argv);
     else if (command == "version") cmd_version();
     else { print_error("unknown command: " + command); return 2; }
     return 0;

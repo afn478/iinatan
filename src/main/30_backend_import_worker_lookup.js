@@ -888,6 +888,50 @@ function makeJsWorkerRequestId() {
     String(Math.floor(Math.random() * 1000000))
   );
 }
+async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
+  const lang = language || selectedLanguageModule();
+  const dicts = activeDictionaryPaths(lang);
+  await ensureBackendWorker(dicts, lang);
+  const ready = activeWorkerReady || readWorkerReady();
+  if (
+    payloadValue &&
+    payloadValue.type === "ass-geometry" &&
+    (!ready ||
+      !ready.assGeometry ||
+      ready.assGeometry.protocol !== 1 ||
+      ready.assGeometry.available !== true ||
+      ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v1")
+  )
+    throw new Error("ass-geometry-unavailable");
+  const timeout = Math.max(
+    1000,
+    timeoutMs || prefNumber("backendTimeoutMs", 30000),
+  );
+  const id = makeJsWorkerRequestId();
+  const req = pathJoin(workerQueueDir(), id + ".json");
+  const resp = pathJoin(workerResponseDir(), id + ".json");
+  const payload = Object.assign({}, payloadValue || {}, { requestId: id });
+  file.write(req, JSON.stringify(payload) + "\n");
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (file.exists(resp)) {
+      const raw = String(file.read(resp) || "");
+      safeDelete(resp);
+      safeDelete(req);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object")
+        throw new Error("Native worker returned an invalid response");
+      return parsed;
+    }
+    if (file.exists(workerStopPath())) {
+      safeDelete(req);
+      throw new Error("Worker stopped before request completed");
+    }
+    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+  }
+  safeDelete(req);
+  throw new Error("Native worker request timed out after " + timeout + " ms");
+}
 async function runWorkerQueueLookupDirect(
   suffix,
   dicts,

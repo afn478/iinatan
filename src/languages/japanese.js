@@ -4,6 +4,8 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     /（([\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f\s]+)）/g;
   const KANA_RE =
     /[\u3041-\u3096\u309d-\u309f\u30a1-\u30fa\u30fd-\u30ff\u31f0-\u31ff\uff66-\uff9f]/;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese;
 
   function stripParenthesizedFurigana(text) {
     return String(text || "").replace(
@@ -13,7 +15,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
   }
 
   function isHoverableChar(ch) {
-    return common.JAPANESE_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
@@ -55,6 +57,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     deinflectionMode: "hoshidicts-japanese",
     dictionaryCompatibility:
       "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches: () => true,

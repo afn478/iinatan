@@ -1,0 +1,27 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Dialogue,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,24,24,36,1
+Style: CJK,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,24,24,36,1
+Style: Geometry,Arial,48,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,0,0,2,24,24,36,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,Geometry,,0,0,0,,A careful reader
+Dialogue: 0,0:00:04.00,0:00:06.00,Geometry,,0,0,0,,Ça fonctionne très bien
+Dialogue: 0,0:00:07.00,0:00:09.00,Geometry,,0,0,0,,Grüße aus Berlin
+Dialogue: 0,0:00:10.00,0:00:12.00,Geometry,,0,0,0,,日本語辞書
+Dialogue: 0,0:00:13.00,0:00:15.00,Geometry,,0,0,0,,这是中文测试
+Dialogue: 0,0:00:16.00,0:00:18.00,Geometry,,0,0,0,,한국어 사전
+Dialogue: 0,0:00:19.00,0:00:21.00,Dialogue,,0,0,0,,{\pos(100,100)}Rejected
+Dialogue: 0,0:00:22.00,0:00:24.00,Dialogue,,0,0,0,,A careful reader
+Dialogue: 0,0:00:25.00,0:00:27.00,Dialogue,,0,0,0,,Ça fonctionne très bien
+Dialogue: 0,0:00:28.00,0:00:30.00,Dialogue,,0,0,0,,Grüße aus Berlin
+Dialogue: 0,0:00:31.00,0:00:33.00,CJK,,0,0,0,,这是中文测试
+Dialogue: 0,0:00:34.00,0:00:36.00,Geometry,,0,0,0,,é
+Dialogue: 0,0:00:37.00,0:00:39.00,Geometry,,0,0,0,Banner;10;0;20,Animated plain text

@@ -67,6 +67,20 @@ Build the native lookup engine:
 scripts/build_native_backend.sh
 ```
 
+To build the arm64 helper with native ASS/SSA hit-box geometry, including the
+pinned static FFmpeg/libass dependency stack and the verified private libass
+patch:
+
+```bash
+scripts/build_native_backend.sh --with-ass-geometry
+node tests/native_ass_geometry.test.js
+```
+
+The dependency versions, upstream checksums, deployment target, and patch hash
+are locked in `native-dependencies.lock.json`. Do not substitute IINA-private
+dynamic libraries. Release builds that include this helper must also publish
+the corresponding-source archive from `scripts/package_native_source.sh`.
+
 ## Build And Validation
 
 Regenerate runtime files after source edits:

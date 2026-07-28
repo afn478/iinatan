@@ -46,13 +46,24 @@ jobs:
       - name: Verify generated files are committed
         run: git diff --exit-code -- main.js overlay.html
 
-      - name: Run JavaScript tests and syntax checks
-        run: npm test
-
       - name: Compile bundled lookup engine
         run: |
-          bash scripts/build_native_backend.sh
+          bash scripts/build_native_backend.sh --with-ass-geometry
           file bin/iina-hoshi-dicts
+
+      - name: Run JavaScript and native geometry tests
+        run: npm test
+
+      - name: Package corresponding native source
+        run: bash scripts/package_native_source.sh
+
+      - name: Rebuild helper from corresponding source
+        run: |
+          source_test="$(mktemp -d)"
+          tar -xzf dist/iina-hoshi-dicts-native-source.tar.gz -C "$source_test"
+          cd "$source_test/iinatan-native-source"
+          IINATAN_NATIVE_ARCHIVE_DIR="$PWD/upstream" \
+            bash scripts/build_native_backend.sh --with-ass-geometry
 
       - name: Validate installable root layout
         run: npm run validate:release
@@ -68,6 +79,12 @@ jobs:
         with:
           name: iinatan-plugin
           path: dist/iinatan.iinaplgz
+
+      - name: Upload corresponding native source
+        uses: actions/upload-artifact@v4
+        with:
+          name: iinatan-native-source
+          path: dist/iina-hoshi-dicts-native-source.tar.gz
 
       - name: Prepare release notes
         if: ${{ inputs.publish_release }}
@@ -89,4 +106,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --notes-file release-notes.md
           fi
-          gh release upload "$RELEASE_TAG" dist/iinatan.iinaplgz --clobber
+          gh release upload "$RELEASE_TAG" \
+            dist/iinatan.iinaplgz \
+            dist/iina-hoshi-dicts-native-source.tar.gz \
+            --clobber

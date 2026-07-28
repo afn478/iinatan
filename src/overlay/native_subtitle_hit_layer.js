@@ -83,8 +83,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       normalized.mt + normalized.mb >= normalized.h
     )
       return { ok: false, reason: "missing-osd-dimensions" };
-    if (normalized.par < 0.95 || normalized.par > 1.05)
-      return { ok: false, reason: "non-coextensive-overlay" };
+    if (normalized.par < 0.1 || normalized.par > 10)
+      return { ok: false, reason: "missing-osd-dimensions" };
     const scaleX = width / normalized.w;
     const scaleY = height / normalized.h;
     const anisotropy =
@@ -251,28 +251,75 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         right: finiteNumber(rect.right, 0) + pad,
         bottom: finiteNumber(rect.bottom, 0) + pad,
         position: rect.position,
-      }))
-      .sort((a, b) =>
-        Math.abs(a.top - b.top) < 3 ? a.left - b.left : a.top - b.top,
-      );
-    for (let index = 1; index < boxes.length; index++) {
-      const previous = boxes[index - 1];
-      const current = boxes[index];
-      const sameLine =
-        Math.abs(previous.top - current.top) <
-        Math.max(
-          3,
-          Math.min(
-            previous.bottom - previous.top,
-            current.bottom - current.top,
-          ) * 0.35,
+      }));
+    boxes.sort((a, b) => {
+      const centerDelta = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
+      if (centerDelta) return centerDelta;
+      if (a.top !== b.top) return a.top - b.top;
+      if (a.left !== b.left) return a.left - b.left;
+      return 0;
+    });
+    const rows = [];
+    boxes.forEach((box) => {
+      const height = box.bottom - box.top;
+      const center = (box.top + box.bottom) / 2;
+      let selected = null;
+      let selectedScore = -1;
+      rows.forEach((row) => {
+        const overlap = Math.max(
+          0,
+          Math.min(box.bottom, row.bottom) - Math.max(box.top, row.top),
         );
-      if (!sameLine || previous.right <= current.left) continue;
-      const midpoint = (previous.right + current.left) / 2;
-      previous.right = midpoint;
-      current.left = midpoint;
-    }
-    return boxes
+        const overlapRatio =
+          overlap / Math.max(1, Math.min(height, row.averageHeight));
+        const centerDistance = Math.abs(center - row.center);
+        const centerMatch =
+          centerDistance <=
+          Math.max(2, Math.min(height, row.averageHeight) * 0.35);
+        if (overlapRatio < 0.3 && !centerMatch) return;
+        const score = overlapRatio * 1000 - centerDistance;
+        if (score <= selectedScore) return;
+        selected = row;
+        selectedScore = score;
+      });
+      if (!selected) {
+        rows.push({
+          boxes: [box],
+          top: box.top,
+          bottom: box.bottom,
+          center,
+          averageHeight: height,
+        });
+        return;
+      }
+      selected.boxes.push(box);
+      const count = selected.boxes.length;
+      selected.center = (selected.center * (count - 1) + center) / count;
+      selected.averageHeight =
+        (selected.averageHeight * (count - 1) + height) / count;
+      selected.top = Math.min(selected.top, box.top);
+      selected.bottom = Math.max(selected.bottom, box.bottom);
+    });
+    rows.sort((a, b) => a.center - b.center || a.top - b.top);
+    const ordered = [];
+    rows.forEach((row) => {
+      row.boxes.sort((a, b) => a.left - b.left || a.right - b.right);
+      for (let index = 1; index < row.boxes.length; index++) {
+        const previous = row.boxes[index - 1];
+        const current = row.boxes[index];
+        if (previous.right <= current.left) continue;
+        const minimum = Math.max(previous.left, current.left);
+        const maximum = Math.min(previous.right, current.right);
+        if (maximum <= minimum) continue;
+        const midpoint = (previous.right + current.left) / 2;
+        const boundary = Math.max(minimum, Math.min(maximum, midpoint));
+        if (boundary <= previous.left || boundary >= current.right) continue;
+        previous.right = boundary;
+        current.left = boundary;
+      }
+      ordered.push(...row.boxes);
+    });
+    return ordered
       .map((box) => ({
         left: box.left,
         top: box.top,

@@ -4,6 +4,7 @@ const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 const files = [
+  "src/languages/lookup_character_policy.js",
   "src/languages/common.js",
   "src/languages/deinflection.js",
   "src/languages/japanese.js",
@@ -41,6 +42,9 @@ const fr = context.registry.get("fr");
 const de = context.registry.get("de");
 const zh = context.registry.get("zh");
 const ko = context.registry.get("ko");
+const overlayConfigs = [ja, en, fr, de, zh, ko].map((language) =>
+  context.registry.overlayConfig(language),
+);
 
 assert(ja.id === "ja", "Japanese language should be registered");
 assert(en.id === "en", "English language should be registered");
@@ -84,6 +88,33 @@ assert(
   "Chinese should use character lookup unit",
 );
 assert(ko.lookupUnit === "word", "Korean should use word lookup unit");
+overlayConfigs.forEach((config) => {
+  assert(
+    config.lookupCharacterPolicy &&
+      Array.isArray(config.lookupCharacterPolicy.ranges),
+    config.id + " should serialize a declarative lookup character policy",
+  );
+  assert(
+    typeof config.lookupCharacterPolicy.additionalCharacters === "string",
+    config.id + " should serialize explicit additional lookup characters",
+  );
+});
+const serializedEnglishPolicy = context.registry.overlayConfig(en);
+serializedEnglishPolicy.lookupCharacterPolicy.ranges[0].start = -1;
+assert(
+  context.registry.overlayConfig(en).lookupCharacterPolicy.ranges[0].start >= 0,
+  "Overlay policy serialization should defensively clone nested ranges",
+);
+assert(
+  context.registry.overlayConfig({
+    id: "invalid",
+    lookupCharacterPolicy: {
+      ranges: [{ start: -1, end: 10 }],
+      additionalCharacters: "",
+    },
+  }).lookupCharacterPolicy === null,
+  "Invalid overlay policies should fail closed",
+);
 assert(
   typeof ja.dictionaryMatches === "function",
   "Japanese should expose dictionary compatibility check",
@@ -121,12 +152,15 @@ assert(
   "Japanese character should not be English-hoverable",
 );
 assert(fr.isHoverableChar("’"), "French apostrophe should be hoverable");
+assert(fr.isHoverableChar("œ"), "French ligature should be hoverable");
 assert(de.isHoverableChar("ä"), "German umlaut should be hoverable");
+assert(de.isHoverableChar("ẞ"), "German capital sharp s should be hoverable");
 assert(zh.isHoverableChar("中"), "Chinese Han character should be hoverable");
 assert(
   !zh.isHoverableChar("あ"),
   "Japanese kana should not be Chinese-hoverable",
 );
+assert(ko.isHoverableChar("한"), "Korean Hangul syllable should be hoverable");
 
 const englishText = "I am running fast";
 const nPos = Array.from(englishText).indexOf("n");

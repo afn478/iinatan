@@ -39,8 +39,38 @@ function normalizeNativeOsdDimensions(raw) {
     osd.mt + osd.mb >= osd.h
   )
     return null;
-  if (osd.par < 0.95 || osd.par > 1.05) return null;
+  if (osd.par < 0.1 || osd.par > 10) return null;
   return osd;
+}
+
+function normalizeNativeVideoDimensions(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  const numeric = (key) => {
+    const result = Number(value[key]);
+    return Number.isFinite(result) ? result : 0;
+  };
+  const width = Math.round(numeric("w"));
+  const height = Math.round(numeric("h"));
+  const displayWidth = numeric("dw");
+  const displayHeight = numeric("dh");
+  let par = numeric("par");
+  if (
+    !(par >= 0.1 && par <= 10) &&
+    displayWidth > 0 &&
+    displayHeight > 0 &&
+    width > 0 &&
+    height > 0
+  )
+    par = (displayWidth * height) / (displayHeight * width);
+  if (!(par >= 0.1 && par <= 10)) par = 1;
+  if (
+    width < 16 ||
+    height < 16 ||
+    width * height > 16000000 ||
+    numeric("rotate") !== 0
+  )
+    return null;
+  return { width, height, par };
 }
 
 function nativeSubtitleOptionSnapshot() {
@@ -54,11 +84,18 @@ function nativeSubtitleOptionSnapshot() {
   const runtimeFont = mpvStringProp(["sub-font"], "");
   const optionFont = mpvStringProp(["options/sub-font"], "");
   const effectiveFont = runtimeFont || optionFont || "sans-serif";
+  const fontProvider = mpvStringProp(
+    ["options/sub-font-provider", "sub-font-provider"],
+    "auto",
+  )
+    .trim()
+    .toLowerCase();
   return {
     font: effectiveFont,
     effectiveFont,
     runtimeFont,
     optionFont,
+    fontProvider,
     fontSize: clampNumber(
       mpvNumberProp(["options/sub-font-size", "sub-font-size"], 55),
       1,
@@ -77,6 +114,21 @@ function nativeSubtitleOptionSnapshot() {
     ),
     scaleWithWindow: mpvBoolProp(
       ["options/sub-scale-with-window", "sub-scale-with-window"],
+      true,
+    ),
+    assScaleWithWindow: mpvBoolProp(
+      ["options/sub-ass-scale-with-window", "sub-ass-scale-with-window"],
+      false,
+    ),
+    assVsfilterAspectCompat: mpvBoolProp(
+      [
+        "options/sub-ass-vsfilter-aspect-compat",
+        "sub-ass-vsfilter-aspect-compat",
+      ],
+      true,
+    ),
+    assVsfilterBlurCompat: mpvBoolProp(
+      ["options/sub-ass-vsfilter-blur-compat", "sub-ass-vsfilter-blur-compat"],
       true,
     ),
     marginX: clampNumber(
@@ -132,6 +184,14 @@ function nativeSubtitleOptionSnapshot() {
       200,
       0,
     ),
+    forceMargins: mpvBoolProp(
+      ["options/sub-ass-force-margins", "sub-ass-force-margins"],
+      false,
+    ),
+    assJustify: mpvBoolProp(
+      ["options/sub-ass-justify", "sub-ass-justify"],
+      false,
+    ),
     useMargins: mpvBoolProp(
       ["options/sub-use-margins", "sub-use-margins"],
       true,
@@ -139,6 +199,17 @@ function nativeSubtitleOptionSnapshot() {
     bold: mpvBoolProp(["options/sub-bold", "sub-bold"], true),
     italic: mpvBoolProp(["options/sub-italic", "sub-italic"], false),
   };
+}
+
+function nativeAssOverrideClassification(value) {
+  const mode = String(value || "yes")
+    .trim()
+    .toLowerCase();
+  if (mode === "no" || mode === "yes" || mode === "scale")
+    return { mode, nativeGeometry: true };
+  if (mode === "force" || mode === "strip")
+    return { mode, nativeGeometry: false };
+  return { mode, reason: "unsupported-ass-override" };
 }
 
 function nativeSubtitleFontCompatibility(font, text) {
@@ -528,6 +599,15 @@ function normalizeNativeTrackList(raw) {
       codec: String(track.codec || track["codec-desc"] || "")
         .trim()
         .toLowerCase(),
+      ffIndex: Number(
+        track["ff-index"] !== undefined ? track["ff-index"] : track.ffIndex,
+      ),
+      external: !!track.external,
+      externalFilename: String(
+        track["external-filename"] || track.externalFilename || "",
+      ),
+      language: String(track.lang || track.language || ""),
+      title: String(track.title || ""),
     }));
 }
 
@@ -754,6 +834,240 @@ function nativeLookupMapping(displayText, lookupText, options) {
   };
 }
 
+function nativeAssDisplayText(raw) {
+  const text = String(raw || "");
+  if (!text) return { reason: "empty-subtitle" };
+  if (/[\r\n{}]/.test(text)) return { reason: "complex-ass-tags" };
+  if (/\\(?![Nn])/i.test(text)) return { reason: "complex-ass-tags" };
+  return {
+    displayText: text.replace(/\\N/g, "\n").replace(/\\n/g, "\n"),
+  };
+}
+
+function nativeAssGeometryUnits(mapping, lookupText, language) {
+  const spans =
+    mapping && Array.isArray(mapping.lookupSpans) ? mapping.lookupSpans : [];
+  const characters = Array.from(String(lookupText || ""));
+  if (spans.length !== characters.length) return [];
+  const module = language || selectedLanguageModule();
+  const policy = module && module.lookupCharacterPolicy;
+  const isLookupable = (character) => {
+    try {
+      return IINATAN_LOOKUP_CHARACTER_POLICY.matches(policy, character);
+    } catch (_) {
+      return false;
+    }
+  };
+  const units = [];
+  for (let position = 0; position < characters.length; position++) {
+    if (!isLookupable(characters[position])) continue;
+    let end = position + 1;
+    if (module.lookupUnit === "word") {
+      while (end < characters.length && isLookupable(characters[end])) end++;
+    }
+    const first = spans[position];
+    const last = spans[end - 1];
+    if (
+      !first ||
+      !last ||
+      !Number.isInteger(first.startUtf16) ||
+      !Number.isInteger(last.endUtf16) ||
+      last.endUtf16 <= first.startUtf16
+    )
+      return [];
+    units.push({
+      position,
+      displayStartUtf16: first.startUtf16,
+      displayEndUtf16: last.endUtf16,
+    });
+    position = end - 1;
+  }
+  return units;
+}
+
+function nativeAssSourceSnapshot(track) {
+  const selected = track || {};
+  const path = selected.external
+    ? selected.externalFilename
+    : mpvStringProp(["stream-open-filename", "path"], "");
+  if (!path || path.charAt(0) !== "/") return { reason: "unsafe-media-path" };
+  if (!Number.isInteger(selected.ffIndex) || selected.ffIndex < 0)
+    return { reason: "ambiguous-stream-map" };
+  return {
+    path,
+    ffIndex: selected.ffIndex,
+    external: !!selected.external,
+  };
+}
+
+function normalizeNativeAssGeometryResponse(response, request) {
+  if (
+    !response ||
+    response.ok !== true ||
+    response.protocol !== 1 ||
+    !Array.isArray(response.units) ||
+    response.rendererWidth !== request.renderer.width ||
+    response.rendererHeight !== request.renderer.height ||
+    response.units.length !== request.units.length
+  )
+    return {
+      reason: (response && response.reason) || "invalid-ass-geometry-response",
+    };
+  const expected = Object.create(null);
+  request.units.forEach((unit) => {
+    expected[String(unit.position)] = true;
+  });
+  const units = [];
+  for (let index = 0; index < response.units.length; index++) {
+    const unit = response.units[index];
+    if (
+      !unit ||
+      !Number.isInteger(unit.position) ||
+      !expected[String(unit.position)] ||
+      !Array.isArray(unit.rects) ||
+      !unit.rects.length ||
+      unit.rects.length > 16
+    )
+      return { reason: "invalid-ass-geometry-response" };
+    delete expected[String(unit.position)];
+    const rects = [];
+    for (let rectIndex = 0; rectIndex < unit.rects.length; rectIndex++) {
+      const rect = unit.rects[rectIndex];
+      const x = Number(rect && rect.x);
+      const y = Number(rect && rect.y);
+      const w = Number(rect && rect.w);
+      const h = Number(rect && rect.h);
+      if (
+        ![x, y, w, h].every(Number.isFinite) ||
+        w <= 0 ||
+        h <= 0 ||
+        x < 0 ||
+        y < 0 ||
+        x + w > request.renderer.width ||
+        y + h > request.renderer.height
+      )
+        return { reason: "invalid-ass-geometry-response" };
+      rects.push({ x, y, w, h });
+    }
+    units.push({ position: unit.position, rects });
+  }
+  if (Object.keys(expected).length)
+    return { reason: "invalid-ass-geometry-response" };
+  let alphaMask = null;
+  if (response.alphaMask !== undefined) {
+    const mask = response.alphaMask;
+    if (
+      !mask ||
+      mask.encoding !== "rle-u8-base64" ||
+      !Number.isInteger(mask.x) ||
+      !Number.isInteger(mask.y) ||
+      !Number.isInteger(mask.w) ||
+      !Number.isInteger(mask.h) ||
+      mask.x < 0 ||
+      mask.y < 0 ||
+      mask.w <= 0 ||
+      mask.h <= 0 ||
+      mask.x + mask.w > request.renderer.width ||
+      mask.y + mask.h > request.renderer.height ||
+      mask.w * mask.h > 262144 ||
+      typeof mask.data !== "string" ||
+      mask.data.length > 750000
+    )
+      return { reason: "invalid-ass-geometry-response" };
+    alphaMask = {
+      x: mask.x,
+      y: mask.y,
+      w: mask.w,
+      h: mask.h,
+      encoding: mask.encoding,
+      data: mask.data,
+    };
+  }
+  return { ok: true, units, alphaMask };
+}
+
+function pruneNativeAssGeometryCache() {
+  const cacheKeys = Object.keys(nativeAssGeometryCache);
+  while (cacheKeys.length > 16)
+    delete nativeAssGeometryCache[cacheKeys.shift()];
+}
+
+function nativeAssGeometryCacheKey(request) {
+  const cue = Object.assign({}, request && request.cue);
+  delete cue.timeMs;
+  return JSON.stringify(
+    Object.assign({}, request, {
+      cue,
+    }),
+  );
+}
+
+function nativeAssGeometrySnapshot(request) {
+  const key = nativeAssGeometryCacheKey(request);
+  nativeAssGeometryActiveKey = key;
+  const cached = nativeAssGeometryCache[key];
+  if (cached) return cached;
+  const generation = nativeAssGeometryGeneration;
+  if (!nativeAssGeometryInFlight[key]) {
+    const liveRequest = request;
+    const inFlight = Promise.resolve()
+      .then(() =>
+        runWorkerQueueRequestDirect(
+          liveRequest,
+          selectedLanguageModule(),
+          Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
+        ),
+      )
+      .then((response) => {
+        if (
+          generation !== nativeAssGeometryGeneration ||
+          key !== nativeAssGeometryActiveKey
+        )
+          return;
+        const normalized = normalizeNativeAssGeometryResponse(
+          response,
+          liveRequest,
+        );
+        nativeAssGeometryCache[key] = normalized;
+        pruneNativeAssGeometryCache();
+        if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+          scheduleExperimentalNativeLayoutRebuild();
+      })
+      .catch((error) => {
+        if (
+          generation !== nativeAssGeometryGeneration ||
+          key !== nativeAssGeometryActiveKey
+        )
+          return;
+        const message = String(
+          (error && (error.reason || error.message)) || "ass-geometry-failed",
+        );
+        nativeAssGeometryCache[key] = {
+          reason: /^[a-z0-9-]+$/.test(message)
+            ? message
+            : "ass-geometry-failed",
+        };
+        pruneNativeAssGeometryCache();
+        debugWarn("native ASS geometry failed: " + compactError(error));
+        if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+          scheduleExperimentalNativeLayoutRebuild();
+      })
+      .finally(() => {
+        if (nativeAssGeometryInFlight[key] === inFlight)
+          delete nativeAssGeometryInFlight[key];
+      });
+    nativeAssGeometryInFlight[key] = inFlight;
+  }
+  return { reason: "ass-geometry-pending" };
+}
+
+function advanceNativeAssGeometryGeneration() {
+  nativeAssGeometryGeneration++;
+  nativeAssGeometryActiveKey = "";
+  nativeAssGeometryCache = Object.create(null);
+  nativeAssGeometryInFlight = Object.create(null);
+}
+
 function nativeSubtitleCueSnapshot(normalizedText) {
   nativeSubtitleFontMetricActiveKey = "";
   const tracks = nativeSubtitleJsonProperty("track-list", []);
@@ -776,10 +1090,13 @@ function nativeSubtitleCueSnapshot(normalizedText) {
   if (eligibility.kind === "srt") {
     displayText = cleanNativeDisplayText(plain);
   } else {
-    const parsed = parseSimpleNativeAssCue(
-      ass,
-      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], ""),
+    const assOverride = nativeAssOverrideClassification(
+      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
     );
+    if (assOverride.reason) return { reason: assOverride.reason };
+    const parsed = !assOverride.nativeGeometry
+      ? parseSimpleNativeAssCue(ass, assOverride.mode)
+      : nativeAssDisplayText(ass);
     if (parsed.reason) return { reason: parsed.reason };
     displayText = parsed.displayText;
   }
@@ -787,6 +1104,142 @@ function nativeSubtitleCueSnapshot(normalizedText) {
   if (!displayText || !lookupText)
     return { reason: "empty-subtitle", displayText };
   const options = nativeSubtitleOptionSnapshot();
+  let mapping = null;
+  let osd = null;
+  if (eligibility.kind === "ass") {
+    mapping = nativeLookupMapping(displayText, lookupText, {
+      flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+      languageId: selectedLanguageModule().id,
+    });
+    if (!mapping.ok) return { reason: mapping.reason };
+    osd = normalizeNativeOsdDimensions(
+      nativeSubtitleJsonProperty("osd-dimensions", null),
+    );
+    if (!osd) return { reason: "missing-osd-dimensions" };
+    const video = normalizeNativeVideoDimensions(
+      nativeSubtitleJsonProperty("video-params", null),
+    );
+    if (!video) return { reason: "missing-video-dimensions" };
+    const assOverride = nativeAssOverrideClassification(
+      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
+    );
+    if (assOverride.reason) return { reason: assOverride.reason };
+    if (assOverride.nativeGeometry) {
+      if (
+        options.assJustify ||
+        ["", "auto", "autodetect"].indexOf(options.fontProvider) < 0
+      )
+        return { reason: "unsupported-renderer-option" };
+      const unsupportedRendererProperties = [
+        ["options/sub-ass-styles", "sub-ass-styles"],
+        ["options/sub-fonts-dir", "sub-fonts-dir"],
+        ["options/sub-ass-force-style", "sub-ass-force-style"],
+        ["options/sub-ass-style-overrides", "sub-ass-style-overrides"],
+      ];
+      for (const names of unsupportedRendererProperties) {
+        const value = mpvStringProp(names, "").trim();
+        if (value && value !== "[]" && value !== "no")
+          return { reason: "unsupported-renderer-option" };
+      }
+      const source = nativeAssSourceSnapshot(eligibility.track);
+      if (source.reason) return source;
+      const units = nativeAssGeometryUnits(
+        mapping,
+        lookupText,
+        selectedLanguageModule(),
+      );
+      if (!units.length) return { reason: "text-index-map-failed" };
+      const timeMs = Math.round(
+        mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
+      );
+      const startMs = Math.round(mpvNumberProp(["sub-start"], -1) * 1000);
+      const endMs = Math.round(mpvNumberProp(["sub-end"], -1) * 1000);
+      if (
+        ![timeMs, startMs, endMs].every(Number.isFinite) ||
+        timeMs < 0 ||
+        startMs < 0 ||
+        endMs <= startMs
+      )
+        return { reason: "cue-timing-unavailable" };
+      const appliesSubtitleOptions = assOverride.mode !== "no";
+      let fontScale = appliesSubtitleOptions ? options.scale : 1;
+      if (options.assScaleWithWindow) {
+        const videoAreaHeight = Math.max(1, osd.h - osd.mt - osd.mb);
+        fontScale *= osd.h / videoAreaHeight;
+      }
+      const request = {
+        type: "ass-geometry",
+        protocol: 1,
+        source,
+        cue: {
+          timeMs,
+          startMs,
+          endMs,
+          observedAss: ass,
+        },
+        units,
+        renderer: {
+          width: osd.w,
+          height: osd.h,
+          storageWidth: video.width,
+          storageHeight: video.height,
+          marginLeft: osd.ml,
+          marginRight: osd.mr,
+          marginTop: osd.mt,
+          marginBottom: osd.mb,
+          pixelAspect:
+            osd.par *
+            (assOverride.mode === "no" || options.assVsfilterAspectCompat
+              ? video.par
+              : 1),
+          fontScale,
+          lineSpacing: appliesSubtitleOptions ? options.lineSpacing : 0,
+          forceMargins: options.forceMargins,
+          embeddedFonts: mpvBoolProp(
+            ["options/embeddedfonts", "embeddedfonts"],
+            true,
+          ),
+          overrideMode: assOverride.mode,
+          useStorageSize:
+            assOverride.mode === "no" || options.assVsfilterBlurCompat,
+          defaultFamily: options.effectiveFont,
+          fontProvider: options.fontProvider,
+          assJustify: options.assJustify,
+          linePosition: appliesSubtitleOptions ? 100 - options.position : 0,
+          hinting: appliesSubtitleOptions
+            ? mpvStringProp(
+                ["options/sub-ass-hinting", "sub-ass-hinting"],
+                "none",
+              )
+            : "none",
+          shaper: mpvStringProp(
+            ["options/sub-ass-shaper", "sub-ass-shaper"],
+            "complex",
+          ),
+        },
+      };
+      const geometry = nativeAssGeometrySnapshot(request);
+      if (!geometry.ok)
+        return {
+          reason: geometry.reason || "ass-geometry-failed",
+          trackId: eligibility.track.id,
+          displayText,
+        };
+      return {
+        kind: "ass-native",
+        trackId: eligibility.track.id,
+        displayText,
+        lookupSpans: mapping.lookupSpans,
+        layout: {
+          osd,
+          directRects: geometry.units,
+          alphaMask: geometry.alphaMask,
+          geometryProtocol: 1,
+          hidpiScale: mpvNumberProp(["display-hidpi-scale"], 0),
+        },
+      };
+    }
+  }
   const fontCompatibility = nativeSubtitleFontCompatibility(
     options.effectiveFont,
     displayText,
@@ -805,15 +1258,19 @@ function nativeSubtitleCueSnapshot(normalizedText) {
       layout: { options },
     };
   Object.assign(options, fontMetrics.metrics);
-  const mapping = nativeLookupMapping(displayText, lookupText, {
-    flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
-    languageId: selectedLanguageModule().id,
-  });
-  if (!mapping.ok) return { reason: mapping.reason };
-  const osd = normalizeNativeOsdDimensions(
-    nativeSubtitleJsonProperty("osd-dimensions", null),
-  );
-  if (!osd) return { reason: "missing-osd-dimensions" };
+  if (!mapping) {
+    mapping = nativeLookupMapping(displayText, lookupText, {
+      flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+      languageId: selectedLanguageModule().id,
+    });
+    if (!mapping.ok) return { reason: mapping.reason };
+  }
+  if (!osd) {
+    osd = normalizeNativeOsdDimensions(
+      nativeSubtitleJsonProperty("osd-dimensions", null),
+    );
+    if (!osd) return { reason: "missing-osd-dimensions" };
+  }
   return {
     kind: eligibility.kind,
     trackId: eligibility.track.id,

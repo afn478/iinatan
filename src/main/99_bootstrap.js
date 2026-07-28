@@ -11,6 +11,8 @@ event.on("iina.window-loaded", () => {
 });
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
   lastSubtitle = null;
@@ -26,6 +28,8 @@ event.on("mpv.file-loaded", () => {
 });
 event.on("mpv.end-file", () => {
   advanceNativeSubtitleFontMetricGeneration();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -74,11 +78,14 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-start",
   "sub-end",
   "osd-dimensions",
+  "video-params",
   "track-list",
   "sid",
   "secondary-sid",
   "options/sub-font",
   "sub-font",
+  "options/sub-font-provider",
+  "sub-font-provider",
   "options/sub-font-size",
   "sub-font-size",
   "options/sub-scale",
@@ -87,6 +94,12 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-scale-by-window",
   "options/sub-scale-with-window",
   "sub-scale-with-window",
+  "options/sub-ass-scale-with-window",
+  "sub-ass-scale-with-window",
+  "options/sub-ass-vsfilter-aspect-compat",
+  "sub-ass-vsfilter-aspect-compat",
+  "options/sub-ass-vsfilter-blur-compat",
+  "sub-ass-vsfilter-blur-compat",
   "options/sub-margin-x",
   "sub-margin-x",
   "options/sub-margin-y",
@@ -105,14 +118,32 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-line-spacing",
   "options/sub-ass-line-spacing",
   "sub-ass-line-spacing",
+  "options/sub-ass-force-margins",
+  "sub-ass-force-margins",
+  "options/sub-ass-justify",
+  "sub-ass-justify",
   "options/sub-use-margins",
   "sub-use-margins",
+  "options/sub-ass-styles",
+  "sub-ass-styles",
+  "options/sub-fonts-dir",
+  "sub-fonts-dir",
+  "options/sub-ass-force-style",
+  "sub-ass-force-style",
+  "options/sub-ass-style-overrides",
+  "sub-ass-style-overrides",
   "options/sub-bold",
   "sub-bold",
   "options/sub-italic",
   "sub-italic",
   "options/sub-ass-override",
   "sub-ass-override",
+  "options/sub-ass-hinting",
+  "sub-ass-hinting",
+  "options/sub-ass-shaper",
+  "sub-ass-shaper",
+  "options/embeddedfonts",
+  "embeddedfonts",
   "display-hidpi-scale",
 ].forEach((property) => {
   try {
@@ -130,6 +161,19 @@ function scheduleExperimentalNativeLayoutRebuild() {
         ].indexOf(property) >= 0
       )
         advanceNativeSubtitleFontMetricGeneration();
+      if (
+        [
+          "sid",
+          "secondary-sid",
+          "sub-ass-override",
+          "sub-ass-hinting",
+          "sub-ass-shaper",
+          "embeddedfonts",
+          "osd-dimensions",
+        ].indexOf(property) >= 0
+      )
+        if (typeof advanceNativeAssGeometryGeneration === "function")
+          advanceNativeAssGeometryGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
     });

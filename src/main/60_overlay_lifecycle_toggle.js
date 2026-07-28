@@ -87,6 +87,8 @@ function initializeOverlay() {
 function prepareRuntimeAfterProfileChange() {
   advanceNativeSubtitleFontMetricGeneration();
   invalidateCurrentSubtitleLookupLine();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   lookupBackendReadyForNativeHide = false;
   lookupInFlight = Object.create(null);
   lastSubtitle = null;
@@ -248,6 +250,8 @@ function setEnabled(next) {
   if (enabled !== wasEnabled) {
     advanceNativeSubtitleFontMetricGeneration();
     invalidateCurrentSubtitleLookupLine();
+    if (typeof advanceNativeAssGeometryGeneration === "function")
+      advanceNativeAssGeometryGeneration();
   }
   lookupBackendReadyForNativeHide = false;
   initializeOverlay();

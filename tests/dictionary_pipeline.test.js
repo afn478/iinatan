@@ -4,6 +4,7 @@ const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 const files = [
+  "src/languages/lookup_character_policy.js",
   "src/languages/common.js",
   "src/languages/deinflection.js",
   "src/languages/japanese.js",

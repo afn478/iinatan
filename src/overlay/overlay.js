@@ -51,6 +51,8 @@
         label: "Japanese",
         lookupUnit: "character",
         wordMode: "rightward-prefix",
+        lookupCharacterPolicy:
+          IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese,
       },
       hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false,
@@ -1202,18 +1204,15 @@
 
   function isLookupableChar(ch) {
     const lang = activeLanguage();
-    const s = String(ch || "");
-    if (
-      lang.wordMode === "latin-word" ||
-      lang.id === "en" ||
-      lang.id === "fr" ||
-      lang.id === "de"
-    )
-      return /[A-Za-zÀ-ÖØ-öø-ÿ0-9'’ʼ＇‘‛\-‐‑‒–—]/.test(s);
-    if (lang.id === "ko")
-      return /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/.test(s);
-    if (lang.id === "zh") return /[\u3400-\u9fff\uf900-\ufaff]/.test(s);
-    return /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/.test(s);
+    const configuredPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.normalize(
+      lang.lookupCharacterPolicy,
+    );
+    const policy =
+      configuredPolicy ||
+      (lang.id === "ja"
+        ? IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese
+        : null);
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(policy, ch);
   }
 
   function findLookupRun(pos) {
@@ -1726,14 +1725,15 @@
         scaleY: Number(geometry.scaleY),
       },
       layoutMetrics: {
-        fontSize: Number(layout.fontSize),
-        lineHeight: Number(layout.lineHeight),
-        letterSpacing: Number(layout.letterSpacing),
-        fontFamily: String(layout.fontFamily || ""),
-        fontWeight: String(layout.fontWeight || ""),
-        fontStyle: String(layout.fontStyle || ""),
-        maxWidth: Number(layout.maxWidth),
-        textAlign: String(layout.textAlign || ""),
+        mode: layout ? "html-text" : "native-ass-mask",
+        fontSize: Number((layout && layout.fontSize) || 0),
+        lineHeight: Number((layout && layout.lineHeight) || 0),
+        letterSpacing: Number((layout && layout.letterSpacing) || 0),
+        fontFamily: String((layout && layout.fontFamily) || ""),
+        fontWeight: String((layout && layout.fontWeight) || ""),
+        fontStyle: String((layout && layout.fontStyle) || ""),
+        maxWidth: Number((layout && layout.maxWidth) || 0),
+        textAlign: String((layout && layout.textAlign) || ""),
       },
       dpr: Number(window.devicePixelRatio || 0),
       hidpiScale: Number((nativeLayout && nativeLayout.hidpiScale) || 0),
@@ -1754,6 +1754,77 @@
     } else {
       element.style[name] = String(value);
     }
+  }
+
+  function renderNativeAssAlphaMask(mask, geometry, opacity) {
+    if (
+      !mask ||
+      mask.encoding !== "rle-u8-base64" ||
+      typeof mask.data !== "string"
+    )
+      return false;
+    let encoded;
+    try {
+      const decode =
+        typeof window.atob === "function"
+          ? window.atob.bind(window)
+          : typeof atob === "function"
+            ? atob
+            : null;
+      if (!decode) return false;
+      encoded = decode(mask.data);
+    } catch (_) {
+      return false;
+    }
+    const pixelCount = Number(mask.w) * Number(mask.h);
+    if (!Number.isInteger(pixelCount) || pixelCount <= 0 || pixelCount > 262144)
+      return false;
+    const alpha = new Uint8ClampedArray(pixelCount);
+    let pixelOffset = 0;
+    for (let offset = 0; offset + 1 < encoded.length; offset += 2) {
+      const run = encoded.charCodeAt(offset);
+      const value = encoded.charCodeAt(offset + 1);
+      if (!run || pixelOffset + run > pixelCount) return false;
+      alpha.fill(value, pixelOffset, pixelOffset + run);
+      pixelOffset += run;
+    }
+    if (pixelOffset !== pixelCount || encoded.length % 2) return false;
+    const canvas = document.createElement("canvas");
+    canvas.width = mask.w;
+    canvas.height = mask.h;
+    const context =
+      typeof canvas.getContext === "function"
+        ? canvas.getContext("2d", { alpha: true })
+        : null;
+    if (!context || typeof context.createImageData !== "function") return false;
+    const image = context.createImageData(mask.w, mask.h);
+    for (let index = 0; index < pixelCount; index++) {
+      const rgba = index * 4;
+      image.data[rgba] = 255;
+      image.data[rgba + 1] = 255;
+      image.data[rgba + 2] = 255;
+      image.data[rgba + 3] = alpha[index];
+    }
+    context.putImageData(image, 0, 0);
+    nativeSubtitleCopyEl.textContent = "";
+    nativeSubtitleCopyEl.appendChild(canvas);
+    setImportantStyle(nativeSubtitleCopyEl, "all", "initial");
+    setImportantStyle(nativeSubtitleCopyEl, "display", "block");
+    setImportantStyle(nativeSubtitleCopyEl, "position", "fixed");
+    setImportantStyle(nativeSubtitleCopyEl, "inset", "0");
+    setImportantStyle(nativeSubtitleCopyEl, "pointer-events", "none");
+    setImportantStyle(nativeSubtitleCopyEl, "opacity", opacity);
+    setImportantStyle(nativeSubtitleCopyEl, "z-index", "1");
+    setImportantStyle(canvas, "all", "initial");
+    setImportantStyle(canvas, "display", "block");
+    setImportantStyle(canvas, "position", "fixed");
+    setImportantStyle(canvas, "left", mask.x * geometry.scaleX + "px");
+    setImportantStyle(canvas, "top", mask.y * geometry.scaleY + "px");
+    setImportantStyle(canvas, "width", mask.w * geometry.scaleX + "px");
+    setImportantStyle(canvas, "height", mask.h * geometry.scaleY + "px");
+    setImportantStyle(canvas, "pointer-events", "none");
+    nativeSubtitleCopyEl.classList.remove("hidden");
+    return true;
   }
 
   function nativeRangeRects(lookupSpans, start, end) {
@@ -2137,6 +2208,122 @@
       nativeLayout.osd,
       viewport,
     );
+    if (geometry.ok && Array.isArray(nativeLayout.directRects)) {
+      const copyOpacity = Math.max(
+        0,
+        Math.min(
+          1,
+          Number(state.config.experimentalNativeSubtitleTextOpacity) || 0,
+        ),
+      );
+      const maskRendered =
+        copyOpacity > 0 &&
+        renderNativeAssAlphaMask(nativeLayout.alphaMask, geometry, copyOpacity);
+      if (copyOpacity > 0 && !maskRendered)
+        overlayDebug(
+          "native subtitle copied-text mask is unavailable for this native ASS cue; character-box diagnostics remain available",
+        );
+      if (!maskRendered) {
+        nativeSubtitleCopyEl.textContent = "";
+        setImportantStyle(nativeSubtitleCopyEl, "display", "none");
+        nativeSubtitleCopyEl.classList.add("hidden");
+      }
+      nativeSubtitleHitBoxesEl.textContent = "";
+      state.charByPos = Object.create(null);
+      const measured = [];
+      nativeLayout.directRects.forEach((unit) => {
+        if (!unit || !Number.isInteger(Number(unit.position))) return;
+        (unit.rects || []).forEach((rect) => {
+          const left = Number(rect.x) * geometry.scaleX;
+          const top = Number(rect.y) * geometry.scaleY;
+          const width = Number(rect.w) * geometry.scaleX;
+          const height = Number(rect.h) * geometry.scaleY;
+          if (
+            ![left, top, width, height].every(Number.isFinite) ||
+            width <= 0 ||
+            height <= 0
+          )
+            return;
+          measured.push({
+            left,
+            top,
+            right: left + width,
+            bottom: top + height,
+            width,
+            height,
+            position: Number(unit.position),
+          });
+        });
+      });
+      const boxes = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.resolveHitBoxOverlaps(
+        measured,
+        2,
+      );
+      boxes.forEach((box) => {
+        if (
+          box.left < -3 ||
+          box.top < -3 ||
+          box.left + box.width > viewport.width + 3 ||
+          box.top + box.height > viewport.height + 3
+        )
+          return;
+        const hit = document.createElement("div");
+        hit.className =
+          "native-subtitle-hit-box" +
+          (state.config.experimentalNativeSubtitleHitBoxes ? " debug" : "");
+        hit.setAttribute("data-clickable", "true");
+        hit.dataset.pos = String(box.position);
+        setImportantStyle(hit, "all", "initial");
+        setImportantStyle(hit, "display", "block");
+        setImportantStyle(hit, "position", "fixed");
+        setImportantStyle(hit, "left", Math.max(0, box.left) + "px");
+        setImportantStyle(hit, "top", Math.max(0, box.top) + "px");
+        setImportantStyle(hit, "width", box.width + "px");
+        setImportantStyle(hit, "height", box.height + "px");
+        setImportantStyle(hit, "box-sizing", "border-box");
+        setImportantStyle(hit, "pointer-events", "auto");
+        setImportantStyle(hit, "margin", "0");
+        setImportantStyle(hit, "padding", "0");
+        setImportantStyle(hit, "z-index", "3");
+        setImportantStyle(hit, "opacity", "1");
+        setImportantStyle(hit, "visibility", "visible");
+        setImportantStyle(hit, "contain", "strict");
+        setImportantStyle(hit, "overflow", "visible");
+        setImportantStyle(hit, "font-size", "0");
+        setImportantStyle(
+          hit,
+          "border",
+          state.config.experimentalNativeSubtitleHitBoxes
+            ? "1px solid rgba(80, 190, 255, .9)"
+            : "0 solid transparent",
+        );
+        setImportantStyle(
+          hit,
+          "background",
+          state.config.experimentalNativeSubtitleHitBoxes
+            ? "rgba(80, 190, 255, .14)"
+            : "transparent",
+        );
+        hit.addEventListener("mouseenter", onCharEnter);
+        hit.addEventListener("click", onCharEnter);
+        hit.addEventListener("mouseleave", scheduleHidePopup);
+        nativeSubtitleHitBoxesEl.appendChild(hit);
+        if (!state.charByPos[box.position]) state.charByPos[box.position] = hit;
+      });
+      if (nativeSubtitleHitBoxesEl.children.length) {
+        setImportantStyle(nativeSubtitleHitBoxesEl, "display", "block");
+        nativeSubtitleHitBoxesEl.classList.remove("hidden");
+        publishAcceptedNativeLayoutDiagnostic(
+          null,
+          geometry,
+          viewport,
+          nativeLayout,
+        );
+      } else {
+        invalidateNativeSubtitleHitLayer("missing-unit-fill");
+      }
+      return;
+    }
     const layout = IINATAN_NATIVE_SUBTITLE_HIT_LAYER.calculatePlainTextLayout(
       geometry,
       nativeLayout.options,

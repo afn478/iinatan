@@ -197,6 +197,10 @@ let nativeSubtitleFontMetricCache = Object.create(null);
 let nativeSubtitleFontMetricInFlight = Object.create(null);
 let nativeSubtitleFontMetricGeneration = 0;
 let nativeSubtitleFontMetricActiveKey = "";
+let nativeAssGeometryCache = Object.create(null);
+let nativeAssGeometryInFlight = Object.create(null);
+let nativeAssGeometryGeneration = 0;
+let nativeAssGeometryActiveKey = "";
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
 let nativeSubVisibilityBeforeEnable = null;
@@ -785,6 +789,94 @@ async function clearDirFiles(dir) {
   } catch (_) {}
 }
 
+const IINATAN_LOOKUP_CHARACTER_POLICY = (() => {
+  const MAX_CODE_POINT = 0x10ffff;
+  const policies = {
+    japanese: {
+      ranges: [
+        { start: 0x3040, end: 0x30ff },
+        { start: 0x3400, end: 0x9fff },
+      ],
+      additionalCharacters: "々〆",
+    },
+    latinWord: {
+      ranges: [
+        { start: 0x30, end: 0x39 },
+        { start: 0x41, end: 0x5a },
+        { start: 0x61, end: 0x7a },
+        { start: 0xc0, end: 0xd6 },
+        { start: 0xd8, end: 0xf6 },
+        { start: 0xf8, end: 0x24f },
+        { start: 0x1e00, end: 0x1eff },
+      ],
+      additionalCharacters: "'’ʼ＇‘‛-‐‑‒–—",
+    },
+    chinese: {
+      ranges: [
+        { start: 0x3400, end: 0x9fff },
+        { start: 0xf900, end: 0xfaff },
+      ],
+      additionalCharacters: "",
+    },
+    korean: {
+      ranges: [
+        { start: 0x1100, end: 0x11ff },
+        { start: 0x3130, end: 0x318f },
+        { start: 0xac00, end: 0xd7af },
+      ],
+      additionalCharacters: "",
+    },
+  };
+
+  function normalizedRange(value) {
+    if (!value || typeof value !== "object") return null;
+    const start = Number(value.start);
+    const end = Number(value.end);
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end > MAX_CODE_POINT
+    )
+      return null;
+    return { start, end };
+  }
+
+  function normalize(value) {
+    if (!value || typeof value !== "object") return null;
+    if (!Array.isArray(value.ranges)) return null;
+    const ranges = [];
+    for (let index = 0; index < value.ranges.length; index++) {
+      const range = normalizedRange(value.ranges[index]);
+      if (!range) return null;
+      ranges.push(range);
+    }
+    const additionalCharacters =
+      typeof value.additionalCharacters === "string"
+        ? value.additionalCharacters
+        : "";
+    if (!ranges.length && !additionalCharacters) return null;
+    return { ranges, additionalCharacters };
+  }
+
+  function matches(value, character) {
+    const policy = normalize(value);
+    const chars = Array.from(String(character || ""));
+    if (!policy || chars.length !== 1) return false;
+    const codePoint = chars[0].codePointAt(0);
+    if (
+      policy.ranges.some(
+        (range) => codePoint >= range.start && codePoint <= range.end,
+      )
+    )
+      return true;
+    return Array.from(policy.additionalCharacters).includes(chars[0]);
+  }
+
+  return { policies, normalize, matches };
+})();
+
 const IINATAN_LANGUAGE_COMMON = (() => {
   const JAPANESE_CHAR_RE = /[\u3040-\u30ff\u3400-\u9fff々〆ヵヶー]/;
   const CHINESE_CHAR_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
@@ -1132,6 +1224,8 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     /（([\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f\s]+)）/g;
   const KANA_RE =
     /[\u3041-\u3096\u309d-\u309f\u30a1-\u30fa\u30fd-\u30ff\u31f0-\u31ff\uff66-\uff9f]/;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese;
 
   function stripParenthesizedFurigana(text) {
     return String(text || "").replace(
@@ -1141,7 +1235,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
   }
 
   function isHoverableChar(ch) {
-    return common.JAPANESE_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
@@ -1183,6 +1277,7 @@ const IINATAN_JAPANESE_LANGUAGE = (() => {
     deinflectionMode: "hoshidicts-japanese",
     dictionaryCompatibility:
       "Yomitan-compatible Japanese dictionaries via HoshiDicts/Jitendex.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches: () => true,
@@ -1256,6 +1351,8 @@ const IINATAN_ENGLISH_YOMITAN_DOUBLED_SUFFIX_RULES = [
 const IINATAN_ENGLISH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_SUFFIX_RULES =
     typeof IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES !== "undefined"
       ? IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES
@@ -1331,11 +1428,11 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -1431,6 +1528,7 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-english",
     dictionaryCompatibility:
       "Yomitan-compatible term dictionaries; exact whole-word lookup with English deinflection candidates.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
@@ -4124,6 +4222,8 @@ const IINATAN_FRENCH_YOMITAN_SUFFIX_RULES = [
 const IINATAN_FRENCH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_RULES =
     typeof IINATAN_FRENCH_YOMITAN_SUFFIX_RULES !== "undefined"
       ? IINATAN_FRENCH_YOMITAN_SUFFIX_RULES
@@ -4203,11 +4303,11 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -4346,6 +4446,7 @@ const IINATAN_FRENCH_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-french",
     dictionaryCompatibility:
       "Yomitan-compatible French-headword term dictionaries; apostrophe/elision-aware exact lookup.",
+    lookupCharacterPolicy,
     upstreamRuleCount: YOMITAN_RULES.length,
     isHoverableChar,
     hasLookupText,
@@ -4450,6 +4551,8 @@ const IINATAN_GERMAN_YOMITAN_PREFIX_RULES = [
 const IINATAN_GERMAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_SEPARABLE_PREFIXES =
     typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined"
       ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES
@@ -4619,11 +4722,11 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -4883,6 +4986,7 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-german",
     dictionaryCompatibility:
       "Yomitan-compatible German-headword term dictionaries; capitalization and separable-verb candidate lookup.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
@@ -4896,13 +5000,15 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
 
 const IINATAN_CHINESE_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.chinese;
 
   function isHoverableChar(ch) {
-    return common.CHINESE_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.CHINESE_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -4954,6 +5060,7 @@ const IINATAN_CHINESE_LANGUAGE = (() => {
     deinflectionMode: "none",
     dictionaryCompatibility:
       "Yomitan-compatible Chinese-headword term dictionaries; longest rightward-prefix lookup without Japanese deinflection.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
@@ -4964,13 +5071,14 @@ const IINATAN_CHINESE_LANGUAGE = (() => {
 
 const IINATAN_KOREAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const lookupCharacterPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.policies.korean;
 
   function isHoverableChar(ch) {
-    return common.KOREAN_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.KOREAN_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -5018,6 +5126,7 @@ const IINATAN_KOREAN_LANGUAGE = (() => {
     deinflectionMode: "none",
     dictionaryCompatibility:
       "Yomitan-compatible term dictionaries; exact contiguous-Hangul lookup only.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
@@ -5050,6 +5159,9 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
 
   function overlayConfig(language) {
     const selectedLanguage = language || selected();
+    const lookupCharacterPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.normalize(
+      selectedLanguage.lookupCharacterPolicy,
+    );
     return {
       id: selectedLanguage.id,
       label: selectedLanguage.label,
@@ -5064,6 +5176,7 @@ const IINATAN_LANGUAGE_REGISTRY = (() => {
       deinflectionMode:
         selectedLanguage.deinflectionMode || selectedLanguage.deinflection,
       dictionaryCompatibility: selectedLanguage.dictionaryCompatibility,
+      lookupCharacterPolicy,
     };
   }
 
@@ -5662,8 +5775,38 @@ function normalizeNativeOsdDimensions(raw) {
     osd.mt + osd.mb >= osd.h
   )
     return null;
-  if (osd.par < 0.95 || osd.par > 1.05) return null;
+  if (osd.par < 0.1 || osd.par > 10) return null;
   return osd;
+}
+
+function normalizeNativeVideoDimensions(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  const numeric = (key) => {
+    const result = Number(value[key]);
+    return Number.isFinite(result) ? result : 0;
+  };
+  const width = Math.round(numeric("w"));
+  const height = Math.round(numeric("h"));
+  const displayWidth = numeric("dw");
+  const displayHeight = numeric("dh");
+  let par = numeric("par");
+  if (
+    !(par >= 0.1 && par <= 10) &&
+    displayWidth > 0 &&
+    displayHeight > 0 &&
+    width > 0 &&
+    height > 0
+  )
+    par = (displayWidth * height) / (displayHeight * width);
+  if (!(par >= 0.1 && par <= 10)) par = 1;
+  if (
+    width < 16 ||
+    height < 16 ||
+    width * height > 16000000 ||
+    numeric("rotate") !== 0
+  )
+    return null;
+  return { width, height, par };
 }
 
 function nativeSubtitleOptionSnapshot() {
@@ -5677,11 +5820,18 @@ function nativeSubtitleOptionSnapshot() {
   const runtimeFont = mpvStringProp(["sub-font"], "");
   const optionFont = mpvStringProp(["options/sub-font"], "");
   const effectiveFont = runtimeFont || optionFont || "sans-serif";
+  const fontProvider = mpvStringProp(
+    ["options/sub-font-provider", "sub-font-provider"],
+    "auto",
+  )
+    .trim()
+    .toLowerCase();
   return {
     font: effectiveFont,
     effectiveFont,
     runtimeFont,
     optionFont,
+    fontProvider,
     fontSize: clampNumber(
       mpvNumberProp(["options/sub-font-size", "sub-font-size"], 55),
       1,
@@ -5700,6 +5850,21 @@ function nativeSubtitleOptionSnapshot() {
     ),
     scaleWithWindow: mpvBoolProp(
       ["options/sub-scale-with-window", "sub-scale-with-window"],
+      true,
+    ),
+    assScaleWithWindow: mpvBoolProp(
+      ["options/sub-ass-scale-with-window", "sub-ass-scale-with-window"],
+      false,
+    ),
+    assVsfilterAspectCompat: mpvBoolProp(
+      [
+        "options/sub-ass-vsfilter-aspect-compat",
+        "sub-ass-vsfilter-aspect-compat",
+      ],
+      true,
+    ),
+    assVsfilterBlurCompat: mpvBoolProp(
+      ["options/sub-ass-vsfilter-blur-compat", "sub-ass-vsfilter-blur-compat"],
       true,
     ),
     marginX: clampNumber(
@@ -5755,6 +5920,14 @@ function nativeSubtitleOptionSnapshot() {
       200,
       0,
     ),
+    forceMargins: mpvBoolProp(
+      ["options/sub-ass-force-margins", "sub-ass-force-margins"],
+      false,
+    ),
+    assJustify: mpvBoolProp(
+      ["options/sub-ass-justify", "sub-ass-justify"],
+      false,
+    ),
     useMargins: mpvBoolProp(
       ["options/sub-use-margins", "sub-use-margins"],
       true,
@@ -5762,6 +5935,17 @@ function nativeSubtitleOptionSnapshot() {
     bold: mpvBoolProp(["options/sub-bold", "sub-bold"], true),
     italic: mpvBoolProp(["options/sub-italic", "sub-italic"], false),
   };
+}
+
+function nativeAssOverrideClassification(value) {
+  const mode = String(value || "yes")
+    .trim()
+    .toLowerCase();
+  if (mode === "no" || mode === "yes" || mode === "scale")
+    return { mode, nativeGeometry: true };
+  if (mode === "force" || mode === "strip")
+    return { mode, nativeGeometry: false };
+  return { mode, reason: "unsupported-ass-override" };
 }
 
 function nativeSubtitleFontCompatibility(font, text) {
@@ -6151,6 +6335,15 @@ function normalizeNativeTrackList(raw) {
       codec: String(track.codec || track["codec-desc"] || "")
         .trim()
         .toLowerCase(),
+      ffIndex: Number(
+        track["ff-index"] !== undefined ? track["ff-index"] : track.ffIndex,
+      ),
+      external: !!track.external,
+      externalFilename: String(
+        track["external-filename"] || track.externalFilename || "",
+      ),
+      language: String(track.lang || track.language || ""),
+      title: String(track.title || ""),
     }));
 }
 
@@ -6377,6 +6570,240 @@ function nativeLookupMapping(displayText, lookupText, options) {
   };
 }
 
+function nativeAssDisplayText(raw) {
+  const text = String(raw || "");
+  if (!text) return { reason: "empty-subtitle" };
+  if (/[\r\n{}]/.test(text)) return { reason: "complex-ass-tags" };
+  if (/\\(?![Nn])/i.test(text)) return { reason: "complex-ass-tags" };
+  return {
+    displayText: text.replace(/\\N/g, "\n").replace(/\\n/g, "\n"),
+  };
+}
+
+function nativeAssGeometryUnits(mapping, lookupText, language) {
+  const spans =
+    mapping && Array.isArray(mapping.lookupSpans) ? mapping.lookupSpans : [];
+  const characters = Array.from(String(lookupText || ""));
+  if (spans.length !== characters.length) return [];
+  const module = language || selectedLanguageModule();
+  const policy = module && module.lookupCharacterPolicy;
+  const isLookupable = (character) => {
+    try {
+      return IINATAN_LOOKUP_CHARACTER_POLICY.matches(policy, character);
+    } catch (_) {
+      return false;
+    }
+  };
+  const units = [];
+  for (let position = 0; position < characters.length; position++) {
+    if (!isLookupable(characters[position])) continue;
+    let end = position + 1;
+    if (module.lookupUnit === "word") {
+      while (end < characters.length && isLookupable(characters[end])) end++;
+    }
+    const first = spans[position];
+    const last = spans[end - 1];
+    if (
+      !first ||
+      !last ||
+      !Number.isInteger(first.startUtf16) ||
+      !Number.isInteger(last.endUtf16) ||
+      last.endUtf16 <= first.startUtf16
+    )
+      return [];
+    units.push({
+      position,
+      displayStartUtf16: first.startUtf16,
+      displayEndUtf16: last.endUtf16,
+    });
+    position = end - 1;
+  }
+  return units;
+}
+
+function nativeAssSourceSnapshot(track) {
+  const selected = track || {};
+  const path = selected.external
+    ? selected.externalFilename
+    : mpvStringProp(["stream-open-filename", "path"], "");
+  if (!path || path.charAt(0) !== "/") return { reason: "unsafe-media-path" };
+  if (!Number.isInteger(selected.ffIndex) || selected.ffIndex < 0)
+    return { reason: "ambiguous-stream-map" };
+  return {
+    path,
+    ffIndex: selected.ffIndex,
+    external: !!selected.external,
+  };
+}
+
+function normalizeNativeAssGeometryResponse(response, request) {
+  if (
+    !response ||
+    response.ok !== true ||
+    response.protocol !== 1 ||
+    !Array.isArray(response.units) ||
+    response.rendererWidth !== request.renderer.width ||
+    response.rendererHeight !== request.renderer.height ||
+    response.units.length !== request.units.length
+  )
+    return {
+      reason: (response && response.reason) || "invalid-ass-geometry-response",
+    };
+  const expected = Object.create(null);
+  request.units.forEach((unit) => {
+    expected[String(unit.position)] = true;
+  });
+  const units = [];
+  for (let index = 0; index < response.units.length; index++) {
+    const unit = response.units[index];
+    if (
+      !unit ||
+      !Number.isInteger(unit.position) ||
+      !expected[String(unit.position)] ||
+      !Array.isArray(unit.rects) ||
+      !unit.rects.length ||
+      unit.rects.length > 16
+    )
+      return { reason: "invalid-ass-geometry-response" };
+    delete expected[String(unit.position)];
+    const rects = [];
+    for (let rectIndex = 0; rectIndex < unit.rects.length; rectIndex++) {
+      const rect = unit.rects[rectIndex];
+      const x = Number(rect && rect.x);
+      const y = Number(rect && rect.y);
+      const w = Number(rect && rect.w);
+      const h = Number(rect && rect.h);
+      if (
+        ![x, y, w, h].every(Number.isFinite) ||
+        w <= 0 ||
+        h <= 0 ||
+        x < 0 ||
+        y < 0 ||
+        x + w > request.renderer.width ||
+        y + h > request.renderer.height
+      )
+        return { reason: "invalid-ass-geometry-response" };
+      rects.push({ x, y, w, h });
+    }
+    units.push({ position: unit.position, rects });
+  }
+  if (Object.keys(expected).length)
+    return { reason: "invalid-ass-geometry-response" };
+  let alphaMask = null;
+  if (response.alphaMask !== undefined) {
+    const mask = response.alphaMask;
+    if (
+      !mask ||
+      mask.encoding !== "rle-u8-base64" ||
+      !Number.isInteger(mask.x) ||
+      !Number.isInteger(mask.y) ||
+      !Number.isInteger(mask.w) ||
+      !Number.isInteger(mask.h) ||
+      mask.x < 0 ||
+      mask.y < 0 ||
+      mask.w <= 0 ||
+      mask.h <= 0 ||
+      mask.x + mask.w > request.renderer.width ||
+      mask.y + mask.h > request.renderer.height ||
+      mask.w * mask.h > 262144 ||
+      typeof mask.data !== "string" ||
+      mask.data.length > 750000
+    )
+      return { reason: "invalid-ass-geometry-response" };
+    alphaMask = {
+      x: mask.x,
+      y: mask.y,
+      w: mask.w,
+      h: mask.h,
+      encoding: mask.encoding,
+      data: mask.data,
+    };
+  }
+  return { ok: true, units, alphaMask };
+}
+
+function pruneNativeAssGeometryCache() {
+  const cacheKeys = Object.keys(nativeAssGeometryCache);
+  while (cacheKeys.length > 16)
+    delete nativeAssGeometryCache[cacheKeys.shift()];
+}
+
+function nativeAssGeometryCacheKey(request) {
+  const cue = Object.assign({}, request && request.cue);
+  delete cue.timeMs;
+  return JSON.stringify(
+    Object.assign({}, request, {
+      cue,
+    }),
+  );
+}
+
+function nativeAssGeometrySnapshot(request) {
+  const key = nativeAssGeometryCacheKey(request);
+  nativeAssGeometryActiveKey = key;
+  const cached = nativeAssGeometryCache[key];
+  if (cached) return cached;
+  const generation = nativeAssGeometryGeneration;
+  if (!nativeAssGeometryInFlight[key]) {
+    const liveRequest = request;
+    const inFlight = Promise.resolve()
+      .then(() =>
+        runWorkerQueueRequestDirect(
+          liveRequest,
+          selectedLanguageModule(),
+          Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
+        ),
+      )
+      .then((response) => {
+        if (
+          generation !== nativeAssGeometryGeneration ||
+          key !== nativeAssGeometryActiveKey
+        )
+          return;
+        const normalized = normalizeNativeAssGeometryResponse(
+          response,
+          liveRequest,
+        );
+        nativeAssGeometryCache[key] = normalized;
+        pruneNativeAssGeometryCache();
+        if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+          scheduleExperimentalNativeLayoutRebuild();
+      })
+      .catch((error) => {
+        if (
+          generation !== nativeAssGeometryGeneration ||
+          key !== nativeAssGeometryActiveKey
+        )
+          return;
+        const message = String(
+          (error && (error.reason || error.message)) || "ass-geometry-failed",
+        );
+        nativeAssGeometryCache[key] = {
+          reason: /^[a-z0-9-]+$/.test(message)
+            ? message
+            : "ass-geometry-failed",
+        };
+        pruneNativeAssGeometryCache();
+        debugWarn("native ASS geometry failed: " + compactError(error));
+        if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+          scheduleExperimentalNativeLayoutRebuild();
+      })
+      .finally(() => {
+        if (nativeAssGeometryInFlight[key] === inFlight)
+          delete nativeAssGeometryInFlight[key];
+      });
+    nativeAssGeometryInFlight[key] = inFlight;
+  }
+  return { reason: "ass-geometry-pending" };
+}
+
+function advanceNativeAssGeometryGeneration() {
+  nativeAssGeometryGeneration++;
+  nativeAssGeometryActiveKey = "";
+  nativeAssGeometryCache = Object.create(null);
+  nativeAssGeometryInFlight = Object.create(null);
+}
+
 function nativeSubtitleCueSnapshot(normalizedText) {
   nativeSubtitleFontMetricActiveKey = "";
   const tracks = nativeSubtitleJsonProperty("track-list", []);
@@ -6399,10 +6826,13 @@ function nativeSubtitleCueSnapshot(normalizedText) {
   if (eligibility.kind === "srt") {
     displayText = cleanNativeDisplayText(plain);
   } else {
-    const parsed = parseSimpleNativeAssCue(
-      ass,
-      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], ""),
+    const assOverride = nativeAssOverrideClassification(
+      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
     );
+    if (assOverride.reason) return { reason: assOverride.reason };
+    const parsed = !assOverride.nativeGeometry
+      ? parseSimpleNativeAssCue(ass, assOverride.mode)
+      : nativeAssDisplayText(ass);
     if (parsed.reason) return { reason: parsed.reason };
     displayText = parsed.displayText;
   }
@@ -6410,6 +6840,142 @@ function nativeSubtitleCueSnapshot(normalizedText) {
   if (!displayText || !lookupText)
     return { reason: "empty-subtitle", displayText };
   const options = nativeSubtitleOptionSnapshot();
+  let mapping = null;
+  let osd = null;
+  if (eligibility.kind === "ass") {
+    mapping = nativeLookupMapping(displayText, lookupText, {
+      flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+      languageId: selectedLanguageModule().id,
+    });
+    if (!mapping.ok) return { reason: mapping.reason };
+    osd = normalizeNativeOsdDimensions(
+      nativeSubtitleJsonProperty("osd-dimensions", null),
+    );
+    if (!osd) return { reason: "missing-osd-dimensions" };
+    const video = normalizeNativeVideoDimensions(
+      nativeSubtitleJsonProperty("video-params", null),
+    );
+    if (!video) return { reason: "missing-video-dimensions" };
+    const assOverride = nativeAssOverrideClassification(
+      mpvStringProp(["options/sub-ass-override", "sub-ass-override"], "yes"),
+    );
+    if (assOverride.reason) return { reason: assOverride.reason };
+    if (assOverride.nativeGeometry) {
+      if (
+        options.assJustify ||
+        ["", "auto", "autodetect"].indexOf(options.fontProvider) < 0
+      )
+        return { reason: "unsupported-renderer-option" };
+      const unsupportedRendererProperties = [
+        ["options/sub-ass-styles", "sub-ass-styles"],
+        ["options/sub-fonts-dir", "sub-fonts-dir"],
+        ["options/sub-ass-force-style", "sub-ass-force-style"],
+        ["options/sub-ass-style-overrides", "sub-ass-style-overrides"],
+      ];
+      for (const names of unsupportedRendererProperties) {
+        const value = mpvStringProp(names, "").trim();
+        if (value && value !== "[]" && value !== "no")
+          return { reason: "unsupported-renderer-option" };
+      }
+      const source = nativeAssSourceSnapshot(eligibility.track);
+      if (source.reason) return source;
+      const units = nativeAssGeometryUnits(
+        mapping,
+        lookupText,
+        selectedLanguageModule(),
+      );
+      if (!units.length) return { reason: "text-index-map-failed" };
+      const timeMs = Math.round(
+        mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
+      );
+      const startMs = Math.round(mpvNumberProp(["sub-start"], -1) * 1000);
+      const endMs = Math.round(mpvNumberProp(["sub-end"], -1) * 1000);
+      if (
+        ![timeMs, startMs, endMs].every(Number.isFinite) ||
+        timeMs < 0 ||
+        startMs < 0 ||
+        endMs <= startMs
+      )
+        return { reason: "cue-timing-unavailable" };
+      const appliesSubtitleOptions = assOverride.mode !== "no";
+      let fontScale = appliesSubtitleOptions ? options.scale : 1;
+      if (options.assScaleWithWindow) {
+        const videoAreaHeight = Math.max(1, osd.h - osd.mt - osd.mb);
+        fontScale *= osd.h / videoAreaHeight;
+      }
+      const request = {
+        type: "ass-geometry",
+        protocol: 1,
+        source,
+        cue: {
+          timeMs,
+          startMs,
+          endMs,
+          observedAss: ass,
+        },
+        units,
+        renderer: {
+          width: osd.w,
+          height: osd.h,
+          storageWidth: video.width,
+          storageHeight: video.height,
+          marginLeft: osd.ml,
+          marginRight: osd.mr,
+          marginTop: osd.mt,
+          marginBottom: osd.mb,
+          pixelAspect:
+            osd.par *
+            (assOverride.mode === "no" || options.assVsfilterAspectCompat
+              ? video.par
+              : 1),
+          fontScale,
+          lineSpacing: appliesSubtitleOptions ? options.lineSpacing : 0,
+          forceMargins: options.forceMargins,
+          embeddedFonts: mpvBoolProp(
+            ["options/embeddedfonts", "embeddedfonts"],
+            true,
+          ),
+          overrideMode: assOverride.mode,
+          useStorageSize:
+            assOverride.mode === "no" || options.assVsfilterBlurCompat,
+          defaultFamily: options.effectiveFont,
+          fontProvider: options.fontProvider,
+          assJustify: options.assJustify,
+          linePosition: appliesSubtitleOptions ? 100 - options.position : 0,
+          hinting: appliesSubtitleOptions
+            ? mpvStringProp(
+                ["options/sub-ass-hinting", "sub-ass-hinting"],
+                "none",
+              )
+            : "none",
+          shaper: mpvStringProp(
+            ["options/sub-ass-shaper", "sub-ass-shaper"],
+            "complex",
+          ),
+        },
+      };
+      const geometry = nativeAssGeometrySnapshot(request);
+      if (!geometry.ok)
+        return {
+          reason: geometry.reason || "ass-geometry-failed",
+          trackId: eligibility.track.id,
+          displayText,
+        };
+      return {
+        kind: "ass-native",
+        trackId: eligibility.track.id,
+        displayText,
+        lookupSpans: mapping.lookupSpans,
+        layout: {
+          osd,
+          directRects: geometry.units,
+          alphaMask: geometry.alphaMask,
+          geometryProtocol: 1,
+          hidpiScale: mpvNumberProp(["display-hidpi-scale"], 0),
+        },
+      };
+    }
+  }
   const fontCompatibility = nativeSubtitleFontCompatibility(
     options.effectiveFont,
     displayText,
@@ -6428,15 +6994,19 @@ function nativeSubtitleCueSnapshot(normalizedText) {
       layout: { options },
     };
   Object.assign(options, fontMetrics.metrics);
-  const mapping = nativeLookupMapping(displayText, lookupText, {
-    flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
-    languageId: selectedLanguageModule().id,
-  });
-  if (!mapping.ok) return { reason: mapping.reason };
-  const osd = normalizeNativeOsdDimensions(
-    nativeSubtitleJsonProperty("osd-dimensions", null),
-  );
-  if (!osd) return { reason: "missing-osd-dimensions" };
+  if (!mapping) {
+    mapping = nativeLookupMapping(displayText, lookupText, {
+      flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+      languageId: selectedLanguageModule().id,
+    });
+    if (!mapping.ok) return { reason: mapping.reason };
+  }
+  if (!osd) {
+    osd = normalizeNativeOsdDimensions(
+      nativeSubtitleJsonProperty("osd-dimensions", null),
+    );
+    if (!osd) return { reason: "missing-osd-dimensions" };
+  }
   return {
     kind: eligibility.kind,
     trackId: eligibility.track.id,
@@ -8784,6 +9354,50 @@ function makeJsWorkerRequestId() {
     "-" +
     String(Math.floor(Math.random() * 1000000))
   );
+}
+async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
+  const lang = language || selectedLanguageModule();
+  const dicts = activeDictionaryPaths(lang);
+  await ensureBackendWorker(dicts, lang);
+  const ready = activeWorkerReady || readWorkerReady();
+  if (
+    payloadValue &&
+    payloadValue.type === "ass-geometry" &&
+    (!ready ||
+      !ready.assGeometry ||
+      ready.assGeometry.protocol !== 1 ||
+      ready.assGeometry.available !== true ||
+      ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v1")
+  )
+    throw new Error("ass-geometry-unavailable");
+  const timeout = Math.max(
+    1000,
+    timeoutMs || prefNumber("backendTimeoutMs", 30000),
+  );
+  const id = makeJsWorkerRequestId();
+  const req = pathJoin(workerQueueDir(), id + ".json");
+  const resp = pathJoin(workerResponseDir(), id + ".json");
+  const payload = Object.assign({}, payloadValue || {}, { requestId: id });
+  file.write(req, JSON.stringify(payload) + "\n");
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (file.exists(resp)) {
+      const raw = String(file.read(resp) || "");
+      safeDelete(resp);
+      safeDelete(req);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object")
+        throw new Error("Native worker returned an invalid response");
+      return parsed;
+    }
+    if (file.exists(workerStopPath())) {
+      safeDelete(req);
+      throw new Error("Worker stopped before request completed");
+    }
+    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+  }
+  safeDelete(req);
+  throw new Error("Native worker request timed out after " + timeout + " ms");
 }
 async function runWorkerQueueLookupDirect(
   suffix,
@@ -12931,6 +13545,8 @@ function initializeOverlay() {
 function prepareRuntimeAfterProfileChange() {
   advanceNativeSubtitleFontMetricGeneration();
   invalidateCurrentSubtitleLookupLine();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   lookupBackendReadyForNativeHide = false;
   lookupInFlight = Object.create(null);
   lastSubtitle = null;
@@ -13092,6 +13708,8 @@ function setEnabled(next) {
   if (enabled !== wasEnabled) {
     advanceNativeSubtitleFontMetricGeneration();
     invalidateCurrentSubtitleLookupLine();
+    if (typeof advanceNativeAssGeometryGeneration === "function")
+      advanceNativeAssGeometryGeneration();
   }
   lookupBackendReadyForNativeHide = false;
   initializeOverlay();
@@ -14279,6 +14897,8 @@ event.on("iina.window-loaded", () => {
 });
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
   lastSubtitle = null;
@@ -14294,6 +14914,8 @@ event.on("mpv.file-loaded", () => {
 });
 event.on("mpv.end-file", () => {
   advanceNativeSubtitleFontMetricGeneration();
+  if (typeof advanceNativeAssGeometryGeneration === "function")
+    advanceNativeAssGeometryGeneration();
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -14342,11 +14964,14 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-start",
   "sub-end",
   "osd-dimensions",
+  "video-params",
   "track-list",
   "sid",
   "secondary-sid",
   "options/sub-font",
   "sub-font",
+  "options/sub-font-provider",
+  "sub-font-provider",
   "options/sub-font-size",
   "sub-font-size",
   "options/sub-scale",
@@ -14355,6 +14980,12 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-scale-by-window",
   "options/sub-scale-with-window",
   "sub-scale-with-window",
+  "options/sub-ass-scale-with-window",
+  "sub-ass-scale-with-window",
+  "options/sub-ass-vsfilter-aspect-compat",
+  "sub-ass-vsfilter-aspect-compat",
+  "options/sub-ass-vsfilter-blur-compat",
+  "sub-ass-vsfilter-blur-compat",
   "options/sub-margin-x",
   "sub-margin-x",
   "options/sub-margin-y",
@@ -14373,14 +15004,32 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "sub-line-spacing",
   "options/sub-ass-line-spacing",
   "sub-ass-line-spacing",
+  "options/sub-ass-force-margins",
+  "sub-ass-force-margins",
+  "options/sub-ass-justify",
+  "sub-ass-justify",
   "options/sub-use-margins",
   "sub-use-margins",
+  "options/sub-ass-styles",
+  "sub-ass-styles",
+  "options/sub-fonts-dir",
+  "sub-fonts-dir",
+  "options/sub-ass-force-style",
+  "sub-ass-force-style",
+  "options/sub-ass-style-overrides",
+  "sub-ass-style-overrides",
   "options/sub-bold",
   "sub-bold",
   "options/sub-italic",
   "sub-italic",
   "options/sub-ass-override",
   "sub-ass-override",
+  "options/sub-ass-hinting",
+  "sub-ass-hinting",
+  "options/sub-ass-shaper",
+  "sub-ass-shaper",
+  "options/embeddedfonts",
+  "embeddedfonts",
   "display-hidpi-scale",
 ].forEach((property) => {
   try {
@@ -14398,6 +15047,19 @@ function scheduleExperimentalNativeLayoutRebuild() {
         ].indexOf(property) >= 0
       )
         advanceNativeSubtitleFontMetricGeneration();
+      if (
+        [
+          "sid",
+          "secondary-sid",
+          "sub-ass-override",
+          "sub-ass-hinting",
+          "sub-ass-shaper",
+          "embeddedfonts",
+          "osd-dimensions",
+        ].indexOf(property) >= 0
+      )
+        if (typeof advanceNativeAssGeometryGeneration === "function")
+          advanceNativeAssGeometryGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
     });

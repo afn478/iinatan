@@ -1,6 +1,8 @@
 const IINATAN_ENGLISH_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_SUFFIX_RULES =
     typeof IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES !== "undefined"
       ? IINATAN_ENGLISH_YOMITAN_SUFFIX_RULES
@@ -76,11 +78,11 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -176,6 +178,7 @@ const IINATAN_ENGLISH_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-english",
     dictionaryCompatibility:
       "Yomitan-compatible term dictionaries; exact whole-word lookup with English deinflection candidates.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,

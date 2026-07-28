@@ -4,6 +4,20 @@ const vm = require("vm");
 const { URL } = require("url");
 
 const root = path.resolve(__dirname, "../..");
+const policyContext = {};
+vm.createContext(policyContext);
+vm.runInContext(
+  fs.readFileSync(
+    path.join(root, "src/languages/lookup_character_policy.js"),
+    "utf8",
+  ) +
+    "\nglobalThis.__lookupCharacterPolicies = " +
+    "IINATAN_LOOKUP_CHARACTER_POLICY.policies;",
+  policyContext,
+);
+const lookupCharacterPolicies = JSON.parse(
+  JSON.stringify(policyContext.__lookupCharacterPolicies),
+);
 
 class FakeClassList {
   constructor(el) {
@@ -580,6 +594,11 @@ function loadOverlayForTest(exportList, options) {
   );
   source =
     fs.readFileSync(
+      path.join(root, "src/languages/lookup_character_policy.js"),
+      "utf8",
+    ) +
+    "\n" +
+    fs.readFileSync(
       path.join(root, "src/overlay/native_subtitle_hit_layer.js"),
       "utf8",
     ) +
@@ -602,6 +621,7 @@ function assert(condition, message) {
 
 module.exports = {
   root,
+  lookupCharacterPolicies,
   assert,
   FakeClassList,
   FakeElement,

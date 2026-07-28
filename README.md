@@ -93,6 +93,13 @@ Common settings include:
 - Advanced import and lookup options
 - Profiles for separate setups
 
+The experimental native-subtitle layer supports ordinary ASS/SSA dialogue in
+Japanese, English, French, German, Chinese, and Korean without replacing mpv's
+visible subtitle rendering. Its invisible hit boxes come from the packaged
+native helper. Complex override-tagged or ambiguous cues are intentionally
+skipped; SubRip and the existing force/strip ASS compatibility modes keep their
+previous behavior.
+
 ## Anki Export
 
 Install the AnkiConnect add-on, open Anki, then configure export from the **Anki** tab in **Plugins -> iinatan -> Settings...**. Anki settings are stored per profile, including the AnkiConnect URL, deck, note type, field templates, duplicate behavior, JPEG screenshot quality, and sentence audio format/bitrate.

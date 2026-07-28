@@ -1,6 +1,7 @@
 const {
   assert,
   loadOverlayForTest,
+  lookupCharacterPolicies,
 } = require("./helpers/overlay_test_context");
 
 const { context, overlay } = loadOverlayForTest([
@@ -13,6 +14,9 @@ const { context, overlay } = loadOverlayForTest([
   "popupEl",
 ]);
 overlay.state.enabled = true;
+const LATIN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.latinWord;
+const CHINESE_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.chinese;
+const KOREAN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.korean;
 
 function enter(pos) {
   const el = overlay.subtitleEl.querySelector(
@@ -38,6 +42,7 @@ overlay.applyConfig({
     label: "English",
     lookupUnit: "word",
     wordMode: "latin-word",
+    lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
   },
   overlayBridgePort: 19741,
   scanLength: 24,
@@ -177,6 +182,7 @@ overlay.applyConfig({
     label: "French",
     lookupUnit: "word",
     wordMode: "latin-word",
+    lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
   },
   overlayBridgePort: 19741,
   scanLength: 24,
@@ -199,6 +205,7 @@ overlay.applyConfig({
     label: "German",
     lookupUnit: "word",
     wordMode: "latin-word",
+    lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
   },
   overlayBridgePort: 19741,
   scanLength: 24,
@@ -303,6 +310,7 @@ overlay.applyConfig({
     label: "Chinese",
     lookupUnit: "character",
     wordMode: "rightward-prefix",
+    lookupCharacterPolicy: CHINESE_LOOKUP_CHARACTER_POLICY,
   },
   overlayBridgePort: 19741,
   scanLength: 24,
@@ -323,6 +331,25 @@ assert(
 assert(
   chineseMessages[0].position === 0 && chineseMessages[1].position === 1,
   "Chinese should send exact character positions to the plugin",
+);
+
+overlay.applyConfig({
+  language: {
+    id: "ko",
+    label: "Korean",
+    lookupUnit: "word",
+    wordMode: "korean-run",
+    lookupCharacterPolicy: KOREAN_LOOKUP_CHARACTER_POLICY,
+  },
+  overlayBridgePort: 19741,
+  scanLength: 24,
+});
+overlay.renderSubtitle("나는 한국어를 배운다", 4);
+const koreanStart = "나는 ".length;
+const koreanUnit = overlay.lookupUnitForPosition(koreanStart + 1);
+assert(
+  koreanUnit.pos === koreanStart && koreanUnit.preview.text === "한국어를",
+  "Korean Hangul runs should form one generic policy-driven hover unit",
 );
 
 Object.keys(overlay.state.pendingLookupRequests || {}).forEach((key) => {

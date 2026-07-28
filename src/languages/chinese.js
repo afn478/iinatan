@@ -1,12 +1,14 @@
 const IINATAN_CHINESE_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.chinese;
 
   function isHoverableChar(ch) {
-    return common.CHINESE_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.CHINESE_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -58,6 +60,7 @@ const IINATAN_CHINESE_LANGUAGE = (() => {
     deinflectionMode: "none",
     dictionaryCompatibility:
       "Yomitan-compatible Chinese-headword term dictionaries; longest rightward-prefix lookup without Japanese deinflection.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,

@@ -1,6 +1,8 @@
 const IINATAN_GERMAN_LANGUAGE = (() => {
   const common = IINATAN_LANGUAGE_COMMON;
   const deinflect = IINATAN_DEINFLECTION;
+  const lookupCharacterPolicy =
+    IINATAN_LOOKUP_CHARACTER_POLICY.policies.latinWord;
   const YOMITAN_SEPARABLE_PREFIXES =
     typeof IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES !== "undefined"
       ? IINATAN_GERMAN_YOMITAN_SEPARABLE_PREFIXES
@@ -170,11 +172,11 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
   });
 
   function isHoverableChar(ch) {
-    return common.LATIN_WORD_CHAR_RE.test(String(ch || ""));
+    return IINATAN_LOOKUP_CHARACTER_POLICY.matches(lookupCharacterPolicy, ch);
   }
 
   function hasLookupText(text) {
-    return common.LATIN_WORD_CHAR_RE.test(String(text || ""));
+    return Array.from(String(text || "")).some(isHoverableChar);
   }
 
   function dictionaryMatches(dict) {
@@ -434,6 +436,7 @@ const IINATAN_GERMAN_LANGUAGE = (() => {
     deinflectionMode: "yomitan-style-german",
     dictionaryCompatibility:
       "Yomitan-compatible German-headword term dictionaries; capitalization and separable-verb candidate lookup.",
+    lookupCharacterPolicy,
     isHoverableChar,
     hasLookupText,
     dictionaryMatches,
