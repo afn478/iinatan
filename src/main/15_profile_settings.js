@@ -10,6 +10,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
   experimentalNativeSubtitleHitLayer: false,
+  experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
   experimentalNativeSubtitleTextOpacity: 0,
   pauseWhilePopupVisible: true,
@@ -213,6 +214,11 @@ function normalizeProfilePreferences(prefs) {
     out.experimentalNativeSubtitleHitLayer,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitLayer,
   );
+  out.experimentalNativeSubtitleLookupHighlight =
+    normalizeProfilePreferenceBoolValue(
+      out.experimentalNativeSubtitleLookupHighlight,
+      PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleLookupHighlight,
+    );
   out.experimentalNativeSubtitleHitBoxes = normalizeProfilePreferenceBoolValue(
     out.experimentalNativeSubtitleHitBoxes,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitBoxes,

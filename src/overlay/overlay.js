@@ -3,6 +3,7 @@
   let nativeSubtitleHostEl = null;
   let nativeSubtitleShadowRoot = null;
   let nativeSubtitleCopyEl = null;
+  let nativeSubtitleMatchHighlightsEl = null;
   let nativeSubtitleHitBoxesEl = null;
   let nativeSubtitleFontFingerprint = "";
   let nativeSubtitleLocalFont = null;
@@ -29,6 +30,7 @@
       popupSubtitleGapPx: 34,
       flattenSubtitleLineBreaks: false,
       experimentalNativeSubtitleHitLayer: false,
+      experimentalNativeSubtitleLookupHighlight: true,
       experimentalNativeSubtitleHitBoxes: false,
       experimentalNativeSubtitleTextOpacity: 0,
       popupTheme: "inherit",
@@ -1274,6 +1276,8 @@
 
   function applyConfig(config) {
     const previousAudioSignature = audioSourcesSignature(activeAudioSources());
+    const previousNativeLookupHighlight =
+      !!state.config.experimentalNativeSubtitleLookupHighlight;
     state.config = Object.assign({}, state.config, config || {});
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
     state.config.audioSources = normalizeAudioSources(
@@ -1285,6 +1289,29 @@
       audioSourcesSignature(state.config.audioSources)
     ) {
       state.audioCache = Object.create(null);
+    }
+    if (
+      previousNativeLookupHighlight !==
+        !!state.config.experimentalNativeSubtitleLookupHighlight &&
+      state.config.experimentalNativeSubtitleHitLayer &&
+      nativeSubtitleMatchHighlightsEl
+    ) {
+      nativeSubtitleMatchHighlightsEl.textContent = "";
+      if (
+        state.config.experimentalNativeSubtitleLookupHighlight &&
+        state.activeMatchStart !== null &&
+        state.activeMatchLength > 0
+      ) {
+        activateMatchRange(
+          state.activeMatchStart,
+          state.chars
+            .slice(
+              state.activeMatchStart,
+              state.activeMatchStart + state.activeMatchLength,
+            )
+            .join(""),
+        );
+      }
     }
     ensurePopupThemeHintListener();
     applyPopupTheme(state.config.popupTheme);
@@ -1511,6 +1538,7 @@
       nativeSubtitleHostEl &&
       nativeSubtitleShadowRoot &&
       nativeSubtitleCopyEl &&
+      nativeSubtitleMatchHighlightsEl &&
       nativeSubtitleHitBoxesEl
     )
       return true;
@@ -1538,11 +1566,14 @@
       return false;
     }
     nativeSubtitleCopyEl = createNativeSubtitleCopyElement();
+    nativeSubtitleMatchHighlightsEl = document.createElement("div");
+    nativeSubtitleMatchHighlightsEl.id = "native-subtitle-match-highlights";
     nativeSubtitleHitBoxesEl = document.createElement("div");
     nativeSubtitleHitBoxesEl.id = "native-subtitle-hit-boxes";
     nativeSubtitleHitBoxesEl.className = "hidden";
     nativeSubtitleHitBoxesEl.setAttribute("aria-hidden", "true");
     nativeSubtitleShadowRoot.appendChild(nativeSubtitleCopyEl);
+    nativeSubtitleShadowRoot.appendChild(nativeSubtitleMatchHighlightsEl);
     document.body.appendChild(nativeSubtitleHostEl);
     document.body.appendChild(nativeSubtitleHitBoxesEl);
     setImportantStyle(nativeSubtitleHostEl, "all", "initial");
@@ -1584,6 +1615,17 @@
     // during overlap. Real cascade and elementFromPoint behavior remain part
     // of the manual IINA matrix.
     setImportantStyle(nativeSubtitleHostEl, "z-index", "2");
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "all", "initial");
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "position", "fixed");
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "inset", "0");
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "display", "block");
+    setImportantStyle(
+      nativeSubtitleMatchHighlightsEl,
+      "pointer-events",
+      "none",
+    );
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "overflow", "visible");
+    setImportantStyle(nativeSubtitleMatchHighlightsEl, "z-index", "2");
     setImportantStyle(nativeSubtitleHitBoxesEl, "all", "initial");
     setImportantStyle(nativeSubtitleHitBoxesEl, "position", "fixed");
     setImportantStyle(nativeSubtitleHitBoxesEl, "inset", "0");
@@ -1634,6 +1676,7 @@
     nativeSubtitleHostEl = null;
     nativeSubtitleShadowRoot = null;
     nativeSubtitleCopyEl = null;
+    nativeSubtitleMatchHighlightsEl = null;
     nativeSubtitleHitBoxesEl = null;
     nativeSubtitleFontFingerprint = "";
   }
@@ -1642,6 +1685,8 @@
     state.nativeHitGeneration++;
     if (!nativeSubtitleCopyEl || !nativeSubtitleHitBoxesEl) return;
     nativeSubtitleCopyEl.textContent = "";
+    if (nativeSubtitleMatchHighlightsEl)
+      nativeSubtitleMatchHighlightsEl.textContent = "";
     setImportantStyle(nativeSubtitleCopyEl, "display", "none");
     nativeSubtitleCopyEl.classList.add("hidden");
     nativeSubtitleHitBoxesEl.textContent = "";
@@ -3075,6 +3120,13 @@
     subtitleEl.querySelectorAll(".char.active-match").forEach((el) => {
       el.classList.remove("active-match");
     });
+    if (nativeSubtitleHitBoxesEl) {
+      Array.from(nativeSubtitleHitBoxesEl.children || []).forEach((el) => {
+        el.classList.remove("active-match");
+      });
+    }
+    if (nativeSubtitleMatchHighlightsEl)
+      nativeSubtitleMatchHighlightsEl.textContent = "";
     removeMatchBackgrounds();
     state.activeMatchStart = null;
     state.activeMatchLength = 0;
@@ -3172,13 +3224,13 @@
   // positions. HoshiDicts/Yomitan lookup is rightward-prefix based, but the
   // returned "matched" surface may include enough context that broad range
   // reuse can show an earlier word when hovering a later word.
-  function addMatchBackgroundForRects(rects) {
-    const subRect = subtitleEl.getBoundingClientRect();
+  function groupMatchRects(rects) {
     const groups = [];
     rects.forEach((rect) => {
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
       let group = groups.find(
-        (g) => Math.abs(g.top - rect.top) < Math.max(3, rect.height * 0.35),
+        (item) =>
+          Math.abs(item.top - rect.top) < Math.max(3, rect.height * 0.35),
       );
       if (!group) {
         group = {
@@ -3195,7 +3247,19 @@
         group.right = Math.max(group.right, rect.right);
       }
     });
-    groups.forEach((g) => {
+    return groups;
+  }
+
+  function addMatchBackgroundForRects(rects) {
+    if (
+      state.config.experimentalNativeSubtitleHitLayer &&
+      nativeSubtitleMatchHighlightsEl
+    ) {
+      addNativeMatchBackgroundForRects(rects);
+      return;
+    }
+    const subRect = subtitleEl.getBoundingClientRect();
+    groupMatchRects(rects).forEach((g) => {
       const bg = document.createElement("span");
       bg.className = "match-bg";
       bg.style.left = g.left - subRect.left - 5 + "px";
@@ -3206,19 +3270,76 @@
     });
   }
 
+  function addNativeMatchBackgroundForRects(rects) {
+    if (
+      !state.config.experimentalNativeSubtitleLookupHighlight ||
+      !nativeSubtitleMatchHighlightsEl
+    )
+      return;
+    groupMatchRects(rects).forEach((group) => {
+      const bg = document.createElement("div");
+      bg.className = "native-match-bg";
+      setImportantStyle(bg, "all", "initial");
+      setImportantStyle(bg, "display", "block");
+      setImportantStyle(bg, "position", "fixed");
+      setImportantStyle(bg, "left", group.left - 5 + "px");
+      setImportantStyle(bg, "top", group.top - 3 + "px");
+      setImportantStyle(
+        bg,
+        "width",
+        Math.max(1, group.right - group.left + 10) + "px",
+      );
+      setImportantStyle(
+        bg,
+        "height",
+        Math.max(1, group.bottom - group.top + 6) + "px",
+      );
+      setImportantStyle(bg, "box-sizing", "border-box");
+      setImportantStyle(bg, "pointer-events", "none");
+      setImportantStyle(bg, "background", "rgba(255,255,255,0.22)");
+      setImportantStyle(bg, "border", "1px solid rgba(255,255,255,0.36)");
+      setImportantStyle(bg, "border-radius", "4px");
+      setImportantStyle(
+        bg,
+        "box-shadow",
+        "0 0 0 1px rgba(255,255,255,0.14) inset",
+      );
+      nativeSubtitleMatchHighlightsEl.appendChild(bg);
+    });
+  }
+
+  function activeMatchElements(start, len) {
+    if (
+      state.config.experimentalNativeSubtitleHitLayer &&
+      nativeSubtitleHitBoxesEl
+    ) {
+      const end = start + len;
+      return Array.from(nativeSubtitleHitBoxesEl.children || []).filter(
+        (el) => {
+          const pos = Number(el.dataset && el.dataset.pos);
+          return Number.isFinite(pos) && pos >= start && pos < end;
+        },
+      );
+    }
+    const elements = [];
+    for (let i = 0; i < len; i++) {
+      const el = charElementAt(start + i);
+      if (el) elements.push(el);
+    }
+    return elements;
+  }
+
   function activateMatchRange(start, matchedText) {
     clearActiveMatch();
     const len = Math.max(1, charsCount(matchedText));
     state.activeMatchStart = start;
     state.activeMatchLength = len;
     const rects = [];
-    for (let i = 0; i < len; i++) {
-      const el = charElementAt(start + i);
-      if (!el) continue;
+    activeMatchElements(start, len).forEach((el) => {
       el.classList.add("active-match");
       const r = el.getBoundingClientRect();
       rects.push(r);
-    }
+    });
     addMatchBackgroundForRects(rects);
   }
 

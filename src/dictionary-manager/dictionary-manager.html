@@ -617,6 +617,8 @@
       <div class="form-grid single">
         <label class="check-field"><input id="experimentalNativeSubtitleHitLayer" data-profile-pref="experimentalNativeSubtitleHitLayer" type="checkbox"><span>Use native subtitles with an invisible lookup layer</span></label>
         <small>Experimental. Intended for SRT and simple dialogue-style ASS. Complex ASS, signs that cannot be distinguished from dialogue, and bitmap subtitles are unsupported.</small>
+        <label class="check-field"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span>Highlight looked-up text</span></label>
+        <small>Turn this off to keep the native lookup layer invisible except for the dictionary popup.</small>
         <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup hit boxes</span></label>
         <div class="field"><label for="experimentalNativeSubtitleTextOpacity">Copied-text debug opacity</label><input id="experimentalNativeSubtitleTextOpacity" data-profile-pref="experimentalNativeSubtitleTextOpacity" type="number" min="0" max="1" step="0.05"><small>Diagnostic only; a nonzero value intentionally reveals the copied text over native subtitles.</small></div>
       </div>
@@ -1239,10 +1241,12 @@
     }
     function syncExperimentalNativeSubtitleControls() {
       const master = document.getElementById('experimentalNativeSubtitleHitLayer');
+      const highlight = document.getElementById('experimentalNativeSubtitleLookupHighlight');
       const boxes = document.getElementById('experimentalNativeSubtitleHitBoxes');
       const opacity = document.getElementById('experimentalNativeSubtitleTextOpacity');
       const hideNative = document.getElementById('hideNativeSubtitles');
       const active = !!(master && master.checked);
+      if (highlight) highlight.disabled = state.busy || !active;
       if (boxes) boxes.disabled = state.busy || !active;
       if (opacity) opacity.disabled = state.busy || !active;
       if (hideNative) {

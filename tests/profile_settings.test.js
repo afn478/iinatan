@@ -92,9 +92,10 @@ assert(
 );
 assert(
   prefs.experimentalNativeSubtitleHitLayer === false &&
+    prefs.experimentalNativeSubtitleLookupHighlight === true &&
     prefs.experimentalNativeSubtitleHitBoxes === false &&
     prefs.experimentalNativeSubtitleTextOpacity === 0,
-  "Experimental native subtitle controls should default off and invisible",
+  "Native lookup highlighting should default on while experimental diagnostics stay invisible",
 );
 
 prefs = settings.normalizeProfilePreferences({
@@ -120,6 +121,7 @@ prefs = settings.normalizeProfilePreferences({
   ankiSentenceAudioPaddingMs: 99999,
   flattenSubtitleLineBreaks: "yes",
   experimentalNativeSubtitleHitLayer: "yes",
+  experimentalNativeSubtitleLookupHighlight: "0",
   experimentalNativeSubtitleHitBoxes: "1",
   experimentalNativeSubtitleTextOpacity: 4,
   unknownSetting: "ignored",
@@ -137,7 +139,8 @@ assert(
 );
 assert(
   prefs.experimentalNativeSubtitleHitLayer === true &&
-    prefs.experimentalNativeSubtitleHitBoxes === true,
+    prefs.experimentalNativeSubtitleHitBoxes === true &&
+    prefs.experimentalNativeSubtitleLookupHighlight === false,
   "Experimental native subtitle booleans should normalize",
 );
 assert(

@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Added an optional default-style looked-up-text highlight to the experimental native-subtitle layer, with a profile toggle for popup-only invisible operation.
 - Extended the experimental native-subtitle lookup layer to Japanese, English, German, French, Chinese, and Korean through shared language character policies.
 - Added independent primary and selected-secondary subtitle lookup surfaces, with one stable primary-then-secondary lookup stream, faithful secondary ASS geometry through mpv's plain observation, and isolated fallback when either surface is unavailable.
 - Extended appearance-preserving native ASS hit geometry to simultaneous independently positioned dialogue events, including authored line breaks, while rejecting ambiguous event matching and cross-event lookup spans.

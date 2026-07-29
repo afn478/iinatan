@@ -2658,17 +2658,20 @@ function waitForLayout() {
     managerSource.indexOf("    function renderRecommended", syncControlsStart),
   );
   const masterControl = { checked: false, disabled: false };
+  const highlightControl = { checked: true, disabled: false };
   const boxesControl = { checked: true, disabled: false };
   const opacityControl = { value: "0.65", disabled: false };
   const hideNativeControl = { checked: true, disabled: false, title: "" };
   const preferenceControls = [
     masterControl,
+    highlightControl,
     boxesControl,
     opacityControl,
     hideNativeControl,
   ];
   const managerElements = {
     experimentalNativeSubtitleHitLayer: masterControl,
+    experimentalNativeSubtitleLookupHighlight: highlightControl,
     experimentalNativeSubtitleHitBoxes: boxesControl,
     experimentalNativeSubtitleTextOpacity: opacityControl,
     hideNativeSubtitles: hideNativeControl,
@@ -2716,12 +2719,16 @@ function waitForLayout() {
   );
   managerContext.controlsApi.updateBusyState();
   assert(
-    boxesControl.disabled && opacityControl.disabled,
+    highlightControl.disabled &&
+      boxesControl.disabled &&
+      opacityControl.disabled,
     "debug controls remain disabled while the master is off",
   );
   assert(
-    boxesControl.checked && opacityControl.value === "0.65",
-    "disabled debug controls retain their stored values",
+    highlightControl.checked &&
+      boxesControl.checked &&
+      opacityControl.value === "0.65",
+    "disabled native-layer controls retain their stored values",
   );
   assert(
     !hideNativeControl.disabled,
@@ -2730,8 +2737,10 @@ function waitForLayout() {
   masterControl.checked = true;
   managerContext.controlsApi.updateBusyState();
   assert(
-    !boxesControl.disabled && !opacityControl.disabled,
-    "debug controls enable immediately with the master",
+    !highlightControl.disabled &&
+      !boxesControl.disabled &&
+      !opacityControl.disabled,
+    "dependent native-layer controls enable immediately with the master",
   );
   assert(
     hideNativeControl.disabled,
@@ -2740,7 +2749,8 @@ function waitForLayout() {
   managerContext.state.busy = true;
   managerContext.controlsApi.updateBusyState();
   assert(
-    boxesControl.disabled &&
+    highlightControl.disabled &&
+      boxesControl.disabled &&
       opacityControl.disabled &&
       hideNativeControl.disabled,
     "busy-state refresh preserves all experimental dependencies",
@@ -4210,6 +4220,24 @@ function waitForLayout() {
   hitRoot.children[1].listeners.mouseenter({
     currentTarget: hitRoot.children[1],
   });
+  const matchHighlights = host.shadowRoot.getElementById(
+    "native-subtitle-match-highlights",
+  );
+  assert(
+    matchHighlights && matchHighlights.children.length > 0,
+    "native hover draws a grouped default-style lookup highlight",
+  );
+  assertEqual(
+    {
+      background: matchHighlights.children[0].style.background,
+      border: matchHighlights.children[0].style.border,
+    },
+    {
+      background: "rgba(255,255,255,0.22)",
+      border: "1px solid rgba(255,255,255,0.36)",
+    },
+    "native lookup highlight uses the default overlay treatment",
+  );
   assert(
     !loaded.context.__elements.popup.classList.contains("hidden"),
     "hovering a synthetic rectangle uses existing popup behavior",
@@ -4217,6 +4245,14 @@ function waitForLayout() {
   assert(
     loaded.overlay.state.currentAnchor === hitRoot.children[1],
     "popup anchors to the selected wrapped rectangle",
+  );
+  loaded.context.__handlers.config({
+    experimentalNativeSubtitleLookupHighlight: false,
+  });
+  assertEqual(
+    matchHighlights.children.length,
+    0,
+    "disabling native lookup highlighting leaves only the popup visible",
   );
   loaded.context.__elements.popup._rect = {
     left: 198,

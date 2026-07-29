@@ -257,6 +257,9 @@ function overlayConfig() {
       "experimentalNativeSubtitleHitLayer",
       false,
     ),
+    experimentalNativeSubtitleLookupHighlight:
+      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      prefBool("experimentalNativeSubtitleLookupHighlight", true),
     experimentalNativeSubtitleHitBoxes:
       prefBool("experimentalNativeSubtitleHitLayer", false) &&
       prefBool("experimentalNativeSubtitleHitBoxes", false),

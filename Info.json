@@ -16,6 +16,7 @@
     "enabledByDefault": true,
     "hideNativeSubtitles": true,
     "experimentalNativeSubtitleHitLayer": false,
+    "experimentalNativeSubtitleLookupHighlight": true,
     "experimentalNativeSubtitleHitBoxes": false,
     "experimentalNativeSubtitleTextOpacity": 0,
     "audioAutoPlay": false,
