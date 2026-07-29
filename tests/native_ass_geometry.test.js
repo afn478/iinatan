@@ -108,7 +108,12 @@ const cases = [
 function request(testCase) {
   const observedCue =
     testCase.observedPlain === undefined
-      ? { observedAss: testCase.text }
+      ? {
+          observedAss:
+            testCase.observedAss === undefined
+              ? testCase.text
+              : testCase.observedAss,
+        }
       : { observedFormat: "plain", observedPlain: testCase.observedPlain };
   return {
     type: "ass-geometry",
@@ -656,6 +661,30 @@ const splitCluster = invoke(
 );
 assert.strictEqual(splitCluster.ok, false);
 assert.strictEqual(splitCluster.reason, "cross-unit-cluster");
+
+const inlineItalic = invoke(
+  request({
+    id: "inline-italic",
+    start: 56000,
+    end: 60000,
+    text: "someone who's into you\n is bound to turn up.",
+    observedAss: "someone who's into you\\N is {\\i1}bound{\\i0} to turn up.",
+    units: [
+      [0, 0, 7],
+      [8, 8, 13],
+      [14, 14, 18],
+      [19, 19, 22],
+      [24, 24, 26],
+      [27, 27, 32],
+      [33, 33, 35],
+      [36, 36, 40],
+      [41, 41, 43],
+    ],
+  }),
+);
+assert.strictEqual(inlineItalic.ok, true, JSON.stringify(inlineItalic));
+assert.strictEqual(inlineItalic.units.length, 9);
+inlineItalic.units.forEach((unit) => assert.ok(unit.rects.length));
 
 const rendererParity = invoke(
   request({

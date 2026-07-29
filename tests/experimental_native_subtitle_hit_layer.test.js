@@ -627,6 +627,19 @@ function waitForLayout() {
     "Top\nBottom\nline",
     "native geometry accepts literal event separators and authored line breaks",
   );
+  const inlineItalicAss = helpers.nativeAssDisplayText(
+    "someone who's into you\\N is {\\i1}bound{\\i0} to turn up.",
+  );
+  assertEqual(
+    inlineItalicAss.displayText,
+    "someone who's into you\n is bound to turn up.",
+    "native geometry maps text through bounded inline italic overrides",
+  );
+  assertEqual(
+    helpers.nativeAssDisplayText("{\\b1}bold{\\b0}").reason,
+    "complex-ass-tags",
+    "unhandled inline overrides remain fail-closed",
+  );
   const overlappingMapping = helpers.nativeLookupMapping(
     overlappingAss.displayText,
     overlappingAss.displayText,

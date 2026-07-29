@@ -25,6 +25,7 @@ function lifecycleContext() {
   const handlers = Object.create(null);
   const backend = deferred();
   const preferenceWrites = [];
+  const clickableCalls = [];
   let backendCalls = 0;
   let intervalCalls = 0;
   let loadCalls = 0;
@@ -82,7 +83,9 @@ function lifecycleContext() {
         loadCalls++;
       },
       setOpacity() {},
-      setClickable() {},
+      setClickable(value) {
+        clickableCalls.push(value);
+      },
       show() {},
     },
     ensureOverlayBridge() {},
@@ -172,6 +175,7 @@ function lifecycleContext() {
     handlers,
     backend,
     preferenceWrites,
+    clickableCalls,
     get backendCalls() {
       return backendCalls;
     },
@@ -201,6 +205,7 @@ async function testPersistedStartupAndIdempotence() {
   harness.handlers.ready({});
   assert.strictEqual(harness.context.overlayDocumentReady, true);
   assert.strictEqual(harness.context.overlayRuntimeState, "starting-helper");
+  assert.deepStrictEqual(harness.clickableCalls.slice(-2), [false, true]);
   harness.context.activeWorkerReady = { fingerprint: "ready" };
   harness.backend.resolve(harness.context.activeWorkerReady);
   await flushPromises();
@@ -231,6 +236,7 @@ function testPersistedDisabledStartup() {
   harness.handlers.ready({});
   assert.strictEqual(harness.context.overlayDocumentReady, true);
   assert.strictEqual(harness.context.overlayRuntimeState, "disabled");
+  assert.strictEqual(harness.clickableCalls.at(-1), false);
 }
 
 async function testDisableInvalidatesPendingEnablement() {

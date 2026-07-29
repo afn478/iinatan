@@ -74,10 +74,28 @@ bool split_ass_packet(
   return true;
 }
 
+size_t inline_italic_override_length(
+    const std::string& text, size_t offset) {
+  if (offset + 5 > text.size() || text[offset] != '{' ||
+      text[offset + 1] != '\\' ||
+      (text[offset + 2] != 'i' && text[offset + 2] != 'I') ||
+      (text[offset + 3] != '0' && text[offset + 3] != '1') ||
+      text[offset + 4] != '}')
+    return 0;
+  return 5;
+}
+
 bool simple_dialogue_text(const std::string& text) {
   if (text.empty() || text.size() > 64 * 1024) return false;
-  if (text.find_first_of("{}\r\n") != std::string::npos) return false;
   for (size_t i = 0; i < text.size(); ++i) {
+    const size_t italic_length = inline_italic_override_length(text, i);
+    if (italic_length) {
+      i += italic_length - 1;
+      continue;
+    }
+    if (text[i] == '{' || text[i] == '}' || text[i] == '\r' ||
+        text[i] == '\n')
+      return false;
     if (text[i] != '\\') continue;
     if (i + 1 >= text.size() || (text[i + 1] != 'N' && text[i + 1] != 'n'))
       return false;
@@ -148,7 +166,12 @@ std::string dialogue_plain_text(const std::string& text) {
   std::string plain;
   plain.reserve(text.size());
   for (size_t index = 0; index < text.size(); ++index) {
-    if (text[index] == '\\' && index + 1 < text.size() &&
+    const size_t italic_length =
+        inline_italic_override_length(text, index);
+    if (italic_length) {
+      index += italic_length - 1;
+    } else if (
+        text[index] == '\\' && index + 1 < text.size() &&
         (text[index + 1] == 'N' || text[index + 1] == 'n')) {
       plain.push_back('\n');
       ++index;
@@ -202,6 +225,12 @@ bool build_text_index(const std::string& raw, TextIndex& result) {
   size_t offset = 0;
   int logical = 0;
   while (offset < raw.size()) {
+    const size_t italic_length =
+        inline_italic_override_length(raw, offset);
+    if (italic_length) {
+      offset += italic_length;
+      continue;
+    }
     if (raw[offset] == '\\' && offset + 1 < raw.size() &&
         (raw[offset + 1] == 'N' || raw[offset + 1] == 'n')) {
       offset += 2;

@@ -34,3 +34,4 @@ Dialogue: 0,0:00:48.00,0:00:51.00,Geometry,,0,0,0,,Simple peer
 Dialogue: 0,0:00:48.00,0:00:51.00,TopGeometry,,0,0,0,,{\pos(100,100)}Complex peer
 Dialogue: 0,0:00:52.00,0:00:55.00,Geometry,,0,0,0,,Simple peer
 Dialogue: 0,0:00:52.00,0:00:55.00,TopGeometry,,0,0,0,Banner;10;0;20,Animated peer
+Dialogue: 0,0:00:56.00,0:01:00.00,Geometry,,0,0,0,,someone who's into you\N is {\i1}bound{\i0} to turn up.

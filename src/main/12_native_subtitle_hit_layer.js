@@ -863,10 +863,11 @@ function nativeLookupMapping(displayText, lookupText, options) {
 function nativeAssDisplayText(raw) {
   const text = String(raw || "");
   if (!text) return { reason: "empty-subtitle" };
-  if (/[\r{}]/.test(text)) return { reason: "complex-ass-tags" };
-  if (/\\(?![Nn])/i.test(text)) return { reason: "complex-ass-tags" };
+  const displayText = text.replace(/\{\\i[01]\}/gi, "");
+  if (/[\r{}]/.test(displayText)) return { reason: "complex-ass-tags" };
+  if (/\\(?![Nn])/i.test(displayText)) return { reason: "complex-ass-tags" };
   return {
-    displayText: text.replace(/\\N/g, "\n").replace(/\\n/g, "\n"),
+    displayText: displayText.replace(/\\N/g, "\n").replace(/\\n/g, "\n"),
   };
 }
 

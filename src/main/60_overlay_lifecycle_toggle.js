@@ -54,6 +54,20 @@ function updateOverlayRuntimeState(reason) {
 function handleOverlayDocumentReady(payload, source) {
   const wasReady = overlayDocumentReady;
   overlayDocumentReady = true;
+  try {
+    // IINA may ignore the pre-load clickable state until it observes a real
+    // transition on the ready WebView. Reapply the desired state from false.
+    overlay.setOpacity(1);
+    overlay.setClickable(false);
+    if (enabled) {
+      overlay.setClickable(true);
+      overlay.show();
+    }
+  } catch (error) {
+    debugWarn(
+      "could not synchronize ready overlay surface: " + compactError(error),
+    );
+  }
   debugLog(
     "overlay document ready source=" +
       String(source || "plugin-message") +

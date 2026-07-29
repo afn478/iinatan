@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- Reapplied IINA overlay clickability through a false-to-enabled transition after the WebView reports ready, preventing cold starts from leaving valid subtitle targets invisible and non-interactive until Shift+H is toggled twice.
+- Added native ASS hit geometry for dialogue containing bounded inline italic overrides, so an otherwise ordinary subtitle no longer loses all word targets when one word is italicized.
 - Fixed persisted native-overlay startup and rapid settings reconfiguration by separating desired enablement from runtime/helper/session/hit-layer readiness, accepting overlay readiness and layout diagnostics through the reliable WebSocket bridge, measuring plain-subtitle targets synchronously after font loading when IINA suspends WebView callbacks, invalidating stale async generations, serializing exact-PID worker teardown/startup, and limiting settings changes to their required cache, DOM, polling, visibility, or helper effects.
 - Fixed simultaneous external SubRip cues being collapsed into one copied multiline block by retaining their event boundaries, tolerating ffmpeg-accepted blank separators after timing lines, and stacking each cue independently in mpv display order.
 - Fixed enabled-by-default startup when the overlay reports ready during document loading, and ensured a newly ready overlay receives the current subtitle even when its cue identity was already cached.
