@@ -116,6 +116,7 @@ function loadMainNativeHelpers(properties) {
     nativeAssGeometryInFlight: Object.create(null),
     nativeAssGeometryGeneration: 0,
     nativeAssGeometryActiveKey: "",
+    nativeExternalSrtCache: Object.create(null),
     nativeSubtitlePrivateCueSerial: 0,
     nativeSubtitlePrivateCueDirectoryPromise: null,
     __testUseActualFontMetrics: !!values.__useActualFontMetricResolver,
@@ -152,6 +153,9 @@ function loadMainNativeHelpers(properties) {
       },
       exists(filePath) {
         return Object.prototype.hasOwnProperty.call(privateFiles, filePath);
+      },
+      read(filePath) {
+        return privateFiles[filePath] || "";
       },
       delete(filePath) {
         delete privateFiles[filePath];
@@ -222,6 +226,12 @@ function loadMainNativeHelpers(properties) {
     cleanNativeDisplayText(text) {
       return String(text || "").replace(/\r/g, "");
     },
+    normalizeExperimentalSubtitleText(text) {
+      const normalized = String(text || "").replace(/\r/g, "");
+      return values["pref:flattenSubtitleLineBreaks"]
+        ? normalized.replace(/\n+/g, " ")
+        : normalized;
+    },
     readExperimentalLookupSubtitleProperty(name) {
       return String(values[name] || "").replace(/\r/g, "");
     },
@@ -288,6 +298,9 @@ globalThis.nativeHelpers = {
   parseSimpleNativeAssCue,
   nativeAssDisplayText,
   nativeAssGeometryUnits,
+  nativeSrtTimestampMs,
+  parseNativeSrtCues,
+  nativeExternalSrtEventBlocks,
   nativeGraphemeBreakFallback,
   nativeGraphemeSegments,
   nativeLookupMapping,
@@ -369,6 +382,101 @@ function waitForLayout() {
   );
 
   const helpers = loadMainNativeHelpers();
+  const overlappingSrtPath = "/tmp/overlapping.srt";
+  const overlappingSrtText = [
+    "202",
+    "00:11:54,338 --> 00:11:56,173",
+    "",
+    "彼女の娘とは思えないな",
+    "",
+    "203",
+    "00:11:54,338 --> 00:11:56,173",
+    "できる子は",
+    "この年齢で もっとできてる",
+    "",
+  ].join("\n");
+  const overlappingSrtHelpers = loadMainNativeHelpers({
+    __privateFiles: { [overlappingSrtPath]: overlappingSrtText },
+    "time-pos": 714.5,
+    "options/sub-delay": 0,
+    languageId: "ja",
+  });
+  const parsedOverlappingSrt =
+    overlappingSrtHelpers.parseNativeSrtCues(overlappingSrtText);
+  assertEqual(
+    parsedOverlappingSrt.cues.map((cue) => cue.text),
+    ["彼女の娘とは思えないな", "できる子は\nこの年齢で もっとできてる"],
+    "the SRT parser keeps authored lines inside their original cue",
+  );
+  const overlappingSrtDisplay =
+    "彼女の娘とは思えないな\nできる子は\nこの年齢で もっとできてる";
+  const overlappingSrtBlocks =
+    overlappingSrtHelpers.nativeExternalSrtEventBlocks(
+      {
+        external: true,
+        externalFilename: overlappingSrtPath,
+      },
+      "primary",
+      overlappingSrtDisplay,
+      overlappingSrtDisplay,
+      7,
+    );
+  assertEqual(
+    overlappingSrtBlocks.eventBlocks.map((block) => ({
+      displayText: block.displayText,
+      lookupStart: block.lookupStart,
+      stackIndex: block.stackIndex,
+    })),
+    [
+      {
+        displayText: "彼女の娘とは思えないな",
+        lookupStart: 7,
+        stackIndex: 0,
+      },
+      {
+        displayText: "できる子は\nこの年齢で もっとできてる",
+        lookupStart: 19,
+        stackIndex: 1,
+      },
+    ],
+    "simultaneous SRT cues become independently stacked lookup blocks",
+  );
+  assertEqual(
+    overlappingSrtHelpers.nativeExternalSrtEventBlocks(
+      {
+        external: true,
+        externalFilename: overlappingSrtPath,
+      },
+      "primary",
+      "wrong text",
+      "wrong text",
+      0,
+    ).reason,
+    "cue-text-mismatch",
+    "SRT event boundaries fail closed when mpv text does not match the file",
+  );
+  const flattenedSrtHelpers = loadMainNativeHelpers({
+    __privateFiles: { [overlappingSrtPath]: overlappingSrtText },
+    "time-pos": 714.5,
+    "options/sub-delay": 0,
+    "pref:flattenSubtitleLineBreaks": true,
+    languageId: "ja",
+  });
+  const flattenedSrtBlocks = flattenedSrtHelpers.nativeExternalSrtEventBlocks(
+    {
+      external: true,
+      externalFilename: overlappingSrtPath,
+    },
+    "primary",
+    overlappingSrtDisplay,
+    "彼女の娘とは思えないな できる子は この年齢で もっとできてる",
+    0,
+  );
+  assertEqual(
+    flattenedSrtBlocks.eventBlocks.map((block) => block.lookupStart),
+    [0, 12],
+    "flattened subtitle line breaks preserve simultaneous SRT event offsets",
+  );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
       [
@@ -1859,6 +1967,144 @@ function waitForLayout() {
       lifecycleSource,
     ),
     "stopping playback polling invalidates the prior lookup line",
+  );
+  const initializeOverlaySource = lifecycleSource.slice(
+    0,
+    lifecycleSource.indexOf("function prepareRuntimeAfterProfileChange"),
+  );
+  function loadInitializeOverlayHarness(enabledValue, synchronousReady) {
+    const handlers = Object.create(null);
+    const events = [];
+    const acceptedPosts = [];
+    const droppedPosts = [];
+    let documentReady = false;
+    let pollCalls = 0;
+    const context = {
+      console,
+      JSON,
+      VERSION: "test",
+      enabled: enabledValue,
+      initialized: false,
+      lastSubtitleCueIdentity: "cached-cue",
+      lastNativeLayoutFingerprint: "preserved-layout",
+      nativeLayoutStablePolls: 7,
+      ensureOverlayBridge() {},
+      debugLog() {},
+      handleLookupPopupOverlayReady() {},
+      overlayConfig() {
+        return { test: true };
+      },
+      replayActiveOverlayTask() {
+        events.push("replay");
+      },
+      postToOverlay(name, payload) {
+        const target = documentReady ? acceptedPosts : droppedPosts;
+        target.push({ name, payload });
+      },
+      pollSubtitle() {
+        pollCalls++;
+        if (context.lastSubtitleCueIdentity !== null) return;
+        context.postToOverlay("subtitle", { text: "current cue" });
+      },
+      overlay: {
+        onMessage(name, callback) {
+          events.push("on:" + name);
+          handlers[name] = callback;
+        },
+        loadFile() {
+          events.push("load");
+          if (synchronousReady) {
+            documentReady = true;
+            handlers.ready({ synchronous: true });
+          }
+        },
+        setOpacity() {},
+        setClickable() {},
+        show() {},
+      },
+    };
+    vm.createContext(context);
+    vm.runInContext(
+      initializeOverlaySource +
+        ";globalThis.initializeOverlayApi={initializeOverlay};",
+      context,
+    );
+    return {
+      context,
+      events,
+      acceptedPosts,
+      droppedPosts,
+      handlers,
+      initialize() {
+        context.initializeOverlayApi.initializeOverlay();
+      },
+      fireReady() {
+        documentReady = true;
+        handlers.ready({ synchronous: false });
+      },
+      pollCalls() {
+        return pollCalls;
+      },
+    };
+  }
+
+  const synchronousReady = loadInitializeOverlayHarness(true, true);
+  synchronousReady.initialize();
+  assert(
+    synchronousReady.events.indexOf("on:ready") <
+      synchronousReady.events.indexOf("load") &&
+      synchronousReady.events.indexOf("on:anki-card-open") <
+        synchronousReady.events.indexOf("load"),
+    "all overlay message handlers are registered before a synchronous load",
+  );
+  assert(
+    synchronousReady.acceptedPosts.some(
+      (message) => message.name === "subtitle",
+    ),
+    "a synchronous ready event republishes the current subtitle",
+  );
+  synchronousReady.initialize();
+  assertEqual(
+    synchronousReady.events.filter((eventName) => eventName === "load").length,
+    1,
+    "repeated initialization remains idempotent after synchronous ready",
+  );
+
+  const asynchronousReady = loadInitializeOverlayHarness(true, false);
+  asynchronousReady.initialize();
+  asynchronousReady.context.postToOverlay("config", { premature: true });
+  assertEqual(
+    asynchronousReady.droppedPosts.length,
+    1,
+    "the harness drops messages sent before the overlay document is ready",
+  );
+  asynchronousReady.fireReady();
+  assertEqual(
+    asynchronousReady.acceptedPosts.map((message) => message.name),
+    ["config", "enabled", "subtitle"],
+    "ready publishes configuration, enabled state, and a fresh current cue",
+  );
+  assertEqual(
+    {
+      identity: asynchronousReady.context.lastSubtitleCueIdentity,
+      fingerprint: asynchronousReady.context.lastNativeLayoutFingerprint,
+      stablePolls: asynchronousReady.context.nativeLayoutStablePolls,
+    },
+    {
+      identity: null,
+      fingerprint: "preserved-layout",
+      stablePolls: 7,
+    },
+    "ready clears only cached cue identity while preserving native layout state",
+  );
+
+  const disabledReady = loadInitializeOverlayHarness(false, false);
+  disabledReady.initialize();
+  disabledReady.fireReady();
+  assertEqual(
+    disabledReady.pollCalls(),
+    0,
+    "a disabled overlay ready event does not poll or publish a subtitle",
   );
   const readSubtitleSource = subtitleStyleSource.slice(
     subtitleStyleSource.indexOf("function readCurrentSubtitle"),
@@ -3637,6 +3883,119 @@ function waitForLayout() {
     primarySurfaceRight <= secondarySurfaceLeft,
     "overlaps are resolved once across all subtitle surfaces",
   );
+
+  const stackedSrtOverlay = loadOverlayForTest(["state"], {
+    rangeRects(start, end) {
+      if (start === 0 && end === 5)
+        return [
+          {
+            left: 300,
+            top: 500,
+            right: 350,
+            bottom: 530,
+            width: 50,
+            height: 30,
+          },
+        ];
+      return [
+        {
+          left: 300 + start * 10,
+          top: 500,
+          right: 300 + end * 10,
+          bottom: 530,
+          width: Math.max(1, (end - start) * 10),
+          height: 30,
+        },
+      ];
+    },
+  });
+  stackedSrtOverlay.context.__handlers.enabled({ enabled: true });
+  const lookupSpansFor = (text) =>
+    Array.from(text, (_character, index) => ({
+      startUtf16: index,
+      endUtf16: index + 1,
+    }));
+  stackedSrtOverlay.context.__handlers.subtitle({
+    ...nativeLayerPayload,
+    text: "first\nsecond\nline",
+    displayText: "first\nsecond\nline",
+    nativeLookupSpans: [],
+    nativeLayout: null,
+    nativeSurfaces: [
+      {
+        surface: "primary",
+        lookupStart: 0,
+        lookupText: "first\nsecond\nline",
+        displayText: "first\nsecond\nline",
+        lookupSpans: lookupSpansFor("first\nsecond\nline"),
+        layout: {
+          ...nativeLayerPayload.nativeLayout,
+          eventBlocks: [
+            {
+              displayText: "first",
+              lookupText: "first",
+              lookupStart: 0,
+              lookupSpans: lookupSpansFor("first"),
+              stackIndex: 0,
+            },
+            {
+              displayText: "second\nline",
+              lookupText: "second\nline",
+              lookupStart: 6,
+              lookupSpans: lookupSpansFor("second\nline"),
+              stackIndex: 1,
+            },
+          ],
+        },
+      },
+    ],
+    lineId: 9,
+  });
+  await waitForLayout();
+  const stackedSrtHost = stackedSrtOverlay.context.document.getElementById(
+    "native-subtitle-layer-host",
+  );
+  const lowerSrtCopy = stackedSrtHost.shadowRoot.getElementById(
+    "native-subtitle-copy-primary-0",
+  );
+  const upperSrtCopy = stackedSrtHost.shadowRoot.getElementById(
+    "native-subtitle-copy-primary-1",
+  );
+  assert(
+    lowerSrtCopy && upperSrtCopy,
+    "overlapping SRT cues bypass the single-primary fast path",
+  );
+  assertEqual(
+    {
+      lower: lowerSrtCopy.textContent,
+      upper: upperSrtCopy.textContent,
+    },
+    { lower: "first", upper: "second\nline" },
+    "each simultaneous SRT cue keeps its authored multiline text",
+  );
+  assertEqual(
+    lowerSrtCopy.style.transform,
+    "translateX(-50%)",
+    "the earlier SRT event remains at the normal subtitle baseline",
+  );
+  assert(
+    new RegExp(
+      "translateY\\(-" +
+        Number.parseFloat(lowerSrtCopy.style["line-height"]) +
+        "px\\)",
+    ).test(upperSrtCopy.style.transform),
+    "the later SRT event is stacked one rendered row above the earlier event",
+  );
+  assertEqual(
+    Array.from(
+      stackedSrtOverlay.context.document.getElementById(
+        "native-subtitle-hit-boxes",
+      ).children,
+    ).some((hit) => Number(hit.dataset.pos) === 6),
+    true,
+    "the upper SRT event produces globally indexed lookup hit boxes",
+  );
+
   loaded.context.__handlers.subtitle({
     ...nativeLayerPayload,
     text: "one\nmissing",

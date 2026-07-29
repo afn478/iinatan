@@ -317,15 +317,9 @@ function readCurrentSubtitle() {
     return language.normalizeSubtitleText(clean);
   return clean;
 }
-function readExperimentalLookupSubtitleProperty(property) {
-  let sub = "";
-  try {
-    sub = mpv.getString(property || "sub-text") || "";
-  } catch (_) {
-    sub = "";
-  }
+function normalizeExperimentalSubtitleText(subtitle) {
   const clean = cleanSubtitleText(
-    sub,
+    subtitle,
     prefBool("flattenSubtitleLineBreaks", false),
   );
   const language = selectedLanguageModule();
@@ -338,6 +332,15 @@ function readExperimentalLookupSubtitleProperty(property) {
       ? language.normalizeText(subtitleNormalized)
       : subtitleNormalized;
   return IINATAN_LANGUAGE_COMMON.normalizeBasic(languageNormalized);
+}
+function readExperimentalLookupSubtitleProperty(property) {
+  let sub = "";
+  try {
+    sub = mpv.getString(property || "sub-text") || "";
+  } catch (_) {
+    sub = "";
+  }
+  return normalizeExperimentalSubtitleText(sub);
 }
 function readExperimentalLookupSubtitle() {
   return readExperimentalLookupSubtitleProperty("sub-text");

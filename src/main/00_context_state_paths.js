@@ -199,6 +199,7 @@ let nativeSubtitleFontMetricGeneration = 0;
 let nativeAssGeometryCache = Object.create(null);
 let nativeAssGeometryInFlight = Object.create(null);
 let nativeAssGeometryGeneration = 0;
+let nativeExternalSrtCache = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
 let nativeSubVisibilityBeforeEnable = null;

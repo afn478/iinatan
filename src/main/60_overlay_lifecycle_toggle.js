@@ -9,18 +9,16 @@ function initializeOverlay() {
       " enabled=" +
       enabled,
   );
-  overlay.loadFile("overlay.html");
-  overlay.setOpacity(1);
-  overlay.setClickable(true);
-  overlay.show();
-  initialized = true;
   overlay.onMessage("ready", (payload) => {
     debugLog("overlay ready received payloadType=" + typeof payload);
     handleLookupPopupOverlayReady(payload);
     postToOverlay("config", overlayConfig());
     postToOverlay("enabled", { enabled });
     replayActiveOverlayTask();
-    if (enabled) pollSubtitle();
+    if (enabled) {
+      lastSubtitleCueIdentity = null;
+      pollSubtitle();
+    }
   });
   overlay.onMessage("lookup-at", (payload) => {
     handleLookupAt(payload);
@@ -83,6 +81,11 @@ function initializeOverlay() {
   overlay.onMessage("anki-card-open", (payload) => {
     handleBridgeAnkiCardOpen(payload);
   });
+  initialized = true;
+  overlay.loadFile("overlay.html");
+  overlay.setOpacity(1);
+  overlay.setClickable(true);
+  overlay.show();
 }
 function prepareRuntimeAfterProfileChange() {
   advanceNativeSubtitleFontMetricGeneration();

@@ -1852,6 +1852,22 @@
     }
   }
 
+  function nativeCopyLineRects(copyElement) {
+    if (!document.createRange || !copyElement || !copyElement.firstChild)
+      return [];
+    try {
+      const range = document.createRange();
+      range.setStart(copyElement.firstChild, 0);
+      range.setEnd(
+        copyElement.firstChild,
+        String(copyElement.textContent || "").length,
+      );
+      return Array.prototype.slice.call(range.getClientRects());
+    } catch (_) {
+      return [];
+    }
+  }
+
   function nativeCopyRequiresAutomaticWrap(displayText) {
     if (!document.createRange || !nativeSubtitleCopyEl.firstChild) return true;
     const lines = String(displayText || "").split("\n");
@@ -2235,7 +2251,9 @@
     if (
       surfaces.length === 1 &&
       list.length === 1 &&
-      String(list[0].surface || list[0].role) === "primary"
+      String(list[0].surface || list[0].role) === "primary" &&
+      (!Array.isArray(list[0].layout.eventBlocks) ||
+        list[0].layout.eventBlocks.length <= 1)
     ) {
       renderNativeSubtitleHitLayer(
         String(list[0].displayText || ""),
@@ -2295,11 +2313,11 @@
         viewport,
       );
       if (!geometry.ok) return;
-      const copy = createNativeSubtitleCopyElement();
-      copy.id = "native-subtitle-copy-" + role;
-      copy.dataset.surface = role;
-      nativeSubtitleCopyEl.appendChild(copy);
       if (Array.isArray(layout.directRects)) {
+        const copy = createNativeSubtitleCopyElement();
+        copy.id = "native-subtitle-copy-" + role;
+        copy.dataset.surface = role;
+        nativeSubtitleCopyEl.appendChild(copy);
         if (copyOpacity > 0)
           renderNativeAssAlphaMask(
             layout.alphaMask,
@@ -2339,74 +2357,150 @@
           layout.options,
         );
       if (!calculated.ok) return;
-      const previousCopy = nativeSubtitleCopyEl;
-      nativeSubtitleCopyEl = copy;
-      applyNativeLayout(
-        calculated,
-        IINATAN_NATIVE_SUBTITLE_HIT_LAYER.balancedTextWrapSupported(
-          window.CSS,
-          document.createElement("span").style,
-        ),
-      );
-      nativeSubtitleCopyEl = previousCopy;
-      copy.textContent = String(surface.displayText || "");
-      setImportantStyle(copy, "opacity", copyOpacity);
-      copy.classList.remove("hidden");
-      const record = { surface, role, copy, fontReady: true };
-      plainRecords.push(record);
-      const fontSet = document.fonts;
-      if (
-        fontSet &&
-        typeof fontSet.load === "function" &&
-        typeof fontSet.check === "function"
-      ) {
-        fontReadiness.push(
-          nativeSubtitleFontFamilyForMeasurement(
-            layout.options.effectiveFont || layout.options.font,
-            isCurrent,
-            layout.options,
-            copy,
-          )
-            .then((fontResolution) => {
-              if (!fontResolution || !isCurrent()) {
-                record.fontReady = false;
-                return null;
-              }
-              const fontSpec =
-                String(Math.max(1, calculated.fontSize)) +
-                "px " +
-                String(fontResolution.cssFamily || "sans-serif");
-              return Promise.resolve(
-                fontSet.load(fontSpec, String(surface.displayText || "")),
-              ).then(() => ({ fontResolution, fontSpec }));
-            })
-            .then((fontLoad) => {
-              if (!fontLoad) return;
-              record.fontReady =
-                isCurrent() &&
-                fontSet.check(
-                  fontLoad.fontSpec,
-                  String(surface.displayText || ""),
-                ) &&
-                (fontLoad.fontResolution.localFontVerified ||
-                  nativeFontFamilyAvailable(
-                    calculated.fontFamily,
-                    String(surface.displayText || ""),
-                  ));
-            })
-            .catch(() => {
-              record.fontReady = false;
-            }),
+      const eventBlocks =
+        Array.isArray(layout.eventBlocks) && layout.eventBlocks.length > 1
+          ? layout.eventBlocks
+          : [
+              {
+                displayText: surface.displayText,
+                lookupText: surface.lookupText,
+                lookupStart: surface.lookupStart,
+                lookupLength: surface.lookupLength,
+                lookupSpans: surface.lookupSpans,
+                stackIndex: 0,
+              },
+            ];
+      eventBlocks.forEach((block, blockIndex) => {
+        const copy = createNativeSubtitleCopyElement();
+        copy.id =
+          "native-subtitle-copy-" +
+          role +
+          (eventBlocks.length > 1 ? "-" + blockIndex : "");
+        copy.dataset.surface = role;
+        if (eventBlocks.length > 1)
+          copy.dataset.eventIndex = String(blockIndex);
+        nativeSubtitleCopyEl.appendChild(copy);
+        const previousCopy = nativeSubtitleCopyEl;
+        nativeSubtitleCopyEl = copy;
+        applyNativeLayout(
+          calculated,
+          IINATAN_NATIVE_SUBTITLE_HIT_LAYER.balancedTextWrapSupported(
+            window.CSS,
+            document.createElement("span").style,
+          ),
         );
-      }
+        nativeSubtitleCopyEl = previousCopy;
+        copy.textContent = String(block.displayText || "");
+        setImportantStyle(copy, "opacity", copyOpacity);
+        copy.classList.remove("hidden");
+        const record = {
+          surface,
+          role,
+          block,
+          copy,
+          calculated,
+          baseTransform: calculated.transform || "none",
+          fontReady: true,
+          stacked: eventBlocks.length > 1,
+        };
+        plainRecords.push(record);
+        const fontSet = document.fonts;
+        if (
+          fontSet &&
+          typeof fontSet.load === "function" &&
+          typeof fontSet.check === "function"
+        ) {
+          fontReadiness.push(
+            nativeSubtitleFontFamilyForMeasurement(
+              layout.options.effectiveFont || layout.options.font,
+              isCurrent,
+              layout.options,
+              copy,
+            )
+              .then((fontResolution) => {
+                if (!fontResolution || !isCurrent()) {
+                  record.fontReady = false;
+                  return null;
+                }
+                const fontSpec =
+                  String(Math.max(1, calculated.fontSize)) +
+                  "px " +
+                  String(fontResolution.cssFamily || "sans-serif");
+                return Promise.resolve(
+                  fontSet.load(fontSpec, String(block.displayText || "")),
+                ).then(() => ({ fontResolution, fontSpec }));
+              })
+              .then((fontLoad) => {
+                if (!fontLoad) return;
+                record.fontReady =
+                  isCurrent() &&
+                  fontSet.check(
+                    fontLoad.fontSpec,
+                    String(block.displayText || ""),
+                  ) &&
+                  (fontLoad.fontResolution.localFontVerified ||
+                    nativeFontFamilyAvailable(
+                      calculated.fontFamily,
+                      String(block.displayText || ""),
+                    ));
+              })
+              .catch(() => {
+                record.fontReady = false;
+              }),
+          );
+        }
+      });
     });
+    const stackEventBlocks = () => {
+      const groups = Object.create(null);
+      plainRecords.forEach((record) => {
+        if (!record.stacked || !record.fontReady) return;
+        if (!groups[record.role]) groups[record.role] = [];
+        groups[record.role].push(record);
+      });
+      Object.keys(groups).forEach((role) => {
+        const records = groups[role].sort(
+          (left, right) =>
+            Number(left.block.stackIndex) - Number(right.block.stackIndex),
+        );
+        let rowOffset = 0;
+        records.forEach((record) => {
+          if (rowOffset > 0) {
+            const base =
+              record.baseTransform && record.baseTransform !== "none"
+                ? record.baseTransform + " "
+                : "";
+            setImportantStyle(
+              record.copy,
+              "transform",
+              base + "translateY(-" + rowOffset + "px)",
+            );
+          }
+          const rows = [];
+          nativeCopyLineRects(record.copy).forEach((rect) => {
+            if (
+              rect &&
+              Number.isFinite(Number(rect.top)) &&
+              !rows.some((top) => Math.abs(top - Number(rect.top)) <= 1.5)
+            )
+              rows.push(Number(rect.top));
+          });
+          rowOffset +=
+            Math.max(
+              1,
+              rows.length ||
+                String(record.block.displayText || "").split("\n").length,
+            ) * record.calculated.lineHeight;
+        });
+      });
+    };
     const finish = () => {
       if (!isCurrent()) return;
       plainRecords.forEach((record) => {
         if (!record.fontReady) return;
-        const lookupStart = Number(record.surface.lookupStart) || 0;
+        const lookupStart = Number(record.block.lookupStart) || 0;
         const localLength = Array.from(
-          String(record.surface.lookupText || ""),
+          String(record.block.lookupText || ""),
         ).length;
         for (
           let globalPosition = lookupStart;
@@ -2422,7 +2516,7 @@
           )
             continue;
           nativeRangeRects(
-            record.surface.lookupSpans,
+            record.block.lookupSpans,
             unit.preview.start - lookupStart,
             unit.preview.end - lookupStart,
             record.copy,
@@ -2445,6 +2539,7 @@
     };
     const scheduleFinish = () => {
       if (!isCurrent()) return;
+      stackEventBlocks();
       if (
         plainRecords.length &&
         typeof window.requestAnimationFrame === "function"

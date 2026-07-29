@@ -926,6 +926,144 @@ function nativeAssSourceSnapshot(track) {
   };
 }
 
+function nativeSrtTimestampMs(value) {
+  const match = String(value || "").match(
+    /^(\d{1,3}):(\d{2}):(\d{2})[,.](\d{3})$/,
+  );
+  if (!match) return -1;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  const milliseconds = Number(match[4]);
+  if (
+    ![hours, minutes, seconds, milliseconds].every(Number.isFinite) ||
+    minutes > 59 ||
+    seconds > 59
+  )
+    return -1;
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds;
+}
+
+function parseNativeSrtCues(raw) {
+  const source = String(raw || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n");
+  if (!source || source.length > 8 * 1024 * 1024)
+    return { reason: "srt-file-limit-exceeded" };
+  const lines = source.split("\n");
+  const cues = [];
+  let line = 0;
+  while (line < lines.length) {
+    while (line < lines.length && !lines[line].trim()) line++;
+    if (line >= lines.length) break;
+    if (/^\d+$/.test(lines[line].trim())) line++;
+    if (line >= lines.length) return { reason: "invalid-srt-timing" };
+    const timing = lines[line].match(
+      /^\s*(\d{1,3}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,3}:\d{2}:\d{2}[,.]\d{3})(?:\s+.*)?$/,
+    );
+    if (!timing) return { reason: "invalid-srt-timing" };
+    const startMs = nativeSrtTimestampMs(timing[1]);
+    const endMs = nativeSrtTimestampMs(timing[2]);
+    if (startMs < 0 || endMs <= startMs)
+      return { reason: "invalid-srt-timing" };
+    line++;
+    // libavformat accepts blank separator lines between a timing line and the
+    // first authored text row. Ignore those leading separators while keeping
+    // blank lines inside a cue significant.
+    while (line < lines.length && !lines[line].trim()) line++;
+    const nextLineIsCueTiming =
+      line + 1 < lines.length &&
+      /^\d+$/.test(lines[line].trim()) &&
+      /^\s*\d{1,3}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*/.test(lines[line + 1]);
+    if (nextLineIsCueTiming) continue;
+    const text = [];
+    while (line < lines.length && lines[line].trim()) {
+      text.push(lines[line]);
+      line++;
+    }
+    if (text.length) {
+      cues.push({ startMs, endMs, text: text.join("\n") });
+      if (cues.length > 100000) return { reason: "srt-cue-limit-exceeded" };
+    }
+  }
+  return cues.length ? { cues } : { reason: "empty-subtitle" };
+}
+
+function nativeExternalSrtCues(track) {
+  const selected = track || {};
+  const path = String(selected.externalFilename || "");
+  if (!selected.external || !path || path.charAt(0) !== "/")
+    return { reason: "srt-event-boundaries-unavailable" };
+  if (nativeExternalSrtCache[path]) return nativeExternalSrtCache[path];
+  let parsed = null;
+  try {
+    parsed = parseNativeSrtCues(String(file.read(path) || ""));
+  } catch (_) {
+    parsed = { reason: "srt-read-failed" };
+  }
+  nativeExternalSrtCache[path] = parsed;
+  return parsed;
+}
+
+function nativeExternalSrtEventBlocks(
+  track,
+  surface,
+  displayText,
+  lookupText,
+  lookupStart,
+) {
+  const parsed = nativeExternalSrtCues(track);
+  if (parsed.reason) return { reason: parsed.reason };
+  let timeMs = Math.round(
+    mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
+  );
+  const delayNames =
+    surface === "secondary"
+      ? ["options/secondary-sub-delay", "secondary-sub-delay"]
+      : ["options/sub-delay", "sub-delay"];
+  timeMs -= Math.round(mpvNumberProp(delayNames, 0) * 1000);
+  if (!Number.isFinite(timeMs) || timeMs < 0)
+    return { reason: "cue-timing-unavailable" };
+  const active = parsed.cues.filter(
+    (cue) => cue.startMs <= timeMs && cue.endMs > timeMs,
+  );
+  if (active.length <= 1) return { eventBlocks: [] };
+  if (active.length > 32) return { reason: "srt-active-cue-limit-exceeded" };
+  const displays = active.map((cue) => cleanNativeDisplayText(cue.text));
+  if (displays.join("\n") !== String(displayText || ""))
+    return { reason: "cue-text-mismatch" };
+  const lookups = displays.map((text) =>
+    normalizeExperimentalSubtitleText(text),
+  );
+  const lookupSeparator = prefBool("flattenSubtitleLineBreaks", false)
+    ? " "
+    : "\n";
+  if (lookups.join(lookupSeparator) !== String(lookupText || ""))
+    return { reason: "text-index-map-failed" };
+  const eventBlocks = [];
+  let position = Number(lookupStart) || 0;
+  for (let index = 0; index < active.length; index++) {
+    const mapping = nativeLookupMapping(displays[index], lookups[index], {
+      flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+      languageId: selectedLanguageModule().id,
+    });
+    if (!mapping.ok) return { reason: mapping.reason };
+    eventBlocks.push({
+      displayText: displays[index],
+      lookupText: lookups[index],
+      lookupStart: position,
+      lookupLength: Array.from(lookups[index]).length,
+      lookupSpans: mapping.lookupSpans,
+      stackIndex: index,
+      startMs: active[index].startMs,
+      endMs: active[index].endMs,
+    });
+    position +=
+      Array.from(lookups[index]).length + Array.from(lookupSeparator).length;
+  }
+  return { eventBlocks };
+}
+
 function normalizeNativeAssGeometryResponse(response, request) {
   if (
     !response ||
@@ -1151,6 +1289,18 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
   const lookupText = String(normalizedText || "");
   if (!displayText || !lookupText)
     return { reason: "empty-subtitle", displayText };
+  let srtEventBlocks = [];
+  if (eligibility.kind === "srt" && eligibility.track.external) {
+    const segmented = nativeExternalSrtEventBlocks(
+      eligibility.track,
+      surface,
+      displayText,
+      lookupText,
+      Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+    );
+    if (segmented.reason) return { reason: segmented.reason, displayText };
+    srtEventBlocks = segmented.eventBlocks;
+  }
   const options = nativeSubtitleOptionSnapshot(surface);
   let mapping = null;
   let osd = null;
@@ -1375,6 +1525,7 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
     layout: {
       osd,
       options,
+      eventBlocks: srtEventBlocks,
       hidpiScale: mpvNumberProp(["display-hidpi-scale"], 0),
     },
   };

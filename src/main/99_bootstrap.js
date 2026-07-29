@@ -13,6 +13,7 @@ event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
+  nativeExternalSrtCache = Object.create(null);
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
   lastSubtitle = null;
@@ -213,6 +214,8 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((registration) => {
   try {
     event.on(registration[0], () => {
+      if (registration[1] === "subtitle-track-change")
+        nativeExternalSrtCache = Object.create(null);
       invalidateExperimentalNativeLayout(registration[1]);
       if (enabled) pollSubtitle();
     });
