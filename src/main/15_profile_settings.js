@@ -62,6 +62,29 @@ const GLOBAL_SETTINGS_DEFAULTS = {
   importTimeoutMs: 1800000,
 };
 const GLOBAL_SETTINGS_KEYS = Object.keys(GLOBAL_SETTINGS_DEFAULTS);
+const PROFILE_PREFERENCE_RUNTIME_EFFECTS = {
+  lookupLanguage: ["lookupCache", "geometryCache", "backendRestart"],
+  scanLength: ["lookupCache"],
+  maxEntries: ["lookupCache"],
+  maxGlossesPerEntry: ["lookupCache"],
+  flattenSubtitleLineBreaks: ["geometryCache"],
+  experimentalNativeSubtitleHitLayer: ["geometryCache", "nativeVisibility"],
+  experimentalNativeSubtitleTextOpacity: ["geometryCache"],
+  experimentalNativeSubtitleValidation: ["geometryCache"],
+  experimentalNativeSubtitleHitBoxes: ["hitLayer"],
+  subtitlePollMs: ["polling"],
+  hideNativeSubtitles: ["nativeVisibility"],
+  workerIdleSleepMs: ["backendRestart"],
+};
+function profilePreferenceRuntimeEffects(keys) {
+  const effects = Object.create(null);
+  (keys || []).forEach((key) => {
+    (PROFILE_PREFERENCE_RUNTIME_EFFECTS[key] || []).forEach((effect) => {
+      effects[effect] = true;
+    });
+  });
+  return effects;
+}
 
 function normalizeAudioSourceUrl(value) {
   const url = String(value || "").trim();
@@ -268,8 +291,9 @@ function normalizeProfilePreferences(prefs) {
     0,
     Math.min(
       2000,
-      Number(out.ankiSentenceAudioPaddingMs) ||
-        PROFILE_PREFERENCE_DEFAULTS.ankiSentenceAudioPaddingMs,
+      Number.isFinite(Number(out.ankiSentenceAudioPaddingMs))
+        ? Number(out.ankiSentenceAudioPaddingMs)
+        : PROFILE_PREFERENCE_DEFAULTS.ankiSentenceAudioPaddingMs,
     ),
   );
   return out;

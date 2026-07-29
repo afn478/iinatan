@@ -8,10 +8,10 @@ The maintainable source is split under `src/`:
 - `src/main/00_context_state_paths.js` — IINA API bindings, state, preferences, logging, paths.
 - `src/main/10_subtitle_text_style.js` — subtitle cleanup, IINA/mpv subtitle style extraction, overlay config.
 - `src/main/15_profile_settings.js` — profile/global setting defaults and pure preference normalization.
-- `src/main/20_dictionary_manifest.js` — installed dictionary manifest and menu helper utilities.
-- `src/main/30_backend_import_worker_lookup.js` — bundled lookup engine install, dictionary import, persistent lookup worker.
+- `src/main/20_dictionary_manifest.js` — dictionary manifest persistence, profiles, and menu helpers.
+- `src/main/30_backend_import_worker_lookup.js` — bundled backend install, committed worker-queue publication, dictionary import, and lookup.
 - `src/main/40_legacy_line_precompute.js` — legacy parser/precompute helpers kept while lookup flow is stabilized.
-- `src/main/50_overlay_bridge_pause.js` — local WebSocket overlay bridge and pause/resume lifecycle.
+- `src/main/50_overlay_bridge_pause.js` — validated local WebSocket dispatch, audio resolution, and pause/resume lifecycle.
 - `src/main/51_anki_connect.js` — AnkiConnect URL safety, JSON transport, retries, response parsing, and version caching.
 - `src/main/52_anki_card_context.js` — Pure Anki card context, glossary/structured-content formatting, escaping, metadata string shaping, and furigana helpers.
 - `src/main/52_anki_templates.js` — Anki marker definitions, template marker scanning, media needs, and field rendering.
@@ -19,7 +19,7 @@ The maintainable source is split under `src/`:
 - `src/main/54_anki_media_names.js` — Anki media filename, suffix, and document-stem normalization.
 - `src/main/54_anki_note_actions.js` — Anki note ID normalization, duplicate note lookup/opening, tag cleanup, and add-result note ID validation.
 - `src/main/60_overlay_lifecycle_toggle.js` — overlay initialization, polling, enable/disable, Shift+H.
-- `src/main/70_tests_menu.js` — parser tests, dictionary lookup test action, plugin menu assembly.
+- `src/main/70_menu.js` — plugin menu and focused operational diagnostics. Unit tests and benchmarks live under `tests/` and are not shipped in `main.js`.
 - `src/main/99_bootstrap.js` — startup event registration.
 - `src/native/iina_hoshi.cpp` — native HoshiDicts wrapper source.
 - `scripts/build_native_backend.sh` — builds `bin/iina-hoshi-dicts` from the pinned `vendor/hoshidicts` submodule.
@@ -28,7 +28,16 @@ The maintainable source is split under `src/`:
 - `src/overlay/overlay.js` — overlay interaction/rendering logic.
 - `src/overlay/overlay.template.html` — generated overlay HTML template.
 
-Generated `main.js` is assembled in numeric source order: IINA bindings and shared runtime state first, language modules next, then `src/main/[1-7][0-9]_*.js`, and finally `99_bootstrap.js`. Source modules therefore intentionally share globals in the generated runtime, but domain rules should still live in the narrowest source file that owns them.
+Generated `main.js` is assembled from the explicit `MAIN_RUNTIME_PARTS` list in
+`scripts/build_plugin.py`; validation fails for missing, duplicate, undeclared,
+or stale generated modules. Source modules still share one generated runtime
+scope, so domain state should live in the narrowest source file that owns it.
+
+`15_profile_settings.js` owns profile/global defaults, focused normalizers, and
+the setting-to-runtime-effect table. Release validation checks its defaults
+against the static IINA representation in `Info.json`. `Info.json` owns the
+plugin release version; the build injects it into generated JavaScript and
+validates `package.json` and `ghVersion`.
 
 ## Main Runtime Flow
 

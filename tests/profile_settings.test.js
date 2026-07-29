@@ -21,6 +21,7 @@ globalThis.__profileSettings = {
   PROFILE_PREFERENCE_KEYS,
   GLOBAL_SETTINGS_DEFAULTS,
   GLOBAL_SETTINGS_KEYS,
+  profilePreferenceRuntimeEffects,
   normalizeAudioSources,
   normalizeAudioSourcesJsonPreference,
   normalizeAnkiConnectUrl,
@@ -66,6 +67,27 @@ settings.GLOBAL_SETTINGS_KEYS.forEach((key) => {
     "Global setting default should match Info.json for " + key,
   );
 });
+
+const normalized = settings.normalizeProfilePreferences({
+  flattenSubtitleLineBreaks: "false",
+  ankiSentenceAudioPaddingMs: 0,
+});
+assert(
+  normalized.flattenSubtitleLineBreaks === false &&
+    normalized.ankiSentenceAudioPaddingMs === 0,
+  "Settings normalization should preserve explicit false and zero values",
+);
+const runtimeEffects = settings.profilePreferenceRuntimeEffects([
+  "lookupLanguage",
+  "subtitlePollMs",
+]);
+assert(
+  runtimeEffects.lookupCache === true &&
+    runtimeEffects.geometryCache === true &&
+    runtimeEffects.backendRestart === true &&
+    runtimeEffects.polling === true,
+  "Runtime effects should be derived from the setting-to-effect table",
+);
 
 assert(
   settings.PROFILE_PREFERENCE_KEYS.indexOf("lowRamImport") < 0,

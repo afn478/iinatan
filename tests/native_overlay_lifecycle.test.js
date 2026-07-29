@@ -359,20 +359,18 @@ async function testWorkerStopOwnsExactPid() {
 
 function testSettingsClassification() {
   const context = vm.createContext({
-    PROFILE_PREFERENCE_KEYS: [
-      "lookupLanguage",
-      "popupScale",
-      "subtitlePollMs",
-      "experimentalNativeSubtitleHitBoxes",
-      "experimentalNativeSubtitleValidation",
-      "workerIdleSleepMs",
-    ],
     debugLog() {},
   });
-  const source = fs.readFileSync(
-    path.join(root, "src/main/20_dictionary_manifest.js"),
-    "utf8",
-  );
+  const source =
+    fs.readFileSync(
+      path.join(root, "src/main/15_profile_settings.js"),
+      "utf8",
+    ) +
+    "\n" +
+    fs.readFileSync(
+      path.join(root, "src/main/20_dictionary_manifest.js"),
+      "utf8",
+    );
   vm.runInContext(
     source +
       "\nthis.settingsApi={profileRuntimePlan,changedProfilePreferenceKeys};",
@@ -414,6 +412,7 @@ function testBridgeHelloMarksOverlayReady() {
   const readiness = [];
   const layoutDiagnostics = [];
   const layoutPerformance = [];
+  const warnings = [];
   const context = vm.createContext({
     overlayBridgeStarted: false,
     overlayBridgePort: 19741,
@@ -433,6 +432,9 @@ function testBridgeHelloMarksOverlayReady() {
     forgetOverlayBridgeConnection() {},
     debugLog() {},
     debugVerbose() {},
+    debugWarn(message) {
+      warnings.push(message);
+    },
     compactError(error) {
       return String(error);
     },
@@ -490,6 +492,15 @@ function testBridgeHelloMarksOverlayReady() {
   });
   assert.strictEqual(layoutPerformance.length, 1);
   assert.strictEqual(layoutPerformance[0].hitTargetCount, 12);
+  messageHandler("connection", {
+    text() {
+      return JSON.stringify({ type: "future-message" });
+    },
+  });
+  assert(
+    warnings.some((message) => /future-message/.test(message)),
+    "unknown overlay bridge messages should be reported",
+  );
 }
 
 (async () => {

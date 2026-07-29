@@ -98,6 +98,7 @@
     nativeAcceptedDiagnosticKey: "",
   };
   const LOOKUP_RETRY_INTERVAL_MS = 60;
+  const AUDIO_CACHE_MAX_ENTRIES = 32;
   const JAPANESE_KANJI_RANGE = "\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3005";
   const JAPANESE_KANJI_PATTERN = new RegExp("[" + JAPANESE_KANJI_RANGE + "]");
   const JAPANESE_KANJI_SEGMENT_PATTERN = new RegExp(
@@ -117,6 +118,14 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+  function rememberAudioCache(key, value) {
+    if (!Object.prototype.hasOwnProperty.call(state.audioCache, key)) {
+      const keys = Object.keys(state.audioCache);
+      while (keys.length >= AUDIO_CACHE_MAX_ENTRIES)
+        delete state.audioCache[keys.shift()];
+    }
+    state.audioCache[key] = value;
   }
   function normalizeWhitespace(s) {
     return String(s || "")
@@ -808,7 +817,7 @@
             candidateIndex,
             sourceName,
           };
-          state.audioCache[cacheKey] = result;
+          rememberAudioCache(cacheKey, result);
           return Object.assign({}, result, { audio });
         } catch (error) {
           overlayDebug(

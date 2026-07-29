@@ -20,6 +20,9 @@ let fastTimers = false;
 
 const context = {
   console,
+  putBoundedCache(cache, key, value) {
+    cache[key] = value;
+  },
   Date,
   Math,
   setTimeout(callback, delay) {

@@ -46,6 +46,20 @@ assert(
   "Native worker should exit when its owner process disappears",
 );
 assert(
+  /valid_worker_request_id/.test(nativeSource) &&
+    /requestId must match the queue filename/.test(nativeSource),
+  "Native worker request IDs should be bounded and unable to redirect responses",
+);
+assert(
+  /read_file_limited\(body_path, 4 \* 1024 \* 1024\)/.test(nativeSource),
+  "Native worker should reject oversized queue requests before reading them",
+);
+assert(
+  /idle_sleep_ms = std::max\(active_sleep_ms, 16\)/.test(nativeSource) &&
+    /current_sleep_ms \* 2/.test(nativeSource),
+  "Native worker should back off directory scans while its queue is idle",
+);
+assert(
   /WRAPPER_VERSION = "1\.9\.0"/.test(nativeSource) &&
     /command == "font-metrics"/.test(nativeSource),
   "Native wrapper 1.9 should preserve the read-only font-metrics command",
@@ -86,6 +100,11 @@ const workerSource = fs.readFileSync(
 assert(
   /--owner-pid "\$OWNER_PID"/.test(workerSource),
   "Worker launch script should pass IINA's owner pid to the native worker",
+);
+assert(
+  workerSource.indexOf("file.write(bodyPath") <
+    workerSource.indexOf('file.write(workerRequestPath(requestId, ".json")'),
+  "JavaScript worker requests should publish a marker only after writing the body",
 );
 
 const bootstrapSource = fs.readFileSync(

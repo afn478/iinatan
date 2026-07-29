@@ -175,9 +175,12 @@ npm run pack
 Optional documentation files included in release packages:
 
 - `ARCHITECTURE.md`
+- `MAINTAINABILITY_AUDIT.md`
 - `SETTINGS_AUDIT.md`
 
-The build script concatenates `src/languages/*.js`, `src/main/*.js`, `src/overlay/overlay.css`, and `src/overlay/overlay.js` into the root runtime files.
+The build script uses explicit ordered source manifests to generate the root
+runtime files and fails validation when a source is missing, duplicated,
+undeclared, or stale.
 
 ## Diagnostics
 
@@ -188,10 +191,10 @@ Diagnostic logs are available from **Plugins -> iinatan -> Debug**:
 
 Useful debug actions:
 
-- **Run Language Unit Tests** checks the selected language registry assumptions, including Japanese rightward-prefix lookup, Latin whole-word lookup, French elision candidates, and German split-verb candidates.
-- **Run Settings Audit Checks** verifies that key settings are readable and propagated into overlay config.
-- **Run Lookup Performance Benchmark** measures worker lookup latency with installed dictionaries.
 - **Test File Picker API** opens the same picker used by manual dictionary import and reports success, cancellation, or API failure.
+- **Test Dictionary Lookup** verifies that the active dictionary worker returns a result.
+- **Restart Dictionary Lookup** and **Stop Dictionary Lookup** provide focused worker-lifecycle recovery controls.
+- **Log Runtime Diagnostics** records a redacted lifecycle, worker, queue, cache, timer, subtitle-track, and bridge snapshot.
 - **Reveal Debug Log File** and **Reveal Plugin Data Folder** open troubleshooting files in Finder.
 
 If lookups fail, first confirm that at least one dictionary is installed and enabled, then reveal `worker.log`. For development builds, run `scripts/build_native_backend.sh` if `bin/iina-hoshi-dicts` is missing.

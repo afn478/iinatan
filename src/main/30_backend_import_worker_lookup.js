@@ -1,3 +1,24 @@
+const LOOKUP_CACHE_MAX_ENTRIES = 256;
+
+function workerRequestPath(requestId, extension) {
+  return pathJoin(workerQueueDir(), requestId + extension);
+}
+function cleanupWorkerRequest(requestId) {
+  safeDelete(workerRequestPath(requestId, ".json"));
+  safeDelete(workerRequestPath(requestId, ".request"));
+}
+function publishWorkerRequest(requestId, payload) {
+  const bodyPath = workerRequestPath(requestId, ".request");
+  file.write(bodyPath, JSON.stringify(payload) + "\n");
+  try {
+    // The marker publishes a complete body without requiring a rename API.
+    file.write(workerRequestPath(requestId, ".json"), "committed\n");
+  } catch (error) {
+    safeDelete(bodyPath);
+    throw error;
+  }
+}
+
 function backendInstalled() {
   try {
     return file.exists(binPath());
@@ -1000,28 +1021,27 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
     timeoutMs || prefNumber("backendTimeoutMs", 30000),
   );
   const id = makeJsWorkerRequestId();
-  const req = pathJoin(workerQueueDir(), id + ".json");
   const resp = pathJoin(workerResponseDir(), id + ".json");
   const payload = Object.assign({}, payloadValue || {}, { requestId: id });
-  file.write(req, JSON.stringify(payload) + "\n");
+  publishWorkerRequest(id, payload);
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (file.exists(resp)) {
       const raw = String(file.read(resp) || "");
       safeDelete(resp);
-      safeDelete(req);
+      cleanupWorkerRequest(id);
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object")
         throw new Error("Native worker returned an invalid response");
       return parsed;
     }
     if (file.exists(workerStopPath())) {
-      safeDelete(req);
+      cleanupWorkerRequest(id);
       throw new Error("Worker stopped before request completed");
     }
     await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
   }
-  safeDelete(req);
+  cleanupWorkerRequest(id);
   throw new Error("Native worker request timed out after " + timeout + " ms");
 }
 async function runWorkerQueueLookupDirect(
@@ -1043,7 +1063,6 @@ async function runWorkerQueueLookupDirect(
     timeoutMs || prefNumber("lookupTimeoutMs", 9000),
   );
   const id = makeJsWorkerRequestId();
-  const req = pathJoin(workerQueueDir(), id + ".json");
   const resp = pathJoin(workerResponseDir(), id + ".json");
   const payload = {
     requestId: id,
@@ -1064,13 +1083,13 @@ async function runWorkerQueueLookupDirect(
       " text=" +
       JSON.stringify(String(suffix || "").slice(0, 80)),
   );
-  file.write(req, JSON.stringify(payload) + "\n");
+  publishWorkerRequest(id, payload);
   const deadline = startedAt + timeout;
   while (Date.now() < deadline) {
     if (file.exists(resp)) {
       const raw = String(file.read(resp) || "");
       safeDelete(resp);
-      safeDelete(req);
+      cleanupWorkerRequest(id);
       const parsed = parseBackendJsonOutput(raw, "");
       debugVerbose(
         "direct worker lookup done requestId=" +
@@ -1091,12 +1110,12 @@ async function runWorkerQueueLookupDirect(
       return parsed;
     }
     if (file.exists(workerStopPath())) {
-      safeDelete(req);
+      cleanupWorkerRequest(id);
       throw new Error("Worker stopped before direct lookup completed");
     }
     await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
   }
-  safeDelete(req);
+  cleanupWorkerRequest(id);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
 }
 async function runWorkerLookupViaClientExec(
@@ -1651,7 +1670,7 @@ async function lookupAtPosition(input, position, requestId) {
     !candidateUsed && !(result.results && result.results.length);
   result.noResultReason = result.noResult ? "all-candidates-empty" : "";
   result.lookupCacheKey = languageCacheKey;
-  lookupCache[key] = result;
+  putBoundedCache(lookupCache, key, result, LOOKUP_CACHE_MAX_ENTRIES);
   if (result.noResult)
     debugVerbose(
       "lookupAtPosition cached no-result language=" +

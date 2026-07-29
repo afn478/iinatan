@@ -59,6 +59,9 @@ const context = {
   debugVerbose() {},
   debugWarn() {},
   debugError() {},
+  safeDelete(p) {
+    delete storage[p];
+  },
   prefBool() {
     return true;
   },
@@ -546,6 +549,64 @@ context.runBackendJson = async function runBackendJson(args) {
         call[2][1] === "/data/dictionaries/JMnedict [2026-04-29]",
     ),
     "Recommended dictionary replacement should move stale dictionary files aside",
+  );
+
+  const recoverableManifest = JSON.stringify({
+    dictionaries: {
+      Recoverable: { title: "Recoverable", termCount: 7 },
+    },
+    activeProfileId: "default",
+    profiles: {},
+  });
+  storage["/data/manifest.json.backup"] = recoverableManifest;
+  storage["/data/manifest.json"] = '{"dictionaries":';
+  const recovered = context.readManifest();
+  assert(
+    recovered.dictionaries.Recoverable.termCount === 7,
+    "corrupt manifests should recover from the last-known-good backup",
+  );
+  assert(
+    Object.keys(storage).some((key) =>
+      key.startsWith("/data/manifest.json.corrupt-"),
+    ),
+    "corrupt manifest bytes should be preserved for diagnostics",
+  );
+  context.writeManifest(recovered);
+  assert(
+    JSON.parse(storage["/data/manifest.json"]).schemaVersion === 1,
+    "manifest commits should include the current schema version",
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(storage, "/data/manifest.json.next"),
+    "successful manifest commits should remove their staged file",
+  );
+
+  const committedBeforeFailure = storage["/data/manifest.json"];
+  const ordinaryWrite = context.file.write;
+  context.file.write = function failCommit(filePath, value) {
+    if (filePath === "/data/manifest.json")
+      throw new Error("simulated commit failure");
+    ordinaryWrite.call(context.file, filePath, value);
+  };
+  let commitFailed = false;
+  try {
+    context.writeManifest({
+      dictionaries: { Lost: { title: "Lost" } },
+      profiles: {},
+    });
+  } catch (_) {
+    commitFailed = true;
+  } finally {
+    context.file.write = ordinaryWrite;
+  }
+  assert(commitFailed, "manifest commit failures should be propagated");
+  assert(
+    storage["/data/manifest.json"] === committedBeforeFailure,
+    "a failed staged manifest commit should leave the prior manifest intact",
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(storage, "/data/manifest.json.next"),
+    "failed manifest commits should clean up their staged file",
   );
   console.log("dictionary import manifest tests passed");
 })().catch((error) => {

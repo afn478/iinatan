@@ -1,5 +1,8 @@
+const MANIFEST_SCHEMA_VERSION = 1;
+
 function emptyManifest() {
   return {
+    schemaVersion: MANIFEST_SCHEMA_VERSION,
     dictionaries: {},
     disabled: {},
     dictionaryOrder: [],
@@ -72,6 +75,7 @@ function normalizeManifestProfile(id, profile, manifest, existed) {
 function normalizeManifestShape(manifest) {
   const out =
     manifest && typeof manifest === "object" ? manifest : emptyManifest();
+  out.schemaVersion = MANIFEST_SCHEMA_VERSION;
   if (!out.dictionaries || typeof out.dictionaries !== "object")
     out.dictionaries = {};
   out.disabled = normalizeDisabledMap(out.disabled);
@@ -227,24 +231,90 @@ function orderedDictionaryDirs(installed, manifest) {
   return out;
 }
 
-function readManifest() {
+function manifestBackupPath() {
+  return manifestPath() + ".backup";
+}
+function parseManifestText(raw, source) {
+  const parsed = JSON.parse(String(raw || ""));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error(String(source || "manifest") + " is not a JSON object");
+  return normalizeManifestShape(parsed);
+}
+function preserveCorruptManifest(raw, error) {
+  const preservedPath = manifestPath() + ".corrupt-" + String(Date.now());
   try {
-    if (!file.exists(manifestPath()))
-      return normalizeManifestShape(emptyManifest());
-    const parsed = JSON.parse(file.read(manifestPath()));
-    return normalizeManifestShape(parsed);
-  } catch (_) {
+    file.write(preservedPath, String(raw || ""));
+  } catch (preserveError) {
+    debugError(
+      "Could not preserve corrupt manifest at " +
+        preservedPath +
+        ": " +
+        compactError(preserveError),
+    );
+  }
+  debugError(
+    "Dictionary manifest is corrupt; preserved=" +
+      preservedPath +
+      " error=" +
+      compactError(error),
+  );
+}
+function readManifest() {
+  if (!file.exists(manifestPath()))
+    return normalizeManifestShape(emptyManifest());
+  let raw = "";
+  try {
+    raw = String(file.read(manifestPath()) || "");
+    return parseManifestText(raw, "manifest");
+  } catch (error) {
+    if (raw) preserveCorruptManifest(raw, error);
+    else
+      debugError("Dictionary manifest is unreadable: " + compactError(error));
+    try {
+      if (file.exists(manifestBackupPath())) {
+        const recovered = parseManifestText(
+          file.read(manifestBackupPath()),
+          "manifest backup",
+        );
+        debugWarn("Recovered dictionary manifest from " + manifestBackupPath());
+        return recovered;
+      }
+    } catch (backupError) {
+      debugError(
+        "Dictionary manifest backup is unusable: " + compactError(backupError),
+      );
+    }
     return normalizeManifestShape(emptyManifest());
   }
 }
 function writeManifest(manifest) {
+  const normalized = normalizeManifestShape(manifest);
+  const encoded = JSON.stringify(normalized, null, 2);
   try {
-    file.write(
-      manifestPath(),
-      JSON.stringify(normalizeManifestShape(manifest), null, 2),
+    file.write(manifestPath() + ".next", encoded);
+    const staged = parseManifestText(
+      file.read(manifestPath() + ".next"),
+      "staged manifest",
     );
+    file.write(manifestPath(), JSON.stringify(staged, null, 2));
+    const committed = parseManifestText(
+      file.read(manifestPath()),
+      "committed manifest",
+    );
+    safeDelete(manifestPath() + ".next");
+    try {
+      file.write(manifestBackupPath(), JSON.stringify(committed, null, 2));
+    } catch (backupError) {
+      debugWarn(
+        "Manifest committed but its recovery backup could not be updated: " +
+          compactError(backupError),
+      );
+    }
+    return committed;
   } catch (error) {
-    console.warn("Could not write manifest: " + compactError(error));
+    safeDelete(manifestPath() + ".next");
+    debugError("Could not write dictionary manifest: " + compactError(error));
+    throw error;
   }
 }
 function readDictionaryIndexMetadata(dictPath) {
@@ -867,21 +937,16 @@ function applyProfilePreferences(profile) {
   if (!profile || !profile.preferences) return;
   const profilePreferences = normalizeProfilePreferences(profile.preferences);
   Object.keys(profilePreferences).forEach((key) => {
-    try {
-      if (
-        PROFILE_PREFERENCE_KEYS.indexOf(key) >= 0 &&
-        typeof preferences !== "undefined" &&
-        preferences &&
-        typeof preferences.set === "function"
-      ) {
-        preferences.set(key, profilePreferences[key]);
-      }
-    } catch (_) {}
+    if (
+      PROFILE_PREFERENCE_KEYS.indexOf(key) >= 0 &&
+      typeof preferences !== "undefined" &&
+      preferences &&
+      typeof preferences.set === "function"
+    )
+      preferences.set(key, profilePreferences[key]);
   });
-  try {
-    if (typeof preferences !== "undefined" && preferences && preferences.sync)
-      preferences.sync();
-  } catch (_) {}
+  if (typeof preferences !== "undefined" && preferences && preferences.sync)
+    preferences.sync();
 }
 function currentProfilePreferenceSnapshot() {
   const out = normalizeProfilePreferences({});
@@ -933,28 +998,14 @@ function profileRuntimePlan(changedKeys, reloadOverlay) {
       backendRestart: true,
       overlayReload: !!reloadOverlay,
     };
-  const includes = (values) => keys.some((key) => values.indexOf(key) >= 0);
+  const effects = profilePreferenceRuntimeEffects(keys);
   return {
-    lookupCache: includes([
-      "lookupLanguage",
-      "scanLength",
-      "maxEntries",
-      "maxGlossesPerEntry",
-    ]),
-    geometryCache: includes([
-      "lookupLanguage",
-      "flattenSubtitleLineBreaks",
-      "experimentalNativeSubtitleHitLayer",
-      "experimentalNativeSubtitleTextOpacity",
-      "experimentalNativeSubtitleValidation",
-    ]),
-    hitLayer: keys.indexOf("experimentalNativeSubtitleHitBoxes") >= 0,
-    polling: keys.indexOf("subtitlePollMs") >= 0,
-    nativeVisibility: includes([
-      "hideNativeSubtitles",
-      "experimentalNativeSubtitleHitLayer",
-    ]),
-    backendRestart: includes(["lookupLanguage", "workerIdleSleepMs"]),
+    lookupCache: effects.lookupCache === true,
+    geometryCache: effects.geometryCache === true,
+    hitLayer: effects.hitLayer === true,
+    polling: effects.polling === true,
+    nativeVisibility: effects.nativeVisibility === true,
+    backendRestart: effects.backendRestart === true,
     overlayReload: !!reloadOverlay,
   };
 }
@@ -1116,21 +1167,16 @@ function readGlobalSettingsSnapshot() {
 function updateGlobalSettings(prefs) {
   const values = prefs && typeof prefs === "object" ? prefs : {};
   GLOBAL_SETTINGS_KEYS.forEach((key) => {
-    try {
-      if (
-        Object.prototype.hasOwnProperty.call(values, key) &&
-        typeof preferences !== "undefined" &&
-        preferences &&
-        typeof preferences.set === "function"
-      ) {
-        preferences.set(key, values[key]);
-      }
-    } catch (_) {}
+    if (
+      Object.prototype.hasOwnProperty.call(values, key) &&
+      typeof preferences !== "undefined" &&
+      preferences &&
+      typeof preferences.set === "function"
+    )
+      preferences.set(key, values[key]);
   });
-  try {
-    if (typeof preferences !== "undefined" && preferences && preferences.sync)
-      preferences.sync();
-  } catch (_) {}
+  if (typeof preferences !== "undefined" && preferences && preferences.sync)
+    preferences.sync();
   if (typeof postDictionaryManagerState === "function")
     postDictionaryManagerState();
   return readGlobalSettingsSnapshot();

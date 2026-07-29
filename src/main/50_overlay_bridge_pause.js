@@ -1,3 +1,60 @@
+const OVERLAY_BRIDGE_HANDLERS = {
+  hello(payload) {
+    if (payload.source !== "overlay")
+      throw new Error("overlay bridge hello has an invalid source");
+    if (typeof handleOverlayDocumentReady === "function")
+      handleOverlayDocumentReady(payload, "bridge-hello");
+  },
+  popup(payload) {
+    handleLookupPopupVisibility(payload);
+  },
+  lookup(payload) {
+    handleBridgeLookup(payload);
+  },
+  "audio-source"(payload) {
+    handleBridgeAudioSource(payload);
+  },
+  "anki-card-status"(payload) {
+    handleBridgeAnkiCardStatus(payload);
+  },
+  "anki-card-add"(payload) {
+    handleBridgeAnkiCardAdd(payload);
+  },
+  "anki-card-open"(payload) {
+    handleBridgeAnkiCardOpen(payload);
+  },
+  "open-url"(payload) {
+    if (typeof payload.url !== "string")
+      throw new Error("open-url message is missing url");
+    openExternalUrlFromOverlay(payload.url);
+  },
+  "native-layout-diagnostic"(payload) {
+    handleNativeLayoutDiagnostic(payload);
+  },
+  "native-layout-performance"(payload) {
+    handleNativeLayoutPerformance(payload);
+  },
+  "overlay-log"(payload) {
+    debugVerbose("[overlay] " + String(payload.message || ""));
+  },
+};
+function dispatchOverlayBridgePayload(payload) {
+  const type =
+    payload && typeof payload === "object" && typeof payload.type === "string"
+      ? payload.type
+      : "";
+  const handler = OVERLAY_BRIDGE_HANDLERS[type];
+  if (handler) {
+    handler(payload);
+    return true;
+  }
+  debugWarn(
+    "ignored overlay bridge message type=" +
+      JSON.stringify(type || "<missing>"),
+  );
+  return false;
+}
+
 function ensureOverlayBridge() {
   if (overlayBridgeStarted) return;
   overlayBridgeStarted = true;
@@ -58,83 +115,7 @@ function ensureOverlayBridge() {
         try {
           payload = JSON.parse(raw);
         } catch (_) {}
-        if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "hello" &&
-          payload.source === "overlay"
-        ) {
-          if (typeof handleOverlayDocumentReady === "function")
-            handleOverlayDocumentReady(payload, "bridge-hello");
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "popup"
-        ) {
-          handleLookupPopupVisibility(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "lookup"
-        ) {
-          handleBridgeLookup(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "audio-source"
-        ) {
-          handleBridgeAudioSource(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "anki-card-status"
-        ) {
-          handleBridgeAnkiCardStatus(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "anki-card-add"
-        ) {
-          handleBridgeAnkiCardAdd(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "anki-card-open"
-        ) {
-          handleBridgeAnkiCardOpen(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "open-url"
-        ) {
-          openExternalUrlFromOverlay(payload.url);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "native-layout-diagnostic"
-        ) {
-          handleNativeLayoutDiagnostic(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "native-layout-performance"
-        ) {
-          handleNativeLayoutPerformance(payload);
-        } else if (
-          payload &&
-          typeof payload === "object" &&
-          payload.type === "overlay-log"
-        ) {
-          debugVerbose("[overlay] " + String(payload.message || ""));
-        } else if (
-          raw === "popup:show" ||
-          raw === "show" ||
-          raw === "visible"
-        ) {
-          handleLookupPopupVisibility({ visible: true });
-        } else if (raw === "popup:hide" || raw === "hide" || raw === "hidden") {
-          handleLookupPopupVisibility({ visible: false });
-        }
+        dispatchOverlayBridgePayload(payload);
       } catch (error) {
         debugLog("overlay bridge message failed: " + compactError(error));
       }
@@ -206,7 +187,20 @@ async function fetchAudioSourceCandidates(sourceUrl) {
   if (!url) throw new Error("Invalid audio source URL.");
   const result = await utils.exec(
     "/usr/bin/curl",
-    ["--silent", "--show-error", "--location", "--max-time", "8", url],
+    [
+      "--silent",
+      "--show-error",
+      "--location",
+      "--proto",
+      "=http,https",
+      "--proto-redir",
+      "=http,https",
+      "--max-filesize",
+      "4194304",
+      "--max-time",
+      "8",
+      url,
+    ],
     dataRoot(),
   );
   if (!result || result.status !== 0) {

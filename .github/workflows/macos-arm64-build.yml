@@ -44,7 +44,7 @@ jobs:
         run: python3 scripts/build_plugin.py
 
       - name: Verify generated files are committed
-        run: git diff --exit-code -- main.js overlay.html
+        run: python3 scripts/build_plugin.py --check-generated
 
       - name: Compile bundled lookup engine
         run: |

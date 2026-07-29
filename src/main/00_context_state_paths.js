@@ -24,7 +24,7 @@ const {
   standaloneWindow,
 } = iina;
 
-const VERSION = "1.9.1";
+const VERSION = "__IINATAN_PLUGIN_VERSION__";
 const RECOMMENDED_JITENDEX_URL =
   "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
 const RECOMMENDED_JAPANESE_DICTIONARIES = [
@@ -800,6 +800,13 @@ function safeDelete(path) {
   try {
     if (file.exists(path)) file.delete(path);
   } catch (_) {}
+}
+function putBoundedCache(cache, key, value, limit) {
+  if (!Object.prototype.hasOwnProperty.call(cache, key)) {
+    const keys = Object.keys(cache);
+    while (keys.length >= limit) delete cache[keys.shift()];
+  }
+  cache[key] = value;
 }
 async function clearDirFiles(dir) {
   try {

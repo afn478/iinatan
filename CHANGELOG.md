@@ -2,8 +2,15 @@
 
 ## Unreleased
 
+## 2.0.1 - 2026-07-29
+
 ### Changed
 
+- Added explicit runtime source manifests, a timed grouped test runner, automatic read-only push/PR validation, authoritative settings runtime-effect metadata, version consistency checks, and bounded lookup/audio/native-metric/SRT/Anki caches.
+- Removed embedded parser/settings unit tests and the lookup benchmark from the shipped runtime; equivalent standalone coverage remains under `tests/`.
+- Added a redacted Debug-menu runtime snapshot for lifecycle, worker, queue, cache, timer, subtitle-track, and bridge diagnostics.
+- Reduced persistent native-worker idle queue scans with active-to-idle backoff while retaining the configured fast response interval.
+- Added a repository-wide maintainability and performance audit with measured baselines, ownership mapping, cache policies, and deliberately deferred work.
 - Reused native ASS demux/libass sessions across nearby cues, made full instrumentation validation and alpha-mask generation demand-driven diagnostics, added structured lifecycle/performance counters, and stripped release symbols while retaining local dSYM output.
 - Added an optional default-style looked-up-text highlight to the experimental native-subtitle layer, with a profile toggle for popup-only invisible operation.
 - Extended the experimental native-subtitle lookup layer to Japanese, English, German, French, Chinese, and Korean through shared language character policies.
@@ -19,6 +26,10 @@
 
 ### Fixed
 
+- Preserved and recovered corrupt dictionary manifests through verified staged commits, schema versions, last-known-good backups, and diagnostic corrupt-file copies instead of silently treating parse failures as empty state.
+- Published JavaScript worker requests through complete body files plus commit markers, bounded native request bodies and IDs, and rejected response-path redirection through mismatched request IDs.
+- Preserved an explicitly zero Anki sentence-audio padding value and made profile/global preference write failures propagate instead of being silently ignored.
+- Restricted audio-source redirects to HTTP/HTTPS and limited resolver responses to 4 MiB.
 - Reapplied IINA overlay clickability through a false-to-enabled transition after the WebView reports ready, preventing cold starts from leaving valid subtitle targets invisible and non-interactive until Shift+H is toggled twice.
 - Added native ASS hit geometry for dialogue containing bounded inline italic overrides, so an otherwise ordinary subtitle no longer loses all word targets when one word is italicized.
 - Fixed persisted native-overlay startup and rapid settings reconfiguration by separating desired enablement from runtime/helper/session/hit-layer readiness, accepting overlay readiness and layout diagnostics through the reliable WebSocket bridge, measuring plain-subtitle targets synchronously after font loading when IINA suspends WebView callbacks, invalidating stale async generations, serializing exact-PID worker teardown/startup, and limiting settings changes to their required cache, DOM, polling, visibility, or helper effects.

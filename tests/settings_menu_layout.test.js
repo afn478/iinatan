@@ -316,7 +316,7 @@ assert(
 );
 
 const menuSource = fs.readFileSync(
-  path.join(root, "src/main/70_tests_menu.js"),
+  path.join(root, "src/main/70_menu.js"),
   "utf8",
 );
 const rebuildMenu = menuSource.slice(
@@ -329,6 +329,11 @@ assert(
 assert(
   /setActiveDictionaryProfile/.test(rebuildMenu),
   "Dictionary menu should be prepared to switch profiles",
+);
+assert(
+  /runtimeDiagnosticsSnapshot/.test(menuSource) &&
+    /Log Runtime Diagnostics/.test(rebuildMenu),
+  "Debug menu should expose the redacted runtime diagnostics snapshot",
 );
 assert(
   /const rootMenu = menu\.item\("iinatan"\)/.test(rebuildMenu),

@@ -9,6 +9,7 @@ let ankiStatusQueueTail = Promise.resolve();
 let ankiStatusQueuedCount = 0;
 
 const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
+const ANKI_MODEL_FIELD_CACHE_LIMIT = 32;
 const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
 const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
 const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 4;
@@ -147,8 +148,12 @@ function refreshDictionaryManagerAnkiState(overrides) {
         fields: Array.isArray(fields) ? fields : [],
         modelName: prefs.ankiModelName,
       };
-      ankiModelFieldCache[ankiFieldCacheKey(prefs)] =
-        ankiManagerStateCache.fields.slice();
+      putBoundedCache(
+        ankiModelFieldCache,
+        ankiFieldCacheKey(prefs),
+        ankiManagerStateCache.fields.slice(),
+        ANKI_MODEL_FIELD_CACHE_LIMIT,
+      );
     } catch (error) {
       if (serial !== ankiManagerRefreshSerial) return;
       ankiManagerStateCache = {
@@ -539,7 +544,12 @@ async function ankiConfiguredFieldNames(prefs) {
       { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
     );
     const out = Array.isArray(fields) ? fields : [];
-    ankiModelFieldCache[key] = out.slice();
+    putBoundedCache(
+      ankiModelFieldCache,
+      key,
+      out.slice(),
+      ANKI_MODEL_FIELD_CACHE_LIMIT,
+    );
     return out;
   } catch (_) {
     return Object.keys(ankiFieldTemplatesFromPrefs(prefs));

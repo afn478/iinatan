@@ -96,6 +96,9 @@ async function runLookupSelection(candidates, responses, maxEntries) {
     prefBool() {
       return false;
     },
+    putBoundedCache(cache, key, value) {
+      cache[key] = value;
+    },
     lookupCache: Object.create(null),
   };
   vm.createContext(context);

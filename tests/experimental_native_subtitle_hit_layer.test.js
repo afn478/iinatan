@@ -255,6 +255,9 @@ function loadMainNativeHelpers(properties) {
         lookupCharacterPolicy: { ranges: [] },
       };
     },
+    putBoundedCache(cache, key, value) {
+      cache[key] = value;
+    },
   };
   vm.createContext(context);
   vm.runInContext(

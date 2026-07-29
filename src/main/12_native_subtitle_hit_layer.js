@@ -511,6 +511,15 @@ function notifyNativeSubtitleFontMetricResolution(key, generation) {
     scheduleExperimentalNativeLayoutRebuild();
 }
 
+const NATIVE_SUBTITLE_FONT_METRIC_CACHE_MAX_ENTRIES = 32;
+const NATIVE_EXTERNAL_SRT_CACHE_MAX_ENTRIES = 4;
+
+function pruneNativeSubtitleFontMetricCache() {
+  const keys = Object.keys(nativeSubtitleFontMetricCache);
+  while (keys.length > NATIVE_SUBTITLE_FONT_METRIC_CACHE_MAX_ENTRIES)
+    delete nativeSubtitleFontMetricCache[keys.shift()];
+}
+
 function nativeSubtitleFontMetricSnapshot(options, text) {
   const key = nativeSubtitleFontMetricCacheKey(options, text);
   const cached = nativeSubtitleFontMetricCache[key];
@@ -541,6 +550,7 @@ function nativeSubtitleFontMetricSnapshot(options, text) {
             status: "ready",
             metrics,
           };
+        pruneNativeSubtitleFontMetricCache();
         return metrics;
       })
       .catch((error) => {
@@ -565,6 +575,7 @@ function nativeSubtitleFontMetricSnapshot(options, text) {
                 ? Date.now() + NATIVE_SUBTITLE_FONT_METRIC_RETRY_DELAY_MS
                 : 0,
           };
+          pruneNativeSubtitleFontMetricCache();
           // The cache key and cue are intentionally omitted: diagnostics may
           // identify the failure class, but must never include subtitle text.
           debugWarn(
@@ -1002,7 +1013,12 @@ function nativeExternalSrtCues(track) {
   } catch (_) {
     parsed = { reason: "srt-read-failed" };
   }
-  nativeExternalSrtCache[path] = parsed;
+  putBoundedCache(
+    nativeExternalSrtCache,
+    path,
+    parsed,
+    NATIVE_EXTERNAL_SRT_CACHE_MAX_ENTRIES,
+  );
   return parsed;
 }
 

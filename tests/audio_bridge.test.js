@@ -73,6 +73,16 @@ vm.runInContext(
     "Audio source resolution should have a network timeout",
   );
   assert(
+    execCalls[0].args.includes("--proto-redir") &&
+      execCalls[0].args.includes("=http,https"),
+    "Audio source redirects should stay on HTTP or HTTPS",
+  );
+  assert(
+    execCalls[0].args.includes("--max-filesize") &&
+      execCalls[0].args.includes("4194304"),
+    "Audio source metadata responses should have a size limit",
+  );
+  assert(
     candidates.length === 2,
     "Audio source resolution should keep only playable http/https candidates",
   );

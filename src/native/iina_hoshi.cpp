@@ -29,6 +29,8 @@
 #include "ass_geometry.hpp"
 #include "worker_protocol.hpp"
 
+// This is the native command/protocol implementation version, not the plugin
+// release version. Plugin release metadata is owned by Info.json.
 static constexpr const char* WRAPPER_VERSION = "1.9.0";
 static constexpr int FONT_METRIC_RESOLVER_VERSION = 2;
 static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v2";
@@ -421,17 +423,44 @@ static bool process_exists(int pid) {
 }
 static std::string read_file(const fs::path& p) {
   std::ifstream in(p, std::ios::binary);
-  std::ostringstream ss; ss << in.rdbuf(); return ss.str();
+  if (!in) throw std::runtime_error("could not open " + p.string());
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  if (in.bad()) throw std::runtime_error("could not read " + p.string());
+  return ss.str();
+}
+static std::string read_file_limited(const fs::path& p, uintmax_t max_bytes) {
+  std::error_code ec;
+  const uintmax_t size = fs::file_size(p, ec);
+  if (ec)
+    throw std::runtime_error(
+        "could not inspect " + p.string() + ": " + ec.message());
+  if (size > max_bytes)
+    throw std::runtime_error(
+        "request file exceeds " + std::to_string(max_bytes) + " bytes");
+  return read_file(p);
 }
 static void write_file_atomic(const fs::path& p, const std::string& data) {
   fs::create_directories(p.parent_path());
   fs::path tmp = p;
   tmp += ".tmp";
-  { std::ofstream out(tmp, std::ios::binary | std::ios::trunc); out << data; }
+  {
+    std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+    if (!out) throw std::runtime_error("could not open " + tmp.string());
+    out << data;
+    out.flush();
+    if (!out) throw std::runtime_error("could not write " + tmp.string());
+  }
   std::error_code ec;
   fs::rename(tmp, p, ec);
   if (ec) { fs::remove(p, ec); fs::rename(tmp, p, ec); }
   if (ec) throw std::runtime_error("could not write " + p.string() + ": " + ec.message());
+}
+static bool valid_worker_request_id(const std::string& value) {
+  if (value.empty() || value.size() > 128) return false;
+  return std::all_of(value.begin(), value.end(), [](unsigned char character) {
+    return std::isalnum(character) || character == '-' || character == '_';
+  });
 }
 static std::string utf8_prefix(const std::string& s, size_t max_bytes) {
   std::string out;
@@ -781,7 +810,13 @@ static void cmd_worker(int argc, char** argv) {
       "false"
 #endif
       ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true}}\n");
-  std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size() << " dictionaries; sleep_ms=" << sleep_ms << "; owner_pid=" << owner_pid << "\n";
+  const int active_sleep_ms = std::max(1, sleep_ms);
+  const int idle_sleep_ms = std::max(active_sleep_ms, 16);
+  int current_sleep_ms = active_sleep_ms;
+  std::cerr << "iina-hoshi-dicts worker ready with " << cfg.dicts.size()
+            << " dictionaries; active_sleep_ms=" << active_sleep_ms
+            << "; idle_sleep_ms=" << idle_sleep_ms
+            << "; owner_pid=" << owner_pid << "\n";
   auto next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
   while (!fs::exists(stop)) {
     if (owner_pid > 0 && std::chrono::steady_clock::now() >= next_owner_check) {
@@ -800,12 +835,21 @@ static void cmd_worker(int argc, char** argv) {
     std::sort(requests.begin(), requests.end());
     for (const auto& req : requests) {
       std::string request_id = req.stem().string();
+      if (!valid_worker_request_id(request_id)) {
+        fs::remove(req, ec);
+        fs::remove(queue / (request_id + ".request"), ec);
+        continue;
+      }
       fs::path resp = responses / (request_id + ".json");
+      fs::path committed_body = queue / (request_id + ".request");
       try {
-        std::string body = read_file(req);
+        const fs::path body_path =
+            fs::exists(committed_body) ? committed_body : req;
+        std::string body = read_file_limited(body_path, 4 * 1024 * 1024);
         std::string provided_id = json_get_string(body, "requestId");
-        if (!provided_id.empty()) request_id = provided_id;
-        resp = responses / (request_id + ".json");
+        if (!provided_id.empty() && provided_id != request_id)
+          throw std::runtime_error(
+              "requestId must match the queue filename");
         iinatan::protocol::Json parsed_request =
             iinatan::protocol::Json::parse(body);
         if (iinatan::protocol::is_geometry_request(parsed_request)) {
@@ -819,6 +863,7 @@ static void cmd_worker(int argc, char** argv) {
           std::cerr << "ass geometry response " << request_id
                     << " bytes=" << out.size() << "\n";
           fs::remove(req, ec);
+          fs::remove(committed_body, ec);
           continue;
         }
         std::string text = json_get_string(body, "text");
@@ -840,8 +885,13 @@ static void cmd_worker(int argc, char** argv) {
         write_file_atomic(resp, error_json(e.what()));
       }
       fs::remove(req, ec);
+      fs::remove(committed_body, ec);
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    current_sleep_ms = requests.empty()
+        ? std::min(idle_sleep_ms, current_sleep_ms * 2)
+        : active_sleep_ms;
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(current_sleep_ms));
   }
   std::cerr << "iina-hoshi-dicts worker stopping\n";
 }

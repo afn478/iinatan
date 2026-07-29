@@ -350,6 +350,7 @@ class HoshiWorker {
   async lookup(testCase, mode, scanLength) {
     const requestId = `n${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
     const reqPath = path.join(this.root, "queue", `${requestId}.json`);
+    const bodyPath = path.join(this.root, "queue", `${requestId}.request`);
     const respPath = path.join(this.root, "responses", `${requestId}.json`);
     const payload = {
       requestId,
@@ -362,7 +363,8 @@ class HoshiWorker {
       maxGlossaries: 4,
       mode,
     };
-    fs.writeFileSync(reqPath, JSON.stringify(payload) + "\n");
+    fs.writeFileSync(bodyPath, JSON.stringify(payload) + "\n");
+    fs.writeFileSync(reqPath, "committed\n");
     const started = performance.now();
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline) {
@@ -370,6 +372,7 @@ class HoshiWorker {
         const raw = fs.readFileSync(respPath, "utf8");
         fs.rmSync(respPath, { force: true });
         fs.rmSync(reqPath, { force: true });
+        fs.rmSync(bodyPath, { force: true });
         const parsed = JSON.parse(raw);
         return {
           ok: parsed && parsed.ok !== false,
@@ -385,6 +388,7 @@ class HoshiWorker {
       await delay(1);
     }
     fs.rmSync(reqPath, { force: true });
+    fs.rmSync(bodyPath, { force: true });
     throw new Error(
       `lookup timed out for ${JSON.stringify(testCase.lookupText)}: ${this.stderr}`,
     );
@@ -454,6 +458,18 @@ async function runBackendPass(worker, cases, mode, scanLength, label) {
   }
   const summary = summarize(label, samples);
   printSummary(summary);
+  const failures = samples.filter((sample) => !sample.ok);
+  failures.slice(0, 5).forEach((sample) => {
+    console.error(
+      label +
+        " failure: " +
+        String(
+          sample.error ||
+            (sample.result && sample.result.error) ||
+            "unknown error",
+        ),
+    );
+  });
   return { summary, samples };
 }
 
@@ -582,7 +598,7 @@ async function main() {
       scanLength,
       "backend worker yomitan-japanese",
     );
-    await runBackendPass(
+    const prefix = await runBackendPass(
       worker,
       cases,
       "prefix",
@@ -595,6 +611,9 @@ async function main() {
       scanLength,
     );
 
+    if (backend.summary.failed || prefix.summary.failed) {
+      throw new Error("backend performance pass contained failed requests");
+    }
     if (backend.summary.ok && backend.summary.p95 > 1000) {
       throw new Error(`backend p95 exceeded 1000ms (${backend.summary.p95}ms)`);
     }
