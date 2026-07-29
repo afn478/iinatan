@@ -13,6 +13,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
   experimentalNativeSubtitleTextOpacity: 0,
+  experimentalNativeSubtitleValidation: false,
   pauseWhilePopupVisible: true,
   audioAutoPlay: false,
   audioSourcesJson: DEFAULT_AUDIO_SOURCES_JSON,
@@ -223,6 +224,11 @@ function normalizeProfilePreferences(prefs) {
     out.experimentalNativeSubtitleHitBoxes,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitBoxes,
   );
+  out.experimentalNativeSubtitleValidation =
+    normalizeProfilePreferenceBoolValue(
+      out.experimentalNativeSubtitleValidation,
+      PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleValidation,
+    );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),

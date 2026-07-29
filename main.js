@@ -186,6 +186,15 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
 
 let enabled = false;
 let initialized = false;
+let overlayDocumentReady = false;
+let overlayRuntimeState = "disabled";
+let overlayLifecycleGeneration = 0;
+let overlayEnableStartedAt = 0;
+let overlayRuntimeReadyAt = 0;
+let overlayFirstHitLayerAt = 0;
+let overlayHitLayerReady = false;
+let nativeGeometrySessionReady = false;
+let profileReconfigurationStartedAt = 0;
 let pollTimer = null;
 let activeSubtitlePollMs = 0;
 let lastSubtitle = null;
@@ -199,6 +208,14 @@ let nativeSubtitleFontMetricGeneration = 0;
 let nativeAssGeometryCache = Object.create(null);
 let nativeAssGeometryInFlight = Object.create(null);
 let nativeAssGeometryGeneration = 0;
+let nativeAssGeometryStats = {
+  requests: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  completions: 0,
+  failures: 0,
+  maxOutstanding: 0,
+};
 let nativeExternalSrtCache = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
@@ -211,6 +228,10 @@ let lookupInFlight = Object.create(null);
 let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
+let workerStopInFlight = null;
+let workerLifecycleGeneration = 0;
+let workerProcessCreationCount = 0;
+let workerProcessDestructionCount = 0;
 let activeWorkerFingerprint = null;
 let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;
@@ -5430,7 +5451,7 @@ function scheduleIINAAppearanceHintRefresh(force) {
       if (next && next !== iinaAppearanceHint) {
         iinaAppearanceHint = next;
         if (typeof pushOverlayConfigForProfileChange === "function")
-          pushOverlayConfigForProfileChange();
+          pushOverlayConfigForProfileChange({});
       }
     })
     .catch((error) => {
@@ -6910,13 +6931,36 @@ function normalizeNativeAssGeometryResponse(response, request) {
       data: mask.data,
     };
   }
-  return { ok: true, units, alphaMask };
+  return {
+    ok: true,
+    units,
+    alphaMask,
+    diagnostics:
+      response.diagnostics && typeof response.diagnostics === "object"
+        ? response.diagnostics
+        : null,
+  };
 }
 
 function pruneNativeAssGeometryCache() {
   const cacheKeys = Object.keys(nativeAssGeometryCache);
   while (cacheKeys.length > 16)
     delete nativeAssGeometryCache[cacheKeys.shift()];
+}
+
+function nativeAssGeometryStatistics() {
+  if (typeof nativeAssGeometryStats !== "undefined")
+    return nativeAssGeometryStats;
+  if (!globalThis.__iinatanNativeAssGeometryStats)
+    globalThis.__iinatanNativeAssGeometryStats = {
+      requests: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      completions: 0,
+      failures: 0,
+      maxOutstanding: 0,
+    };
+  return globalThis.__iinatanNativeAssGeometryStats;
 }
 
 function nativeAssGeometryCacheKey(request) {
@@ -6930,12 +6974,19 @@ function nativeAssGeometryCacheKey(request) {
 }
 
 function nativeAssGeometrySnapshot(request) {
+  const statistics = nativeAssGeometryStatistics();
   const key = nativeAssGeometryCacheKey(request);
   const cached = nativeAssGeometryCache[key];
-  if (cached) return cached;
+  if (cached) {
+    statistics.cacheHits++;
+    return cached;
+  }
+  statistics.cacheMisses++;
   const generation = nativeAssGeometryGeneration;
   if (!nativeAssGeometryInFlight[key]) {
+    statistics.requests++;
     const liveRequest = request;
+    const startedAt = Date.now();
     const inFlight = Promise.resolve()
       .then(() =>
         runWorkerQueueRequestDirect(
@@ -6951,12 +7002,37 @@ function nativeAssGeometrySnapshot(request) {
           liveRequest,
         );
         nativeAssGeometryCache[key] = normalized;
+        statistics.completions++;
+        if (normalized.ok && typeof nativeGeometrySessionReady !== "undefined")
+          nativeGeometrySessionReady = true;
+        if (normalized.diagnostics) {
+          const nativeTotalMs =
+            Number(normalized.diagnostics.totalUs || 0) / 1000;
+          debugVerbose(
+            "native geometry profile " +
+              JSON.stringify({
+                elapsedMs: Date.now() - startedAt,
+                ipcAndSchedulingMs: Math.max(
+                  0,
+                  Date.now() - startedAt - nativeTotalMs,
+                ),
+                cacheHits: statistics.cacheHits,
+                cacheMisses: statistics.cacheMisses,
+                requests: statistics.requests,
+                outstanding: Object.keys(nativeAssGeometryInFlight).length,
+                native: normalized.diagnostics,
+              }),
+          );
+        }
         pruneNativeAssGeometryCache();
         if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
           scheduleExperimentalNativeLayoutRebuild();
       })
       .catch((error) => {
         if (generation !== nativeAssGeometryGeneration) return;
+        statistics.failures++;
+        if (typeof markBackendWorkerUnavailable === "function")
+          markBackendWorkerUnavailable(error);
         const message = String(
           (error && (error.reason || error.message)) || "ass-geometry-failed",
         );
@@ -6975,6 +7051,10 @@ function nativeAssGeometrySnapshot(request) {
           delete nativeAssGeometryInFlight[key];
       });
     nativeAssGeometryInFlight[key] = inFlight;
+    statistics.maxOutstanding = Math.max(
+      statistics.maxOutstanding,
+      Object.keys(nativeAssGeometryInFlight).length,
+    );
   }
   return { reason: "ass-geometry-pending" };
 }
@@ -7162,6 +7242,14 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
       const request = {
         type: "ass-geometry",
         protocol: 1,
+        diagnostics:
+          typeof verboseLogEnabled === "function" && verboseLogEnabled(),
+        validateInstrumentation: prefBool(
+          "experimentalNativeSubtitleValidation",
+          false,
+        ),
+        requestAlphaMask:
+          prefNumber("experimentalNativeSubtitleTextOpacity", 0) > 0,
         source,
         cue: {
           timeMs,
@@ -7414,6 +7502,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
   experimentalNativeSubtitleTextOpacity: 0,
+  experimentalNativeSubtitleValidation: false,
   pauseWhilePopupVisible: true,
   audioAutoPlay: false,
   audioSourcesJson: DEFAULT_AUDIO_SOURCES_JSON,
@@ -7624,6 +7713,11 @@ function normalizeProfilePreferences(prefs) {
     out.experimentalNativeSubtitleHitBoxes,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitBoxes,
   );
+  out.experimentalNativeSubtitleValidation =
+    normalizeProfilePreferenceBoolValue(
+      out.experimentalNativeSubtitleValidation,
+      PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleValidation,
+    );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
@@ -8588,23 +8682,84 @@ function uniqueProfileId(base, profiles) {
   }
   return id;
 }
-function resetLookupRuntimeForProfileChange() {
-  lookupCache = Object.create(null);
-  lookupInFlight = Object.create(null);
-  activeWorkerFingerprint = null;
-  activeWorkerReady = null;
-  lookupBackendReadyForNativeHide = false;
-  try {
-    if (typeof stopBackendWorker === "function")
-      stopBackendWorker().catch(() => {});
-  } catch (_) {}
+function changedProfilePreferenceKeys(previous, next) {
+  return PROFILE_PREFERENCE_KEYS.filter(
+    (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
+  );
 }
-function refreshRuntimeAfterProfileChange(reloadOverlay) {
-  resetLookupRuntimeForProfileChange();
-  if (reloadOverlay && typeof reloadOverlayForProfileChange === "function") {
-    reloadOverlayForProfileChange();
+function profileRuntimePlan(changedKeys, reloadOverlay) {
+  const keys = Array.isArray(changedKeys) ? changedKeys : null;
+  if (!keys)
+    return {
+      lookupCache: true,
+      geometryCache: true,
+      hitLayer: true,
+      polling: true,
+      nativeVisibility: true,
+      backendRestart: true,
+      overlayReload: !!reloadOverlay,
+    };
+  const includes = (values) => keys.some((key) => values.indexOf(key) >= 0);
+  return {
+    lookupCache: includes([
+      "lookupLanguage",
+      "scanLength",
+      "maxEntries",
+      "maxGlossesPerEntry",
+    ]),
+    geometryCache: includes([
+      "lookupLanguage",
+      "flattenSubtitleLineBreaks",
+      "experimentalNativeSubtitleHitLayer",
+      "experimentalNativeSubtitleTextOpacity",
+      "experimentalNativeSubtitleValidation",
+    ]),
+    hitLayer: keys.indexOf("experimentalNativeSubtitleHitBoxes") >= 0,
+    polling: keys.indexOf("subtitlePollMs") >= 0,
+    nativeVisibility: includes([
+      "hideNativeSubtitles",
+      "experimentalNativeSubtitleHitLayer",
+    ]),
+    backendRestart: includes(["lookupLanguage", "workerIdleSleepMs"]),
+    overlayReload: !!reloadOverlay,
+  };
+}
+function resetLookupRuntimeForProfileChange(runtimePlan) {
+  const plan = runtimePlan || profileRuntimePlan(null, false);
+  if (plan.lookupCache) {
+    lookupCache = Object.create(null);
+    lookupInFlight = Object.create(null);
+  }
+  if (plan.backendRestart) {
+    lookupBackendReadyForNativeHide = false;
+    try {
+      if (typeof invalidateBackendWorkerRuntime === "function")
+        invalidateBackendWorkerRuntime("profile-settings-change").catch(
+          () => {},
+        );
+    } catch (_) {}
+  }
+}
+function refreshRuntimeAfterProfileChange(
+  reloadOverlay,
+  changedPreferenceKeys,
+) {
+  const plan = profileRuntimePlan(changedPreferenceKeys, reloadOverlay);
+  debugLog(
+    "profile runtime plan keys=" +
+      JSON.stringify(changedPreferenceKeys || ["all"]) +
+      " effects=" +
+      JSON.stringify(plan),
+  );
+  profileReconfigurationStartedAt = Date.now();
+  resetLookupRuntimeForProfileChange(plan);
+  if (
+    plan.overlayReload &&
+    typeof reloadOverlayForProfileChange === "function"
+  ) {
+    reloadOverlayForProfileChange(plan);
   } else if (typeof pushOverlayConfigForProfileChange === "function") {
-    pushOverlayConfigForProfileChange();
+    pushOverlayConfigForProfileChange(plan);
   }
 }
 function createDictionaryProfile(name, sourceProfileId) {
@@ -8688,9 +8843,14 @@ function updateDictionaryProfilePreferences(profileId, prefs) {
   writeManifest(manifest);
   if (id === manifest.activeProfileId) {
     applyProfilePreferences(manifest.profiles[id]);
+    const changedKeys = changedProfilePreferenceKeys(
+      previous,
+      manifest.profiles[id].preferences,
+    );
     refreshRuntimeAfterProfileChange(
       previous.lookupLanguage !==
         manifest.profiles[id].preferences.lookupLanguage,
+      changedKeys,
     );
     rebuildMenu();
   }
@@ -9567,7 +9727,17 @@ function requestBackendWorkerStop() {
   activeWorkerFingerprint = null;
   activeWorkerReady = null;
 }
-async function stopBackendWorker() {
+function readBackendWorkerPid() {
+  try {
+    if (!file.exists(workerPidPath())) return "";
+    const pid = String(file.read(workerPidPath()) || "").trim();
+    return /^\d+$/.test(pid) ? pid : "";
+  } catch (_) {
+    return "";
+  }
+}
+async function performBackendWorkerStop() {
+  const pid = readBackendWorkerPid();
   requestBackendWorkerStop();
   try {
     await ensureDataDirs();
@@ -9576,16 +9746,62 @@ async function stopBackendWorker() {
     file.write(workerStopPath(), "stop\n");
   } catch (_) {}
   try {
-    if (file.exists(workerPidPath())) {
-      const pid = String(file.read(workerPidPath()) || "").trim();
-      if (/^\d+$/.test(pid))
-        await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+    if (pid) {
+      await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+      workerProcessDestructionCount++;
     }
   } catch (_) {}
-  safeDelete(workerPidPath());
+  if (!pid || readBackendWorkerPid() === pid) safeDelete(workerPidPath());
   await sleep(120);
 }
+function stopBackendWorker() {
+  if (workerStopInFlight) return workerStopInFlight;
+  const stop = performBackendWorkerStop().finally(() => {
+    if (workerStopInFlight === stop) workerStopInFlight = null;
+  });
+  workerStopInFlight = stop;
+  return stop;
+}
+function invalidateBackendWorkerRuntime(reason) {
+  workerLifecycleGeneration++;
+  debugLog(
+    "worker lifecycle invalidated generation=" +
+      workerLifecycleGeneration +
+      " reason=" +
+      String(reason || "runtime-change"),
+  );
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  return stopBackendWorker();
+}
+function markBackendWorkerUnavailable(error) {
+  const message = compactError(error);
+  if (
+    !/worker stopped|request timed out|did not become ready|worker-start-obsolete/i.test(
+      message,
+    )
+  )
+    return false;
+  workerLifecycleGeneration++;
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  requestBackendWorkerStop();
+  nativeGeometrySessionReady = false;
+  overlayHitLayerReady = false;
+  if (typeof invalidateExperimentalNativeLayout === "function")
+    invalidateExperimentalNativeLayout("helper-unavailable");
+  if (enabled && typeof setOverlayRuntimeState === "function")
+    setOverlayRuntimeState("failed", "helper-unavailable");
+  debugWarn(
+    "worker marked unavailable generation=" +
+      workerLifecycleGeneration +
+      " reason=" +
+      message,
+  );
+  return true;
+}
 async function startBackendWorkerProcess(dicts, language) {
+  const startedAt = Date.now();
   await ensureBundledBackendInstalled();
   await ensureDataDirs();
   await clearDirFiles(workerQueueDir());
@@ -9616,6 +9832,17 @@ async function startBackendWorkerProcess(dicts, language) {
       "Could not start dictionary lookup: " +
         ((res && (res.stderr || res.stdout)) || "unknown error"),
     );
+  workerProcessCreationCount++;
+  debugLog(
+    "worker lifecycle " +
+      JSON.stringify({
+        event: "process-started",
+        elapsedMs: Date.now() - startedAt,
+        creationCount: workerProcessCreationCount,
+        destructionCount: workerProcessDestructionCount,
+        generation: workerLifecycleGeneration,
+      }),
+  );
 }
 function readWorkerReady() {
   try {
@@ -9627,12 +9854,14 @@ function readWorkerReady() {
     return null;
   }
 }
-async function waitForWorkerReady(fingerprint, timeoutMs) {
+async function waitForWorkerReady(fingerprint, timeoutMs, generation) {
   const deadline =
     Date.now() +
     Math.max(5000, timeoutMs || prefNumber("backendTimeoutMs", 30000));
   let last = null;
   while (Date.now() < deadline) {
+    if (generation !== workerLifecycleGeneration)
+      throw new Error("worker-start-obsolete");
     const ready = readWorkerReady();
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
@@ -9692,20 +9921,40 @@ async function ensureBackendWorker(dicts, language) {
   );
   if (activeWorkerFingerprint === fingerprint && activeWorkerReady)
     return activeWorkerReady;
-  if (workerStartInFlight) return workerStartInFlight;
-  workerStartInFlight = (async () => {
+  if (workerStartInFlight) {
+    if (
+      workerStartInFlight.fingerprint === fingerprint &&
+      workerStartInFlight.generation === workerLifecycleGeneration
+    )
+      return workerStartInFlight.promise;
+    try {
+      await workerStartInFlight.promise;
+    } catch (_) {}
+    return ensureBackendWorker(dicts, lang);
+  }
+  const generation = workerLifecycleGeneration;
+  const startup = (async () => {
     await stopBackendWorker().catch(() => {});
+    if (generation !== workerLifecycleGeneration)
+      throw new Error("worker-start-obsolete");
     setOverlayStatus("Preparing dictionary lookup...", "info", 4000);
     await startBackendWorkerProcess(dicts, lang);
+    if (generation !== workerLifecycleGeneration) {
+      await stopBackendWorker().catch(() => {});
+      throw new Error("worker-start-obsolete");
+    }
     return await waitForWorkerReady(
       fingerprint,
       Math.max(8000, prefNumber("backendTimeoutMs", 30000)),
+      generation,
     );
   })();
+  workerStartInFlight = { fingerprint, generation, promise: startup };
   try {
-    return await workerStartInFlight;
+    return await startup;
   } finally {
-    workerStartInFlight = null;
+    if (workerStartInFlight && workerStartInFlight.promise === startup)
+      workerStartInFlight = null;
   }
 }
 async function clearPendingWorkerRequests() {
@@ -13826,6 +14075,59 @@ function handleBridgeAnkiCardAdd(payload) {
   })();
 }
 
+function overlayLifecycleSnapshot() {
+  return {
+    desiredEnabled: enabled,
+    runtimeState: overlayRuntimeState,
+    overlayReady: overlayDocumentReady,
+    helperAlive: !!activeWorkerReady,
+    sessionReady: nativeGeometrySessionReady,
+    hitLayerReady: overlayHitLayerReady,
+    generation: overlayLifecycleGeneration,
+  };
+}
+function setOverlayRuntimeState(next, reason) {
+  const state = String(next || "failed");
+  if (state === overlayRuntimeState && !verboseLogEnabled()) return;
+  const previous = overlayRuntimeState;
+  overlayRuntimeState = state;
+  if (state === "ready" && !overlayRuntimeReadyAt)
+    overlayRuntimeReadyAt = Date.now();
+  debugLog(
+    "overlay lifecycle " +
+      JSON.stringify({
+        event: "state-transition",
+        from: previous,
+        to: state,
+        reason: String(reason || ""),
+        ...overlayLifecycleSnapshot(),
+      }),
+  );
+}
+function updateOverlayRuntimeState(reason) {
+  if (!enabled) {
+    setOverlayRuntimeState("disabled", reason);
+    return;
+  }
+  if (!overlayDocumentReady) {
+    setOverlayRuntimeState("enabling", reason);
+    return;
+  }
+  if (!activeWorkerReady) {
+    setOverlayRuntimeState("starting-helper", reason);
+    return;
+  }
+  if (!mpvStringProp(["path", "filename"], "")) {
+    setOverlayRuntimeState("waiting-for-media", reason);
+    return;
+  }
+  const subtitleText = mpvStringProp(["sub-text", "secondary-sub-text"], "");
+  if (!subtitleText) {
+    setOverlayRuntimeState("waiting-for-subtitle-track", reason);
+    return;
+  }
+  setOverlayRuntimeState("ready", reason);
+}
 function initializeOverlay() {
   ensureOverlayBridge();
   if (initialized) return;
@@ -13838,6 +14140,7 @@ function initializeOverlay() {
       enabled,
   );
   overlay.onMessage("ready", (payload) => {
+    overlayDocumentReady = true;
     debugLog("overlay ready received payloadType=" + typeof payload);
     handleLookupPopupOverlayReady(payload);
     postToOverlay("config", overlayConfig());
@@ -13847,6 +14150,7 @@ function initializeOverlay() {
       lastSubtitleCueIdentity = null;
       pollSubtitle();
     }
+    updateOverlayRuntimeState("overlay-ready");
   });
   overlay.onMessage("lookup-at", (payload) => {
     handleLookupAt(payload);
@@ -13861,14 +14165,30 @@ function initializeOverlay() {
     handleLookupPopupVisibility(payload);
   });
   overlay.onMessage("native-layout-invalidated", () => {
+    overlayHitLayerReady = false;
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
     nativeLayoutStablePolls = 0;
     if (enabled) pollSubtitle();
   });
   overlay.onMessage("native-layout-diagnostic", (payload) => {
-    if (!logEnabled()) return;
     const diagnostic = payload && typeof payload === "object" ? payload : {};
+    overlayHitLayerReady =
+      diagnostic.accepted === true || diagnostic.reason === "accepted-layout";
+    if (overlayHitLayerReady && !overlayFirstHitLayerAt) {
+      overlayFirstHitLayerAt = Date.now();
+      debugLog(
+        "overlay lifecycle " +
+          JSON.stringify({
+            event: "first-hit-layer",
+            startupToHitLayerMs: overlayEnableStartedAt
+              ? overlayFirstHitLayerAt - overlayEnableStartedAt
+              : 0,
+            ...overlayLifecycleSnapshot(),
+          }),
+      );
+    }
+    if (!logEnabled()) return;
     const key = JSON.stringify([
       diagnostic.lineId,
       diagnostic.reason,
@@ -13895,6 +14215,18 @@ function initializeOverlay() {
         }),
     );
   });
+  overlay.onMessage("native-layout-performance", (payload) => {
+    if (!verboseLogEnabled()) return;
+    const diagnostic = payload && typeof payload === "object" ? payload : {};
+    debugVerbose(
+      "native overlay DOM profile " +
+        JSON.stringify({
+          mode: String(diagnostic.mode || ""),
+          domUpdateMs: Number(diagnostic.domUpdateMs || 0),
+          hitTargetCount: Number(diagnostic.hitTargetCount || 0),
+        }),
+    );
+  });
   overlay.onMessage("open-external-url", (payload) => {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,
@@ -13910,31 +14242,75 @@ function initializeOverlay() {
     handleBridgeAnkiCardOpen(payload);
   });
   initialized = true;
+  overlayDocumentReady = false;
   overlay.loadFile("overlay.html");
   overlay.setOpacity(1);
   overlay.setClickable(true);
   overlay.show();
 }
-function prepareRuntimeAfterProfileChange() {
-  advanceNativeSubtitleFontMetricGeneration();
-  invalidateCurrentSubtitleLookupLine();
-  if (typeof advanceNativeAssGeometryGeneration === "function")
-    advanceNativeAssGeometryGeneration();
-  lookupBackendReadyForNativeHide = false;
-  lookupInFlight = Object.create(null);
-  lastSubtitle = null;
-  lastSubtitleCueIdentity = null;
-  lastNativeLayoutFingerprint = "";
-  nativeLayoutStablePolls = 0;
+function normalizedProfileRuntimePlan(plan) {
+  if (!plan || typeof plan !== "object")
+    return {
+      lookupCache: true,
+      geometryCache: true,
+      hitLayer: true,
+      polling: true,
+      nativeVisibility: true,
+      backendRestart: true,
+      overlayReload: true,
+    };
+  return {
+    lookupCache: plan.lookupCache === true,
+    geometryCache: plan.geometryCache === true,
+    hitLayer: plan.hitLayer === true,
+    polling: plan.polling === true,
+    nativeVisibility: plan.nativeVisibility === true,
+    backendRestart: plan.backendRestart === true,
+    overlayReload: plan.overlayReload === true,
+  };
+}
+function prepareRuntimeAfterProfileChange(runtimePlan) {
+  const plan = normalizedProfileRuntimePlan(runtimePlan);
+  if (plan.backendRestart || plan.overlayReload) {
+    overlayLifecycleGeneration++;
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    if (enabled)
+      setOverlayRuntimeState("reconfiguring", "profile-settings-change");
+  }
+  if (plan.geometryCache) {
+    advanceNativeSubtitleFontMetricGeneration();
+    invalidateCurrentSubtitleLookupLine();
+    if (typeof advanceNativeAssGeometryGeneration === "function")
+      advanceNativeAssGeometryGeneration();
+    lastSubtitle = null;
+    lastSubtitleCueIdentity = null;
+    lastNativeLayoutFingerprint = "";
+    nativeLayoutStablePolls = 0;
+  } else if (plan.hitLayer) {
+    invalidateCurrentSubtitleLookupLine();
+    lastSubtitle = null;
+    lastSubtitleCueIdentity = null;
+    lastNativeLayoutFingerprint = "";
+    nativeLayoutStablePolls = 0;
+  }
+  if (plan.lookupCache) {
+    lookupInFlight = Object.create(null);
+    lookupBackendReadyForNativeHide = false;
+  }
   resetLookupPopupPause();
+  return plan;
 }
 function warmActiveProfileBackend() {
   if (!enabled) return;
+  const generation = overlayLifecycleGeneration;
+  const startedAt = Date.now();
+  setOverlayRuntimeState("starting-helper", "backend-warm");
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
   prepareLookupBackendForEnabledOverlay(language, dicts)
     .then(() => {
-      if (!enabled) return;
+      if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = true;
       syncNativeSubtitleVisibility();
       setOverlayStatus(
@@ -13942,9 +14318,24 @@ function warmActiveProfileBackend() {
         "info",
         3500,
       );
+      debugLog(
+        "overlay lifecycle " +
+          JSON.stringify({
+            event: "helper-ready",
+            elapsedMs: Date.now() - startedAt,
+            settingsReconfigurationMs: profileReconfigurationStartedAt
+              ? Date.now() - profileReconfigurationStartedAt
+              : 0,
+            ...overlayLifecycleSnapshot(),
+          }),
+      );
+      profileReconfigurationStartedAt = 0;
+      updateOverlayRuntimeState("helper-ready");
     })
     .catch((error) => {
+      if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = false;
+      setOverlayRuntimeState("failed", "backend-warm-failed");
       debugError(
         "Dictionary lookup startup failed after profile change language=" +
           language.id +
@@ -13954,17 +14345,30 @@ function warmActiveProfileBackend() {
       setOverlayStatus(compactError(error), "error", 14000);
     });
 }
-function pushOverlayConfigForProfileChange() {
-  prepareRuntimeAfterProfileChange();
+function pushOverlayConfigForProfileChange(runtimePlan) {
+  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
   if (initialized) {
     postToOverlay("config", overlayConfig());
     postToOverlay("enabled", { enabled });
   }
   if (enabled) {
-    refreshPollingInterval();
-    pollSubtitle();
-    syncNativeSubtitleVisibility();
-    warmActiveProfileBackend();
+    if (plan.polling) refreshPollingInterval();
+    if (plan.geometryCache || plan.hitLayer || plan.overlayReload)
+      pollSubtitle();
+    if (plan.nativeVisibility || plan.geometryCache)
+      syncNativeSubtitleVisibility();
+    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
+  }
+  if (!plan.backendRestart && profileReconfigurationStartedAt) {
+    debugLog(
+      "overlay lifecycle " +
+        JSON.stringify({
+          event: "settings-reconfigured",
+          elapsedMs: Date.now() - profileReconfigurationStartedAt,
+          ...overlayLifecycleSnapshot(),
+        }),
+    );
+    profileReconfigurationStartedAt = 0;
   }
 }
 function videoWindowAvailableForOverlayLoad() {
@@ -13974,8 +14378,8 @@ function videoWindowAvailableForOverlayLoad() {
     return false;
   }
 }
-function reloadOverlayForProfileChange() {
-  prepareRuntimeAfterProfileChange();
+function reloadOverlayForProfileChange(runtimePlan) {
+  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
   if (!videoWindowAvailableForOverlayLoad()) {
     debugLog(
       "deferring overlay reload for profile change until iina.window-loaded",
@@ -13990,6 +14394,8 @@ function reloadOverlayForProfileChange() {
         "reloading overlay for active profile language=" +
           selectedLanguageModule().id,
       );
+      overlayDocumentReady = false;
+      overlayHitLayerReady = false;
       overlay.loadFile("overlay.html");
       overlay.setOpacity(1);
       overlay.setClickable(enabled);
@@ -14000,18 +14406,13 @@ function reloadOverlayForProfileChange() {
       );
     }
   }
-  setTimeout(() => {
-    postToOverlay("config", overlayConfig());
-    postToOverlay("enabled", { enabled });
-    replayActiveOverlayTask();
-    if (enabled) {
-      startPolling();
-      syncNativeSubtitleVisibility();
-      warmActiveProfileBackend();
-    } else {
-      publishSubtitle("");
-    }
-  }, 80);
+  if (enabled) {
+    startPolling();
+    syncNativeSubtitleVisibility();
+    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
+  } else {
+    publishSubtitle("");
+  }
 }
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
@@ -14069,30 +14470,63 @@ async function prepareLookupBackendForEnabledOverlay(language, dicts) {
   );
   return ready;
 }
-function setEnabled(next) {
+function persistOverlayDesiredState() {
+  try {
+    if (preferences && typeof preferences.set === "function")
+      preferences.set("enabledByDefault", enabled);
+    if (preferences && typeof preferences.sync === "function")
+      preferences.sync();
+  } catch (error) {
+    debugWarn("could not persist overlay state: " + compactError(error));
+  }
+}
+function setEnabled(next, options) {
   const wasEnabled = enabled;
+  const requested = !!next;
+  const trigger = String((options && options.trigger) || "runtime");
   debugLog(
     "setEnabled requested next=" +
       String(!!next) +
       " previous=" +
       String(enabled),
   );
-  enabled = !!next;
+  if (requested === wasEnabled) {
+    if (options && options.persist === true) persistOverlayDesiredState();
+    initializeOverlay();
+    overlay.setClickable(requested);
+    postToOverlay("enabled", { enabled: requested });
+    postToOverlay("config", overlayConfig());
+    if (requested) {
+      overlay.show();
+      if (pollTimer === null) startPolling();
+      else pollSubtitle();
+      if (!activeWorkerReady && overlayRuntimeState !== "starting-helper")
+        warmActiveProfileBackend();
+    }
+    return;
+  }
+  enabled = requested;
+  if (options && options.persist === true) persistOverlayDesiredState();
   if (enabled !== wasEnabled) {
+    overlayLifecycleGeneration++;
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    overlayRuntimeReadyAt = 0;
+    overlayFirstHitLayerAt = 0;
+    if (enabled) overlayEnableStartedAt = Date.now();
     advanceNativeSubtitleFontMetricGeneration();
     invalidateCurrentSubtitleLookupLine();
     if (typeof advanceNativeAssGeometryGeneration === "function")
       advanceNativeAssGeometryGeneration();
   }
   lookupBackendReadyForNativeHide = false;
+  if (enabled) setOverlayRuntimeState("enabling", trigger);
   initializeOverlay();
   overlay.setClickable(enabled);
   postToOverlay("enabled", { enabled });
   postToOverlay("config", overlayConfig());
   rebuildMenu();
   if (enabled) {
-    const language = selectedLanguageModule();
-    const dicts = activeDictionaryPaths(language);
     try {
       nativeSubtitlePlaybackActive =
         nativeSubtitlePlaybackActive ||
@@ -14109,34 +14543,14 @@ function setEnabled(next) {
     overlay.show();
     startPolling();
     showOSD("iinatan: On");
-    prepareLookupBackendForEnabledOverlay(language, dicts)
-      .then(() => {
-        if (!enabled) return;
-        lookupBackendReadyForNativeHide = true;
-        syncNativeSubtitleVisibility();
-        setOverlayStatus(
-          "Dictionary lookup ready for " + language.label + ".",
-          "info",
-          3500,
-        );
-      })
-      .catch((error) => {
-        lookupBackendReadyForNativeHide = false;
-        debugError(
-          "Dictionary lookup startup failed language=" +
-            language.id +
-            ": " +
-            compactError(error),
-        );
-        syncNativeSubtitleVisibility();
-        setOverlayStatus(compactError(error), "error", 14000);
-      });
+    warmActiveProfileBackend();
   } else {
     lookupBackendReadyForNativeHide = false;
     resetLookupPopupPause();
     stopPolling();
     publishSubtitle("");
     restoreNativeSubtitleVisibility();
+    setOverlayRuntimeState("disabled", trigger);
     showOSD("iinatan: Off");
   }
 }
@@ -14152,7 +14566,7 @@ function toggleFromShortcut(data) {
         " -> " +
         String(!enabled),
     );
-    setEnabled(!enabled);
+    setEnabled(!enabled, { persist: true, trigger: "shortcut" });
     return true;
   } catch (error) {
     console.error("Shift+H shortcut failed: " + compactError(error));
@@ -15266,7 +15680,9 @@ prepareNativeSubtitlePrivateCueDirectory().catch((error) => {
 
 event.on("iina.window-loaded", () => {
   initializeOverlay();
-  setEnabled(prefBool("enabledByDefault", true));
+  setEnabled(prefBool("enabledByDefault", true), {
+    trigger: "persisted-startup",
+  });
 });
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
@@ -15284,6 +15700,7 @@ event.on("mpv.file-loaded", () => {
   if (enabled) {
     acquireNativeSubtitleVisibilityOwnership();
     startPolling();
+    updateOverlayRuntimeState("media-loaded");
   }
 });
 event.on("mpv.end-file", () => {
@@ -15299,8 +15716,15 @@ event.on("mpv.end-file", () => {
   stopPolling();
   publishSubtitle("");
   restoreNativeSubtitleVisibility();
+  if (enabled) {
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    setOverlayRuntimeState("waiting-for-media", "media-ended");
+  }
 });
 event.on("iina.window-will-close", () => {
+  overlayLifecycleGeneration++;
+  setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -15458,6 +15882,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
           advanceNativeAssGeometryGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
+      if (enabled) updateOverlayRuntimeState("property-change:" + property);
     });
   } catch (_) {}
 });
@@ -15477,12 +15902,15 @@ function scheduleExperimentalNativeLayoutRebuild() {
         nativeExternalSrtCache = Object.create(null);
       invalidateExperimentalNativeLayout(registration[1]);
       if (enabled) pollSubtitle();
+      if (enabled) updateOverlayRuntimeState(registration[1]);
     });
   } catch (_) {}
 });
 try {
   if (core.window.loaded) {
     initializeOverlay();
-    setEnabled(prefBool("enabledByDefault", true));
+    setEnabled(prefBool("enabledByDefault", true), {
+      trigger: "persisted-startup",
+    });
   }
 } catch (_) {}

@@ -1758,7 +1758,6 @@
     viewport,
     nativeLayout,
   ) {
-    if (!state.config || state.config.debugLogEnabled !== true) return;
     const diagnostic = {
       lineId: state.lineId,
       reason: "accepted-layout",
@@ -1791,6 +1790,27 @@
       // Deliberately excludes display/lookup text so ordinary diagnostics do
       // not leak caption contents.
       iina.postMessage("native-layout-diagnostic", diagnostic);
+    } catch (_) {}
+  }
+
+  function nativeSubtitleDomNow() {
+    return window.performance && typeof window.performance.now === "function"
+      ? window.performance.now()
+      : Date.now();
+  }
+
+  function publishNativeSubtitleDomPerformance(
+    startedAt,
+    mode,
+    hitTargetCount,
+  ) {
+    if (!state.config || state.config.debugLogVerbose !== true) return;
+    try {
+      iina.postMessage("native-layout-performance", {
+        mode: String(mode || ""),
+        domUpdateMs: Math.max(0, nativeSubtitleDomNow() - startedAt),
+        hitTargetCount: Math.max(0, Number(hitTargetCount) || 0),
+      });
     } catch (_) {}
   }
 
@@ -2284,6 +2304,7 @@
   }
 
   function renderNativeSubtitleSurfaces(surfaces) {
+    const domUpdateStartedAt = nativeSubtitleDomNow();
     const list = Array.isArray(surfaces)
       ? surfaces.filter(
           (surface) => surface && !surface.reason && surface.layout,
@@ -2581,6 +2602,11 @@
         }
       });
       renderNativeSurfaceHitBoxes(measured, viewport);
+      publishNativeSubtitleDomPerformance(
+        domUpdateStartedAt,
+        "combined-surfaces",
+        nativeSubtitleHitBoxesEl ? nativeSubtitleHitBoxesEl.children.length : 0,
+      );
     };
     const scheduleFinish = () => {
       if (!isCurrent()) return;
@@ -2602,6 +2628,7 @@
     lookupSpans,
     nativeLayout,
   ) {
+    const domUpdateStartedAt = nativeSubtitleDomNow();
     state.nativeDisplayText = displayText;
     state.nativeReason = reason;
     state.nativeLookupSpans = Array.isArray(lookupSpans)
@@ -2747,6 +2774,11 @@
           geometry,
           viewport,
           nativeLayout,
+        );
+        publishNativeSubtitleDomPerformance(
+          domUpdateStartedAt,
+          "native-ass",
+          nativeSubtitleHitBoxesEl.children.length,
         );
       } else {
         invalidateNativeSubtitleHitLayer("missing-unit-fill");
@@ -2948,6 +2980,11 @@
       ) {
         setImportantStyle(nativeSubtitleHitBoxesEl, "display", "block");
         nativeSubtitleHitBoxesEl.classList.remove("hidden");
+        publishNativeSubtitleDomPerformance(
+          domUpdateStartedAt,
+          "plain-subtitle",
+          nativeSubtitleHitBoxesEl.children.length,
+        );
       }
     };
     const afterFonts = () => {

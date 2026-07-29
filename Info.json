@@ -19,6 +19,7 @@
     "experimentalNativeSubtitleLookupHighlight": true,
     "experimentalNativeSubtitleHitBoxes": false,
     "experimentalNativeSubtitleTextOpacity": 0,
+    "experimentalNativeSubtitleValidation": false,
     "audioAutoPlay": false,
     "audioSourcesJson": "[{\"url\":\"http://127.0.0.1:5050/?term={term}&reading={reading}\"}]",
     "ankiEnabled": false,

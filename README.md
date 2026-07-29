@@ -98,7 +98,9 @@ Japanese, English, French, German, Chinese, and Korean without replacing mpv's
 visible subtitle rendering. Its invisible hit boxes come from the packaged
 native helper. Complex override-tagged or ambiguous cues are intentionally
 skipped; SubRip and the existing force/strip ASS compatibility modes keep their
-previous behavior.
+previous behavior. Full original-versus-instrumented ASS alpha validation is
+available as an expensive Advanced diagnostic and is disabled during normal
+playback.
 
 ## Anki Export
 

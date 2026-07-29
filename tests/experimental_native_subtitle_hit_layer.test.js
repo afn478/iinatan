@@ -1951,13 +1951,13 @@ function waitForLayout() {
     "utf8",
   );
   assert(
-    /function prepareRuntimeAfterProfileChange\(\)\s*\{\s*advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
+    /function prepareRuntimeAfterProfileChange\(runtimePlan\)[\s\S]*?if \(plan\.geometryCache\) \{\s*advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
       lifecycleSource,
     ),
     "profile changes advance font metrics and invalidate the prior lookup line",
   );
   assert(
-    /function setEnabled\(next\)\s*\{\s*const wasEnabled = enabled;[\s\S]*?enabled = !!next;\s*if \(enabled !== wasEnabled\) \{\s*advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
+    /function setEnabled\(next, options\)[\s\S]*?enabled = requested;[\s\S]*?if \(enabled !== wasEnabled\) \{[\s\S]*?advanceNativeSubtitleFontMetricGeneration\(\);\s*invalidateCurrentSubtitleLookupLine\(\)/.test(
       lifecycleSource,
     ),
     "Shift+H lifecycle transitions advance metrics and invalidate the prior lookup line",
@@ -1985,11 +1985,28 @@ function waitForLayout() {
       VERSION: "test",
       enabled: enabledValue,
       initialized: false,
+      overlayDocumentReady: false,
+      overlayRuntimeState: enabledValue ? "enabling" : "disabled",
+      overlayLifecycleGeneration: 1,
+      overlayEnableStartedAt: 0,
+      overlayRuntimeReadyAt: 0,
+      overlayFirstHitLayerAt: 0,
+      overlayHitLayerReady: false,
+      nativeGeometrySessionReady: false,
+      activeWorkerReady: enabledValue ? {} : null,
       lastSubtitleCueIdentity: "cached-cue",
       lastNativeLayoutFingerprint: "preserved-layout",
       nativeLayoutStablePolls: 7,
       ensureOverlayBridge() {},
       debugLog() {},
+      verboseLogEnabled() {
+        return false;
+      },
+      mpvStringProp(names) {
+        if (names.indexOf("path") >= 0) return "/video.mkv";
+        if (names.indexOf("sub-text") >= 0) return "current cue";
+        return "";
+      },
       handleLookupPopupOverlayReady() {},
       overlayConfig() {
         return { test: true };
@@ -2194,6 +2211,9 @@ function waitForLayout() {
     enabled: true,
     nativeSubtitlePlaybackActive: true,
     nativeSubtitleVisibilityOwned: false,
+    overlayHitLayerReady: false,
+    nativeGeometrySessionReady: false,
+    overlayLifecycleGeneration: 0,
     nativeSubVisibilityBeforeEnable: null,
     mpv: {
       getFlag() {
@@ -2352,7 +2372,7 @@ function waitForLayout() {
     bridgePauseSource.indexOf("function pauseState"),
   );
   const profileResetSource = lifecycleSource.slice(
-    lifecycleSource.indexOf("function prepareRuntimeAfterProfileChange"),
+    lifecycleSource.indexOf("function normalizedProfileRuntimePlan"),
     lifecycleSource.indexOf("function warmActiveProfileBackend"),
   );
   let experimentalBridgeMode = true;
@@ -2400,6 +2420,9 @@ function waitForLayout() {
     lastSubtitleCueIdentity: null,
     lastNativeLayoutFingerprint: "",
     nativeLayoutStablePolls: 0,
+    overlayLifecycleGeneration: 1,
+    overlayHitLayerReady: true,
+    nativeGeometrySessionReady: true,
     experimentalNativeSubtitleMode() {
       return experimentalBridgeMode;
     },
@@ -2417,6 +2440,7 @@ function waitForLayout() {
     },
     debugVerbose() {},
     debugLog() {},
+    setOverlayRuntimeState() {},
     compactError(error) {
       return String(error);
     },
@@ -3544,6 +3568,8 @@ function waitForLayout() {
     },
     acquireNativeSubtitleVisibilityOwnership() {},
     startPolling() {},
+    updateOverlayRuntimeState() {},
+    setOverlayRuntimeState() {},
     debugWarn() {},
     postToOverlay(name) {
       if (name === "native-layout-invalidate")
@@ -4990,12 +5016,14 @@ function waitForLayout() {
     "stale multi-surface measurement cannot overwrite current global targets",
   );
   assert(
-    !staleFontFailure.context.__posted.some(
+    staleFontFailure.context.__posted.some(
       (message) =>
         message.name === "native-layout-diagnostic" &&
-        message.payload.reason === "accepted-layout",
+        message.payload.reason === "accepted-layout" &&
+        message.payload.displayText === undefined &&
+        message.payload.lookupText === undefined,
     ),
-    "accepted layout diagnostics stay off when diagnostics are disabled",
+    "accepted-layout readiness remains available without leaking subtitle text when logging is disabled",
   );
   assertEqual(
     staleFontFailure.context.__posted.filter(

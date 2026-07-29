@@ -7,7 +7,9 @@ prepareNativeSubtitlePrivateCueDirectory().catch((error) => {
 
 event.on("iina.window-loaded", () => {
   initializeOverlay();
-  setEnabled(prefBool("enabledByDefault", true));
+  setEnabled(prefBool("enabledByDefault", true), {
+    trigger: "persisted-startup",
+  });
 });
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
@@ -25,6 +27,7 @@ event.on("mpv.file-loaded", () => {
   if (enabled) {
     acquireNativeSubtitleVisibilityOwnership();
     startPolling();
+    updateOverlayRuntimeState("media-loaded");
   }
 });
 event.on("mpv.end-file", () => {
@@ -40,8 +43,15 @@ event.on("mpv.end-file", () => {
   stopPolling();
   publishSubtitle("");
   restoreNativeSubtitleVisibility();
+  if (enabled) {
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    setOverlayRuntimeState("waiting-for-media", "media-ended");
+  }
 });
 event.on("iina.window-will-close", () => {
+  overlayLifecycleGeneration++;
+  setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -199,6 +209,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
           advanceNativeAssGeometryGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
+      if (enabled) updateOverlayRuntimeState("property-change:" + property);
     });
   } catch (_) {}
 });
@@ -218,12 +229,15 @@ function scheduleExperimentalNativeLayoutRebuild() {
         nativeExternalSrtCache = Object.create(null);
       invalidateExperimentalNativeLayout(registration[1]);
       if (enabled) pollSubtitle();
+      if (enabled) updateOverlayRuntimeState(registration[1]);
     });
   } catch (_) {}
 });
 try {
   if (core.window.loaded) {
     initializeOverlay();
-    setEnabled(prefBool("enabledByDefault", true));
+    setEnabled(prefBool("enabledByDefault", true), {
+      trigger: "persisted-startup",
+    });
   }
 } catch (_) {}

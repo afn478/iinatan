@@ -368,6 +368,12 @@ GeometryRequest parse_geometry_request(const Json& root) {
   request.request_id = required(root, "requestId").string();
   if (request.request_id.empty() || request.request_id.size() > 128)
     throw std::runtime_error("invalid requestId");
+  if (const Json* diagnostics = root.find("diagnostics"))
+    request.diagnostics = diagnostics->boolean();
+  if (const Json* validation = root.find("validateInstrumentation"))
+    request.validate_instrumentation = validation->boolean();
+  if (const Json* alpha_mask = root.find("requestAlphaMask"))
+    request.request_alpha_mask = alpha_mask->boolean();
 
   const Json& source = required(root, "source");
   request.source.path = required(source, "path").string();

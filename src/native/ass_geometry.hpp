@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "media_demux.hpp"
@@ -7,8 +8,18 @@
 
 namespace iinatan::ass {
 
-struct GeometryService {
+class GeometryService {
+ public:
+  GeometryService();
+  ~GeometryService();
+  GeometryService(const GeometryService&) = delete;
+  GeometryService& operator=(const GeometryService&) = delete;
+
   protocol::Json handle(const protocol::GeometryRequest& request);
+
+ private:
+  struct State;
+  std::unique_ptr<State> state_;
 };
 
 const char* libass_geometry_version();

@@ -1174,18 +1174,20 @@ static void cmd_version() {
             << ",\"architecture\":\"arm64\"},\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }
 static void cmd_ass_geometry(int argc, char** argv) {
-  if (argc != 3) {
-    print_error("usage: ass-geometry <request_json_path>");
+  if (argc < 3) {
+    print_error("usage: ass-geometry <request_json_path> [...]");
     std::exit(2);
   }
-  const std::string body = read_file(argv[2]);
-  const iinatan::protocol::Json root = iinatan::protocol::Json::parse(body);
-  if (!iinatan::protocol::is_geometry_request(root))
-    throw std::runtime_error("request type must be ass-geometry");
   iinatan::ass::GeometryService service;
-  std::cout
-      << service.handle(iinatan::protocol::parse_geometry_request(root)).dump()
-      << "\n";
+  for (int index = 2; index < argc; ++index) {
+    const std::string body = read_file(argv[index]);
+    const iinatan::protocol::Json root = iinatan::protocol::Json::parse(body);
+    if (!iinatan::protocol::is_geometry_request(root))
+      throw std::runtime_error("request type must be ass-geometry");
+    std::cout
+        << service.handle(iinatan::protocol::parse_geometry_request(root)).dump()
+        << "\n";
+  }
 }
 int main(int argc, char** argv) {
   try {

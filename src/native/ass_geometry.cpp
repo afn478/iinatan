@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -24,6 +26,13 @@ namespace {
 using protocol::GeometryRequest;
 using protocol::GeometryUnitRequest;
 using protocol::Json;
+using GeometryClock = std::chrono::steady_clock;
+
+int64_t elapsed_us(
+    GeometryClock::time_point start, GeometryClock::time_point end) {
+  return std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+      .count();
+}
 
 struct UnitRect {
   int position = -1;
@@ -281,18 +290,6 @@ std::vector<std::string> split_observed_events(const std::string& observed) {
 }
 
 #ifdef IINATAN_ASS_GEOMETRY
-struct LibraryOwner {
-  ASS_Library* value = nullptr;
-  ~LibraryOwner() {
-    if (value) ass_library_done(value);
-  }
-};
-struct RendererOwner {
-  ASS_Renderer* value = nullptr;
-  ~RendererOwner() {
-    if (value) ass_renderer_done(value);
-  }
-};
 struct TrackOwner {
   ASS_Track* value = nullptr;
   ~TrackOwner() {
@@ -378,17 +375,18 @@ bool compose_alpha(
       return false;
     const unsigned color_alpha = image->color & 0xff;
     for (int row = 0; row < image->h; ++row) {
-      const int y = image->dst_y + row;
+      const int64_t y = static_cast<int64_t>(image->dst_y) + row;
       if (y < 0 || y >= height) continue;
       for (int column = 0; column < image->w; ++column) {
-        const int x = image->dst_x + column;
+        const int64_t x = static_cast<int64_t>(image->dst_x) + column;
         if (x < 0 || x >= width) continue;
         const unsigned bitmap =
             image->bitmap[static_cast<size_t>(row) * image->stride + column];
         const unsigned source_alpha =
             (bitmap * (255 - color_alpha) + 127) / 255;
         uint8_t& destination =
-            planes[plane_index][static_cast<size_t>(y) * width + x];
+            planes[plane_index][static_cast<size_t>(y) * width +
+                                static_cast<size_t>(x)];
         destination = static_cast<uint8_t>(
             source_alpha +
             (static_cast<unsigned>(destination) * (255 - source_alpha) + 127) /
@@ -420,15 +418,16 @@ std::string base64_encode(const std::vector<uint8_t>& source) {
   return output;
 }
 
-std::optional<Json> make_alpha_mask(
-    const std::vector<uint8_t>& alpha, int frame_width, int frame_height) {
-  int left = frame_width;
-  int top = frame_height;
+std::optional<Json> encode_alpha_mask(
+    const std::vector<uint8_t>& alpha, int plane_width, int plane_height,
+    int origin_x = 0, int origin_y = 0) {
+  int left = plane_width;
+  int top = plane_height;
   int right = 0;
   int bottom = 0;
-  for (int y = 0; y < frame_height; ++y) {
-    for (int x = 0; x < frame_width; ++x) {
-      if (!alpha[static_cast<size_t>(y) * frame_width + x]) continue;
+  for (int y = 0; y < plane_height; ++y) {
+    for (int x = 0; x < plane_width; ++x) {
+      if (!alpha[static_cast<size_t>(y) * plane_width + x]) continue;
       left = std::min(left, x);
       top = std::min(top, y);
       right = std::max(right, x + 1);
@@ -436,15 +435,14 @@ std::optional<Json> make_alpha_mask(
     }
   }
   if (right <= left || bottom <= top) return std::nullopt;
-  const int width = right - left;
-  const int height = bottom - top;
   constexpr size_t kMaxMaskPixels = 262144;
-  if (static_cast<size_t>(width) * height > kMaxMaskPixels)
+  if (static_cast<size_t>(right - left) * (bottom - top) > kMaxMaskPixels)
     return std::nullopt;
 
   std::vector<uint8_t> rle;
-  rle.reserve(static_cast<size_t>(width) * height / 2);
-  uint8_t current = alpha[static_cast<size_t>(top) * frame_width + left];
+  rle.reserve(static_cast<size_t>(right - left) * (bottom - top) / 2);
+  uint8_t current =
+      alpha[static_cast<size_t>(top) * plane_width + left];
   unsigned run = 0;
   const auto flush = [&] {
     rle.push_back(static_cast<uint8_t>(run));
@@ -453,7 +451,7 @@ std::optional<Json> make_alpha_mask(
   for (int y = top; y < bottom; ++y) {
     for (int x = left; x < right; ++x) {
       const uint8_t value =
-          alpha[static_cast<size_t>(y) * frame_width + x];
+          alpha[static_cast<size_t>(y) * plane_width + x];
       if (value == current && run < 255) {
         ++run;
       } else {
@@ -466,18 +464,177 @@ std::optional<Json> make_alpha_mask(
   if (run) flush();
   if (rle.size() > 512 * 1024) return std::nullopt;
   return Json::Object{
-      {"x", left},
-      {"y", top},
-      {"w", width},
-      {"h", height},
+      {"x", origin_x + left},
+      {"y", origin_y + top},
+      {"w", right - left},
+      {"h", bottom - top},
       {"encoding", "rle-u8-base64"},
       {"data", base64_encode(rle)},
   };
 }
 
+struct CroppedAlpha {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  std::vector<uint8_t> pixels;
+};
+
+bool compose_character_alpha_crop(
+    ASS_Image* images, int frame_width, int frame_height,
+    CroppedAlpha& result) {
+  int left = frame_width;
+  int top = frame_height;
+  int right = 0;
+  int bottom = 0;
+  for (const ASS_Image* image = images; image; image = image->next) {
+    const int plane_index = image_plane(image);
+    if (plane_index < 0 || !image->bitmap || image->stride < image->w ||
+        image->w < 0 || image->h < 0)
+      return false;
+    if (plane_index != 0) continue;
+    const int64_t image_right =
+        static_cast<int64_t>(image->dst_x) + image->w;
+    const int64_t image_bottom =
+        static_cast<int64_t>(image->dst_y) + image->h;
+    left = std::min(left, std::max(0, image->dst_x));
+    top = std::min(top, std::max(0, image->dst_y));
+    right = std::max(
+        right,
+        static_cast<int>(
+            std::max<int64_t>(0, std::min<int64_t>(frame_width, image_right))));
+    bottom = std::max(
+        bottom,
+        static_cast<int>(std::max<int64_t>(
+            0, std::min<int64_t>(frame_height, image_bottom))));
+  }
+  if (right <= left || bottom <= top) return true;
+  const int width = right - left;
+  const int height = bottom - top;
+  const size_t pixels = static_cast<size_t>(width) * height;
+  if (pixels > 16'000'000) return false;
+  result.x = left;
+  result.y = top;
+  result.width = width;
+  result.height = height;
+  result.pixels.assign(pixels, 0);
+  for (const ASS_Image* image = images; image; image = image->next) {
+    if (image_plane(image) != 0) continue;
+    const unsigned color_alpha = image->color & 0xff;
+    for (int row = 0; row < image->h; ++row) {
+      const int64_t y = static_cast<int64_t>(image->dst_y) + row;
+      if (y < top || y >= bottom) continue;
+      for (int column = 0; column < image->w; ++column) {
+        const int64_t x = static_cast<int64_t>(image->dst_x) + column;
+        if (x < left || x >= right) continue;
+        const unsigned bitmap =
+            image->bitmap[static_cast<size_t>(row) * image->stride + column];
+        const unsigned source_alpha =
+            (bitmap * (255 - color_alpha) + 127) / 255;
+        uint8_t& destination =
+            result.pixels[static_cast<size_t>(y - top) * width +
+                          static_cast<size_t>(x - left)];
+        destination = static_cast<uint8_t>(
+            source_alpha +
+            (static_cast<unsigned>(destination) * (255 - source_alpha) + 127) /
+                255);
+      }
+    }
+  }
+  return true;
+}
+
 #endif
 
 }  // namespace
+
+struct GeometryService::State {
+#ifdef IINATAN_ASS_GEOMETRY
+  // One worker-owned session deliberately retains only the active source
+  // window and libass font/renderer caches. Cue tracks remain request-owned so
+  // seeking or event replacement cannot leak mutable ASS events.
+  DemuxedAss media;
+  bool media_valid = false;
+  std::string source_path;
+  int source_ff_index = -1;
+  bool source_external = false;
+  int64_t window_start_ms = 0;
+  int64_t window_end_ms = 0;
+  ASS_Library* library = nullptr;
+  ASS_Renderer* instrumented_renderer = nullptr;
+  ASS_Renderer* original_renderer = nullptr;
+  bool embedded_fonts = true;
+  bool session_valid = false;
+  uint64_t request_count = 0;
+  uint64_t demux_hit_count = 0;
+  uint64_t demux_miss_count = 0;
+  uint64_t session_creation_count = 0;
+  uint64_t session_destruction_count = 0;
+  bool diagnostics_requested = false;
+
+  ~State() { destroy_session(); }
+
+  void destroy_session() {
+    if (original_renderer) ass_renderer_done(original_renderer);
+    if (instrumented_renderer) ass_renderer_done(instrumented_renderer);
+    if (library) ass_library_done(library);
+    original_renderer = nullptr;
+    instrumented_renderer = nullptr;
+    library = nullptr;
+    if (session_valid) ++session_destruction_count;
+    session_valid = false;
+  }
+
+  bool open_session(const protocol::GeometryRendererRequest& renderer) {
+    destroy_session();
+    ASS_Library* next_library = ass_library_init();
+    if (!next_library) return false;
+    ass_set_message_cb(next_library, ignore_ass_message, nullptr);
+    ass_set_extract_fonts(next_library, renderer.embedded_fonts ? 1 : 0);
+    if (renderer.embedded_fonts) {
+      for (const FontAttachment& font : media.fonts)
+        ass_add_font(
+            next_library, const_cast<char*>(font.name.c_str()),
+            reinterpret_cast<char*>(const_cast<uint8_t*>(font.data.data())),
+            static_cast<int>(font.data.size()));
+    }
+    ASS_Renderer* next_renderer = ass_renderer_init(next_library);
+    if (!next_renderer) {
+      ass_library_done(next_library);
+      return false;
+    }
+    library = next_library;
+    instrumented_renderer = next_renderer;
+    embedded_fonts = renderer.embedded_fonts;
+    session_valid = true;
+    ++session_creation_count;
+    return true;
+  }
+
+  bool ensure_original_renderer() {
+    if (original_renderer) return true;
+    original_renderer = ass_renderer_init(library);
+    return original_renderer != nullptr;
+  }
+#endif
+};
+
+GeometryService::GeometryService() : state_(std::make_unique<State>()) {}
+GeometryService::~GeometryService() {
+#ifdef IINATAN_ASS_GEOMETRY
+  if (state_ && state_->request_count && state_->diagnostics_requested) {
+    const uint64_t destroyed =
+        state_->session_destruction_count + (state_->session_valid ? 1 : 0);
+    std::cerr
+        << "ass geometry lifecycle {\"requests\":" << state_->request_count
+        << ",\"demuxHits\":" << state_->demux_hit_count
+        << ",\"demuxMisses\":" << state_->demux_miss_count
+        << ",\"sessionCreations\":" << state_->session_creation_count
+        << ",\"sessionDestructions\":" << destroyed << "}\n";
+  }
+#endif
+}
 
 protocol::Json GeometryService::handle(const GeometryRequest& request) {
 #ifndef IINATAN_ASS_GEOMETRY
@@ -485,17 +642,50 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
       request, "ass-geometry-unavailable",
       "helper was built without the pinned FFmpeg/libass stack");
 #else
+  const GeometryClock::time_point total_started = GeometryClock::now();
+  State& state = *state_;
+  ++state.request_count;
+  state.diagnostics_requested =
+      state.diagnostics_requested || request.diagnostics;
   if (request.renderer.ass_justify)
     return fail(request, "unsupported-renderer-option", "sub-ass-justify");
   if (request.renderer.font_provider != "auto" &&
       request.renderer.font_provider != "autodetect")
     return fail(request, "unsupported-renderer-option", "sub-font-provider");
-  const DemuxResult demux =
-      demux_ass_source(request.source, request.cue.start_ms, request.cue.end_ms);
-  if (!demux.ok) return fail(request, demux.reason, demux.detail);
+  const GeometryClock::time_point demux_started = GeometryClock::now();
+  const int64_t needed_start_ms =
+      std::max<int64_t>(0, request.cue.start_ms - 30'000);
+  const int64_t needed_end_ms = request.cue.end_ms + 30'000;
+  const bool same_source =
+      state.media_valid && state.source_path == request.source.path &&
+      state.source_ff_index == request.source.ff_index &&
+      state.source_external == request.source.external &&
+      demuxed_source_unchanged(state.media, request.source);
+  const bool demux_hit =
+      same_source && needed_start_ms >= state.window_start_ms &&
+      needed_end_ms <= state.window_end_ms;
+  if (demux_hit) {
+    ++state.demux_hit_count;
+  } else {
+    ++state.demux_miss_count;
+    DemuxResult demux =
+        demux_ass_source(
+            request.source, request.cue.start_ms, request.cue.end_ms);
+    if (!demux.ok) return fail(request, demux.reason, demux.detail);
+    if (!same_source) state.destroy_session();
+    state.media = std::move(demux.media);
+    state.media_valid = true;
+    state.source_path = request.source.path;
+    state.source_ff_index = request.source.ff_index;
+    state.source_external = request.source.external;
+    state.window_start_ms = needed_start_ms;
+    state.window_end_ms = needed_end_ms;
+  }
+  const GeometryClock::time_point demux_finished = GeometryClock::now();
+  DemuxedAss& media = state.media;
 
   std::vector<const SubtitlePacket*> active_packets;
-  for (const SubtitlePacket& packet : demux.media.packets) {
+  for (const SubtitlePacket& packet : media.packets) {
     const int64_t end =
         packet.start_ms + std::max<int64_t>(packet.duration_ms, 1);
     if (packet.start_ms <= request.cue.time_ms &&
@@ -570,65 +760,89 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
   std::vector<ASS_IinatanLookupUnit> lookup_units;
   if (!build_lookup_units(ordered_events, request.units, lookup_units))
     return fail(request, "text-index-map-failed");
+  const GeometryClock::time_point event_match_finished = GeometryClock::now();
 
-  LibraryOwner library;
-  library.value = ass_library_init();
-  if (!library.value) return fail(request, "libass-init-failed");
-  ass_set_message_cb(library.value, ignore_ass_message, nullptr);
-  ass_set_extract_fonts(
-      library.value, request.renderer.embedded_fonts ? 1 : 0);
-  if (request.renderer.embedded_fonts) {
-    for (const FontAttachment& font : demux.media.fonts)
-      ass_add_font(
-          library.value, const_cast<char*>(font.name.c_str()),
-          reinterpret_cast<char*>(
-              const_cast<uint8_t*>(font.data.data())),
-          static_cast<int>(font.data.size()));
-  }
+  const GeometryClock::time_point library_started = GeometryClock::now();
+  if (!state.session_valid ||
+      state.embedded_fonts != request.renderer.embedded_fonts)
+    if (!state.open_session(request.renderer))
+      return fail(request, "libass-init-failed");
+  if (request.validate_instrumentation && !state.ensure_original_renderer())
+    return fail(request, "libass-init-failed");
+  const GeometryClock::time_point library_finished = GeometryClock::now();
 
+  const GeometryClock::time_point track_started = GeometryClock::now();
   TrackOwner original_track;
   TrackOwner instrumented_track;
-  if (!populate_track(
-          library.value, demux.media, active_events, original_track) ||
+  if ((request.validate_instrumentation &&
+       !populate_track(
+           state.library, media, active_events, original_track)) ||
       !populate_track(
-          library.value, demux.media, active_events, instrumented_track))
+          state.library, media, active_events, instrumented_track))
     return fail(request, "ambiguous-ass-event");
+  const GeometryClock::time_point track_finished = GeometryClock::now();
 
-  RendererOwner original_renderer;
-  RendererOwner instrumented_renderer;
-  original_renderer.value = ass_renderer_init(library.value);
-  instrumented_renderer.value = ass_renderer_init(library.value);
-  if (!original_renderer.value || !instrumented_renderer.value)
-    return fail(request, "libass-init-failed");
-  configure_renderer(original_renderer.value, request.renderer);
-  configure_renderer(instrumented_renderer.value, request.renderer);
+  const GeometryClock::time_point renderer_started = GeometryClock::now();
+  if (request.validate_instrumentation)
+    configure_renderer(state.original_renderer, request.renderer);
+  configure_renderer(state.instrumented_renderer, request.renderer);
   ass_iinatan_set_lookup_units(
-      instrumented_renderer.value, lookup_units.data(),
+      state.instrumented_renderer, lookup_units.data(),
       static_cast<int>(lookup_units.size()));
+  const GeometryClock::time_point renderer_finished = GeometryClock::now();
 
   int original_change = 0;
   int instrumented_change = 0;
-  ASS_Image* original_images = ass_render_frame(
-      original_renderer.value, original_track.value, request.cue.time_ms,
-      &original_change);
+  const GeometryClock::time_point original_render_started =
+      GeometryClock::now();
+  ASS_Image* original_images =
+      request.validate_instrumentation
+          ? ass_render_frame(
+                state.original_renderer, original_track.value,
+                request.cue.time_ms, &original_change)
+          : nullptr;
+  const GeometryClock::time_point original_render_finished =
+      GeometryClock::now();
   ASS_Image* instrumented_images = ass_render_frame(
-      instrumented_renderer.value, instrumented_track.value,
+      state.instrumented_renderer, instrumented_track.value,
       request.cue.time_ms, &instrumented_change);
-  if (!ass_iinatan_lookup_units_valid(instrumented_renderer.value))
+  const GeometryClock::time_point instrumented_render_finished =
+      GeometryClock::now();
+  if (!ass_iinatan_lookup_units_valid(state.instrumented_renderer))
     return fail(request, "cross-unit-cluster");
-  if (!original_images || !instrumented_images)
+  if (!instrumented_images ||
+      (request.validate_instrumentation && !original_images))
     return fail(request, "empty-render");
 
   AlphaPlanes original_alpha;
   AlphaPlanes instrumented_alpha;
-  if (!compose_alpha(
-          original_images, request.renderer.width, request.renderer.height,
-          original_alpha) ||
-      !compose_alpha(
+  CroppedAlpha cropped_alpha;
+  int64_t alpha_composed_pixels = 0;
+  const GeometryClock::time_point alpha_started = GeometryClock::now();
+  if (request.validate_instrumentation) {
+    if (!compose_alpha(
+            original_images, request.renderer.width, request.renderer.height,
+            original_alpha) ||
+        !compose_alpha(
+            instrumented_images, request.renderer.width,
+            request.renderer.height, instrumented_alpha))
+      return fail(request, "unsupported-libass-image");
+    alpha_composed_pixels =
+        static_cast<int64_t>(request.renderer.width) *
+        request.renderer.height * 6;
+  } else if (
+      request.request_alpha_mask &&
+      !compose_character_alpha_crop(
           instrumented_images, request.renderer.width,
-          request.renderer.height, instrumented_alpha))
+          request.renderer.height, cropped_alpha)) {
     return fail(request, "unsupported-libass-image");
-  if (original_alpha != instrumented_alpha) {
+  } else if (request.request_alpha_mask) {
+    alpha_composed_pixels =
+        static_cast<int64_t>(cropped_alpha.width) * cropped_alpha.height;
+  }
+  const GeometryClock::time_point alpha_finished = GeometryClock::now();
+  if (request.validate_instrumentation &&
+      original_alpha != instrumented_alpha) {
     for (size_t plane = 0; plane < original_alpha.size(); ++plane) {
       size_t different = 0;
       unsigned maximum_delta = 0;
@@ -648,13 +862,14 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
                 " maxDelta=" + std::to_string(maximum_delta));
     }
   }
+  const GeometryClock::time_point validation_finished = GeometryClock::now();
 
   std::vector<UnitRect> rects(request.units.size());
   for (size_t index = 0; index < request.units.size(); ++index)
     rects[index].position = request.units[index].position;
   std::array<ASS_IinatanLookupRect, 256> lookup_rects{};
   const int lookup_rect_count = ass_iinatan_get_lookup_rects(
-      instrumented_renderer.value, lookup_rects.data(),
+      state.instrumented_renderer, lookup_rects.data(),
       static_cast<int>(lookup_rects.size()));
   if (lookup_rect_count < 0 ||
       lookup_rect_count > static_cast<int>(lookup_rects.size()))
@@ -663,15 +878,20 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
     const ASS_IinatanLookupRect& source =
         lookup_rects[static_cast<size_t>(index)];
     if (source.id < 0 ||
-        source.id >= static_cast<int>(rects.size()) || source.w <= 0 ||
-        source.h <= 0)
+        source.id >= static_cast<int>(rects.size()) || source.x < 0 ||
+        source.y < 0 || source.w <= 0 || source.h <= 0)
       return fail(request, "invalid-unit-geometry");
     UnitRect& target = rects[static_cast<size_t>(source.id)];
+    const int64_t right = static_cast<int64_t>(source.x) + source.w;
+    const int64_t bottom = static_cast<int64_t>(source.y) + source.h;
+    if (right > request.renderer.width ||
+        bottom > request.renderer.height)
+      return fail(request, "invalid-unit-geometry");
     target.seen = true;
     target.left = source.x;
     target.top = source.y;
-    target.right = source.x + source.w;
-    target.bottom = source.y + source.h;
+    target.right = static_cast<int>(right);
+    target.bottom = static_cast<int>(bottom);
   }
   Json::Array response_units;
   for (const UnitRect& rect : rects) {
@@ -697,10 +917,63 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
       {"rendererWidth", request.renderer.width},
       {"rendererHeight", request.renderer.height},
   };
-  if (const std::optional<Json> mask = make_alpha_mask(
+  const GeometryClock::time_point mask_started = GeometryClock::now();
+  int64_t alpha_mask_scanned_pixels = 0;
+  if (request.request_alpha_mask) {
+    std::optional<Json> mask;
+    if (request.validate_instrumentation) {
+      mask = encode_alpha_mask(
           original_alpha[0], request.renderer.width,
-          request.renderer.height))
-    response.emplace("alphaMask", *mask);
+          request.renderer.height);
+      alpha_mask_scanned_pixels =
+          static_cast<int64_t>(request.renderer.width) *
+          request.renderer.height;
+    } else {
+      mask = encode_alpha_mask(
+          cropped_alpha.pixels, cropped_alpha.width, cropped_alpha.height,
+          cropped_alpha.x, cropped_alpha.y);
+      alpha_mask_scanned_pixels =
+          static_cast<int64_t>(cropped_alpha.width) * cropped_alpha.height;
+    }
+    if (mask) response.emplace("alphaMask", *mask);
+  }
+  const GeometryClock::time_point mask_finished = GeometryClock::now();
+  if (request.diagnostics) {
+    response.emplace(
+        "diagnostics",
+        Json::Object{
+            {"validationEnabled", request.validate_instrumentation},
+            {"alphaMaskRequested", request.request_alpha_mask},
+            {"demuxCacheHit", demux_hit},
+            {"requestCount", static_cast<int64_t>(state.request_count)},
+            {"demuxHitCount", static_cast<int64_t>(state.demux_hit_count)},
+            {"demuxMissCount", static_cast<int64_t>(state.demux_miss_count)},
+            {"sessionCreationCount",
+             static_cast<int64_t>(state.session_creation_count)},
+            {"sessionDestructionCount",
+             static_cast<int64_t>(state.session_destruction_count)},
+            {"demuxUs", elapsed_us(demux_started, demux_finished)},
+            {"eventMatchUs",
+             elapsed_us(demux_finished, event_match_finished)},
+            {"librarySetupUs",
+             elapsed_us(library_started, library_finished)},
+            {"trackBuildUs", elapsed_us(track_started, track_finished)},
+            {"rendererSetupUs",
+             elapsed_us(renderer_started, renderer_finished)},
+            {"originalRenderUs",
+             elapsed_us(original_render_started, original_render_finished)},
+            {"instrumentedRenderUs",
+             elapsed_us(
+                 original_render_finished, instrumented_render_finished)},
+            {"alphaCompositionUs", elapsed_us(alpha_started, alpha_finished)},
+            {"validationCompareUs",
+             elapsed_us(alpha_finished, validation_finished)},
+            {"alphaMaskEncodingUs", elapsed_us(mask_started, mask_finished)},
+            {"alphaComposedPixels", alpha_composed_pixels},
+            {"alphaMaskScannedPixels", alpha_mask_scanned_pixels},
+            {"totalUs", elapsed_us(total_started, mask_finished)},
+        });
+  }
   return response;
 #endif
 }

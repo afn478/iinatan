@@ -41,6 +41,9 @@ struct DemuxResult {
 DemuxResult demux_ass_source(
     const protocol::GeometrySourceRequest& source,
     int64_t cue_start_ms, int64_t cue_end_ms);
+bool demuxed_source_unchanged(
+    const DemuxedAss& media,
+    const protocol::GeometrySourceRequest& source);
 const char* ffmpeg_geometry_version();
 
 }  // namespace iinatan::ass

@@ -229,7 +229,7 @@ function scheduleIINAAppearanceHintRefresh(force) {
       if (next && next !== iinaAppearanceHint) {
         iinaAppearanceHint = next;
         if (typeof pushOverlayConfigForProfileChange === "function")
-          pushOverlayConfigForProfileChange();
+          pushOverlayConfigForProfileChange({});
       }
     })
     .catch((error) => {

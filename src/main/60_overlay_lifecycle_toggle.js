@@ -1,3 +1,56 @@
+function overlayLifecycleSnapshot() {
+  return {
+    desiredEnabled: enabled,
+    runtimeState: overlayRuntimeState,
+    overlayReady: overlayDocumentReady,
+    helperAlive: !!activeWorkerReady,
+    sessionReady: nativeGeometrySessionReady,
+    hitLayerReady: overlayHitLayerReady,
+    generation: overlayLifecycleGeneration,
+  };
+}
+function setOverlayRuntimeState(next, reason) {
+  const state = String(next || "failed");
+  if (state === overlayRuntimeState && !verboseLogEnabled()) return;
+  const previous = overlayRuntimeState;
+  overlayRuntimeState = state;
+  if (state === "ready" && !overlayRuntimeReadyAt)
+    overlayRuntimeReadyAt = Date.now();
+  debugLog(
+    "overlay lifecycle " +
+      JSON.stringify({
+        event: "state-transition",
+        from: previous,
+        to: state,
+        reason: String(reason || ""),
+        ...overlayLifecycleSnapshot(),
+      }),
+  );
+}
+function updateOverlayRuntimeState(reason) {
+  if (!enabled) {
+    setOverlayRuntimeState("disabled", reason);
+    return;
+  }
+  if (!overlayDocumentReady) {
+    setOverlayRuntimeState("enabling", reason);
+    return;
+  }
+  if (!activeWorkerReady) {
+    setOverlayRuntimeState("starting-helper", reason);
+    return;
+  }
+  if (!mpvStringProp(["path", "filename"], "")) {
+    setOverlayRuntimeState("waiting-for-media", reason);
+    return;
+  }
+  const subtitleText = mpvStringProp(["sub-text", "secondary-sub-text"], "");
+  if (!subtitleText) {
+    setOverlayRuntimeState("waiting-for-subtitle-track", reason);
+    return;
+  }
+  setOverlayRuntimeState("ready", reason);
+}
 function initializeOverlay() {
   ensureOverlayBridge();
   if (initialized) return;
@@ -10,6 +63,7 @@ function initializeOverlay() {
       enabled,
   );
   overlay.onMessage("ready", (payload) => {
+    overlayDocumentReady = true;
     debugLog("overlay ready received payloadType=" + typeof payload);
     handleLookupPopupOverlayReady(payload);
     postToOverlay("config", overlayConfig());
@@ -19,6 +73,7 @@ function initializeOverlay() {
       lastSubtitleCueIdentity = null;
       pollSubtitle();
     }
+    updateOverlayRuntimeState("overlay-ready");
   });
   overlay.onMessage("lookup-at", (payload) => {
     handleLookupAt(payload);
@@ -33,14 +88,30 @@ function initializeOverlay() {
     handleLookupPopupVisibility(payload);
   });
   overlay.onMessage("native-layout-invalidated", () => {
+    overlayHitLayerReady = false;
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
     nativeLayoutStablePolls = 0;
     if (enabled) pollSubtitle();
   });
   overlay.onMessage("native-layout-diagnostic", (payload) => {
-    if (!logEnabled()) return;
     const diagnostic = payload && typeof payload === "object" ? payload : {};
+    overlayHitLayerReady =
+      diagnostic.accepted === true || diagnostic.reason === "accepted-layout";
+    if (overlayHitLayerReady && !overlayFirstHitLayerAt) {
+      overlayFirstHitLayerAt = Date.now();
+      debugLog(
+        "overlay lifecycle " +
+          JSON.stringify({
+            event: "first-hit-layer",
+            startupToHitLayerMs: overlayEnableStartedAt
+              ? overlayFirstHitLayerAt - overlayEnableStartedAt
+              : 0,
+            ...overlayLifecycleSnapshot(),
+          }),
+      );
+    }
+    if (!logEnabled()) return;
     const key = JSON.stringify([
       diagnostic.lineId,
       diagnostic.reason,
@@ -67,6 +138,18 @@ function initializeOverlay() {
         }),
     );
   });
+  overlay.onMessage("native-layout-performance", (payload) => {
+    if (!verboseLogEnabled()) return;
+    const diagnostic = payload && typeof payload === "object" ? payload : {};
+    debugVerbose(
+      "native overlay DOM profile " +
+        JSON.stringify({
+          mode: String(diagnostic.mode || ""),
+          domUpdateMs: Number(diagnostic.domUpdateMs || 0),
+          hitTargetCount: Number(diagnostic.hitTargetCount || 0),
+        }),
+    );
+  });
   overlay.onMessage("open-external-url", (payload) => {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,
@@ -82,31 +165,75 @@ function initializeOverlay() {
     handleBridgeAnkiCardOpen(payload);
   });
   initialized = true;
+  overlayDocumentReady = false;
   overlay.loadFile("overlay.html");
   overlay.setOpacity(1);
   overlay.setClickable(true);
   overlay.show();
 }
-function prepareRuntimeAfterProfileChange() {
-  advanceNativeSubtitleFontMetricGeneration();
-  invalidateCurrentSubtitleLookupLine();
-  if (typeof advanceNativeAssGeometryGeneration === "function")
-    advanceNativeAssGeometryGeneration();
-  lookupBackendReadyForNativeHide = false;
-  lookupInFlight = Object.create(null);
-  lastSubtitle = null;
-  lastSubtitleCueIdentity = null;
-  lastNativeLayoutFingerprint = "";
-  nativeLayoutStablePolls = 0;
+function normalizedProfileRuntimePlan(plan) {
+  if (!plan || typeof plan !== "object")
+    return {
+      lookupCache: true,
+      geometryCache: true,
+      hitLayer: true,
+      polling: true,
+      nativeVisibility: true,
+      backendRestart: true,
+      overlayReload: true,
+    };
+  return {
+    lookupCache: plan.lookupCache === true,
+    geometryCache: plan.geometryCache === true,
+    hitLayer: plan.hitLayer === true,
+    polling: plan.polling === true,
+    nativeVisibility: plan.nativeVisibility === true,
+    backendRestart: plan.backendRestart === true,
+    overlayReload: plan.overlayReload === true,
+  };
+}
+function prepareRuntimeAfterProfileChange(runtimePlan) {
+  const plan = normalizedProfileRuntimePlan(runtimePlan);
+  if (plan.backendRestart || plan.overlayReload) {
+    overlayLifecycleGeneration++;
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    if (enabled)
+      setOverlayRuntimeState("reconfiguring", "profile-settings-change");
+  }
+  if (plan.geometryCache) {
+    advanceNativeSubtitleFontMetricGeneration();
+    invalidateCurrentSubtitleLookupLine();
+    if (typeof advanceNativeAssGeometryGeneration === "function")
+      advanceNativeAssGeometryGeneration();
+    lastSubtitle = null;
+    lastSubtitleCueIdentity = null;
+    lastNativeLayoutFingerprint = "";
+    nativeLayoutStablePolls = 0;
+  } else if (plan.hitLayer) {
+    invalidateCurrentSubtitleLookupLine();
+    lastSubtitle = null;
+    lastSubtitleCueIdentity = null;
+    lastNativeLayoutFingerprint = "";
+    nativeLayoutStablePolls = 0;
+  }
+  if (plan.lookupCache) {
+    lookupInFlight = Object.create(null);
+    lookupBackendReadyForNativeHide = false;
+  }
   resetLookupPopupPause();
+  return plan;
 }
 function warmActiveProfileBackend() {
   if (!enabled) return;
+  const generation = overlayLifecycleGeneration;
+  const startedAt = Date.now();
+  setOverlayRuntimeState("starting-helper", "backend-warm");
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
   prepareLookupBackendForEnabledOverlay(language, dicts)
     .then(() => {
-      if (!enabled) return;
+      if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = true;
       syncNativeSubtitleVisibility();
       setOverlayStatus(
@@ -114,9 +241,24 @@ function warmActiveProfileBackend() {
         "info",
         3500,
       );
+      debugLog(
+        "overlay lifecycle " +
+          JSON.stringify({
+            event: "helper-ready",
+            elapsedMs: Date.now() - startedAt,
+            settingsReconfigurationMs: profileReconfigurationStartedAt
+              ? Date.now() - profileReconfigurationStartedAt
+              : 0,
+            ...overlayLifecycleSnapshot(),
+          }),
+      );
+      profileReconfigurationStartedAt = 0;
+      updateOverlayRuntimeState("helper-ready");
     })
     .catch((error) => {
+      if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = false;
+      setOverlayRuntimeState("failed", "backend-warm-failed");
       debugError(
         "Dictionary lookup startup failed after profile change language=" +
           language.id +
@@ -126,17 +268,30 @@ function warmActiveProfileBackend() {
       setOverlayStatus(compactError(error), "error", 14000);
     });
 }
-function pushOverlayConfigForProfileChange() {
-  prepareRuntimeAfterProfileChange();
+function pushOverlayConfigForProfileChange(runtimePlan) {
+  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
   if (initialized) {
     postToOverlay("config", overlayConfig());
     postToOverlay("enabled", { enabled });
   }
   if (enabled) {
-    refreshPollingInterval();
-    pollSubtitle();
-    syncNativeSubtitleVisibility();
-    warmActiveProfileBackend();
+    if (plan.polling) refreshPollingInterval();
+    if (plan.geometryCache || plan.hitLayer || plan.overlayReload)
+      pollSubtitle();
+    if (plan.nativeVisibility || plan.geometryCache)
+      syncNativeSubtitleVisibility();
+    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
+  }
+  if (!plan.backendRestart && profileReconfigurationStartedAt) {
+    debugLog(
+      "overlay lifecycle " +
+        JSON.stringify({
+          event: "settings-reconfigured",
+          elapsedMs: Date.now() - profileReconfigurationStartedAt,
+          ...overlayLifecycleSnapshot(),
+        }),
+    );
+    profileReconfigurationStartedAt = 0;
   }
 }
 function videoWindowAvailableForOverlayLoad() {
@@ -146,8 +301,8 @@ function videoWindowAvailableForOverlayLoad() {
     return false;
   }
 }
-function reloadOverlayForProfileChange() {
-  prepareRuntimeAfterProfileChange();
+function reloadOverlayForProfileChange(runtimePlan) {
+  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
   if (!videoWindowAvailableForOverlayLoad()) {
     debugLog(
       "deferring overlay reload for profile change until iina.window-loaded",
@@ -162,6 +317,8 @@ function reloadOverlayForProfileChange() {
         "reloading overlay for active profile language=" +
           selectedLanguageModule().id,
       );
+      overlayDocumentReady = false;
+      overlayHitLayerReady = false;
       overlay.loadFile("overlay.html");
       overlay.setOpacity(1);
       overlay.setClickable(enabled);
@@ -172,18 +329,13 @@ function reloadOverlayForProfileChange() {
       );
     }
   }
-  setTimeout(() => {
-    postToOverlay("config", overlayConfig());
-    postToOverlay("enabled", { enabled });
-    replayActiveOverlayTask();
-    if (enabled) {
-      startPolling();
-      syncNativeSubtitleVisibility();
-      warmActiveProfileBackend();
-    } else {
-      publishSubtitle("");
-    }
-  }, 80);
+  if (enabled) {
+    startPolling();
+    syncNativeSubtitleVisibility();
+    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
+  } else {
+    publishSubtitle("");
+  }
 }
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
@@ -241,30 +393,63 @@ async function prepareLookupBackendForEnabledOverlay(language, dicts) {
   );
   return ready;
 }
-function setEnabled(next) {
+function persistOverlayDesiredState() {
+  try {
+    if (preferences && typeof preferences.set === "function")
+      preferences.set("enabledByDefault", enabled);
+    if (preferences && typeof preferences.sync === "function")
+      preferences.sync();
+  } catch (error) {
+    debugWarn("could not persist overlay state: " + compactError(error));
+  }
+}
+function setEnabled(next, options) {
   const wasEnabled = enabled;
+  const requested = !!next;
+  const trigger = String((options && options.trigger) || "runtime");
   debugLog(
     "setEnabled requested next=" +
       String(!!next) +
       " previous=" +
       String(enabled),
   );
-  enabled = !!next;
+  if (requested === wasEnabled) {
+    if (options && options.persist === true) persistOverlayDesiredState();
+    initializeOverlay();
+    overlay.setClickable(requested);
+    postToOverlay("enabled", { enabled: requested });
+    postToOverlay("config", overlayConfig());
+    if (requested) {
+      overlay.show();
+      if (pollTimer === null) startPolling();
+      else pollSubtitle();
+      if (!activeWorkerReady && overlayRuntimeState !== "starting-helper")
+        warmActiveProfileBackend();
+    }
+    return;
+  }
+  enabled = requested;
+  if (options && options.persist === true) persistOverlayDesiredState();
   if (enabled !== wasEnabled) {
+    overlayLifecycleGeneration++;
+    overlayHitLayerReady = false;
+    nativeGeometrySessionReady = false;
+    overlayRuntimeReadyAt = 0;
+    overlayFirstHitLayerAt = 0;
+    if (enabled) overlayEnableStartedAt = Date.now();
     advanceNativeSubtitleFontMetricGeneration();
     invalidateCurrentSubtitleLookupLine();
     if (typeof advanceNativeAssGeometryGeneration === "function")
       advanceNativeAssGeometryGeneration();
   }
   lookupBackendReadyForNativeHide = false;
+  if (enabled) setOverlayRuntimeState("enabling", trigger);
   initializeOverlay();
   overlay.setClickable(enabled);
   postToOverlay("enabled", { enabled });
   postToOverlay("config", overlayConfig());
   rebuildMenu();
   if (enabled) {
-    const language = selectedLanguageModule();
-    const dicts = activeDictionaryPaths(language);
     try {
       nativeSubtitlePlaybackActive =
         nativeSubtitlePlaybackActive ||
@@ -281,34 +466,14 @@ function setEnabled(next) {
     overlay.show();
     startPolling();
     showOSD("iinatan: On");
-    prepareLookupBackendForEnabledOverlay(language, dicts)
-      .then(() => {
-        if (!enabled) return;
-        lookupBackendReadyForNativeHide = true;
-        syncNativeSubtitleVisibility();
-        setOverlayStatus(
-          "Dictionary lookup ready for " + language.label + ".",
-          "info",
-          3500,
-        );
-      })
-      .catch((error) => {
-        lookupBackendReadyForNativeHide = false;
-        debugError(
-          "Dictionary lookup startup failed language=" +
-            language.id +
-            ": " +
-            compactError(error),
-        );
-        syncNativeSubtitleVisibility();
-        setOverlayStatus(compactError(error), "error", 14000);
-      });
+    warmActiveProfileBackend();
   } else {
     lookupBackendReadyForNativeHide = false;
     resetLookupPopupPause();
     stopPolling();
     publishSubtitle("");
     restoreNativeSubtitleVisibility();
+    setOverlayRuntimeState("disabled", trigger);
     showOSD("iinatan: Off");
   }
 }
@@ -324,7 +489,7 @@ function toggleFromShortcut(data) {
         " -> " +
         String(!enabled),
     );
-    setEnabled(!enabled);
+    setEnabled(!enabled, { persist: true, trigger: "shortcut" });
     return true;
   } catch (error) {
     console.error("Shift+H shortcut failed: " + compactError(error));

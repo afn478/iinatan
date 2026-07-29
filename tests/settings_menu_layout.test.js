@@ -754,7 +754,7 @@ assert(
   "Main overlay lifecycle should accept direct Anki reveal messages from the webview",
 );
 assert(
-  /function reloadOverlayForProfileChange\(\)/.test(lifecycleSource),
+  /function reloadOverlayForProfileChange\(runtimePlan\)/.test(lifecycleSource),
   "Profile changes should be able to reload the overlay",
 );
 assert(

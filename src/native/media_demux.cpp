@@ -288,6 +288,40 @@ DemuxResult demux_ass_source(
 #endif
 }
 
+bool demuxed_source_unchanged(
+    const DemuxedAss& media,
+    const protocol::GeometrySourceRequest& source) {
+#ifndef IINATAN_ASS_GEOMETRY
+  (void)media;
+  (void)source;
+  return false;
+#else
+  if (source.path.empty() || source.path[0] != '/' ||
+      source.ff_index != media.stream_index)
+    return false;
+  char resolved[PATH_MAX] = {};
+  if (!realpath(source.path.c_str(), resolved) ||
+      media.canonical_path != resolved)
+    return false;
+  struct stat status {};
+  if (stat(resolved, &status) != 0 || !S_ISREG(status.st_mode))
+    return false;
+#if defined(__APPLE__)
+  const int64_t modified_ns =
+      static_cast<int64_t>(status.st_mtimespec.tv_sec) * 1'000'000'000 +
+      status.st_mtimespec.tv_nsec;
+#else
+  const int64_t modified_ns =
+      static_cast<int64_t>(status.st_mtim.tv_sec) * 1'000'000'000 +
+      status.st_mtim.tv_nsec;
+#endif
+  return media.device == static_cast<uint64_t>(status.st_dev) &&
+      media.inode == static_cast<uint64_t>(status.st_ino) &&
+      media.size == static_cast<uint64_t>(status.st_size) &&
+      media.modified_ns == modified_ns;
+#endif
+}
+
 const char* ffmpeg_geometry_version() {
 #ifdef IINATAN_ASS_GEOMETRY
   return av_version_info();

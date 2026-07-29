@@ -621,6 +621,8 @@
         <small>Turn this off to keep the native lookup layer invisible except for the dictionary popup.</small>
         <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup hit boxes</span></label>
         <div class="field"><label for="experimentalNativeSubtitleTextOpacity">Copied-text debug opacity</label><input id="experimentalNativeSubtitleTextOpacity" data-profile-pref="experimentalNativeSubtitleTextOpacity" type="number" min="0" max="1" step="0.05"><small>Diagnostic only; a nonzero value intentionally reveals the copied text over native subtitles.</small></div>
+        <label class="check-field"><input id="experimentalNativeSubtitleValidation" data-profile-pref="experimentalNativeSubtitleValidation" type="checkbox"><span>Validate native ASS instrumentation</span></label>
+        <small>Diagnostic only. Double-renders ASS cues and compares full alpha planes; leave off for normal playback.</small>
       </div>
       <h3>Timeouts</h3>
       <div class="form-grid">
@@ -1244,11 +1246,13 @@
       const highlight = document.getElementById('experimentalNativeSubtitleLookupHighlight');
       const boxes = document.getElementById('experimentalNativeSubtitleHitBoxes');
       const opacity = document.getElementById('experimentalNativeSubtitleTextOpacity');
+      const validation = document.getElementById('experimentalNativeSubtitleValidation');
       const hideNative = document.getElementById('hideNativeSubtitles');
       const active = !!(master && master.checked);
       if (highlight) highlight.disabled = state.busy || !active;
       if (boxes) boxes.disabled = state.busy || !active;
       if (opacity) opacity.disabled = state.busy || !active;
+      if (validation) validation.disabled = state.busy || !active;
       if (hideNative) {
         hideNative.disabled = state.busy || active;
         hideNative.title = active ? 'Native subtitle visibility is required by the experimental lookup layer.' : '';

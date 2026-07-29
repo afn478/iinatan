@@ -733,7 +733,17 @@ function requestBackendWorkerStop() {
   activeWorkerFingerprint = null;
   activeWorkerReady = null;
 }
-async function stopBackendWorker() {
+function readBackendWorkerPid() {
+  try {
+    if (!file.exists(workerPidPath())) return "";
+    const pid = String(file.read(workerPidPath()) || "").trim();
+    return /^\d+$/.test(pid) ? pid : "";
+  } catch (_) {
+    return "";
+  }
+}
+async function performBackendWorkerStop() {
+  const pid = readBackendWorkerPid();
   requestBackendWorkerStop();
   try {
     await ensureDataDirs();
@@ -742,16 +752,62 @@ async function stopBackendWorker() {
     file.write(workerStopPath(), "stop\n");
   } catch (_) {}
   try {
-    if (file.exists(workerPidPath())) {
-      const pid = String(file.read(workerPidPath()) || "").trim();
-      if (/^\d+$/.test(pid))
-        await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+    if (pid) {
+      await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+      workerProcessDestructionCount++;
     }
   } catch (_) {}
-  safeDelete(workerPidPath());
+  if (!pid || readBackendWorkerPid() === pid) safeDelete(workerPidPath());
   await sleep(120);
 }
+function stopBackendWorker() {
+  if (workerStopInFlight) return workerStopInFlight;
+  const stop = performBackendWorkerStop().finally(() => {
+    if (workerStopInFlight === stop) workerStopInFlight = null;
+  });
+  workerStopInFlight = stop;
+  return stop;
+}
+function invalidateBackendWorkerRuntime(reason) {
+  workerLifecycleGeneration++;
+  debugLog(
+    "worker lifecycle invalidated generation=" +
+      workerLifecycleGeneration +
+      " reason=" +
+      String(reason || "runtime-change"),
+  );
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  return stopBackendWorker();
+}
+function markBackendWorkerUnavailable(error) {
+  const message = compactError(error);
+  if (
+    !/worker stopped|request timed out|did not become ready|worker-start-obsolete/i.test(
+      message,
+    )
+  )
+    return false;
+  workerLifecycleGeneration++;
+  activeWorkerFingerprint = null;
+  activeWorkerReady = null;
+  requestBackendWorkerStop();
+  nativeGeometrySessionReady = false;
+  overlayHitLayerReady = false;
+  if (typeof invalidateExperimentalNativeLayout === "function")
+    invalidateExperimentalNativeLayout("helper-unavailable");
+  if (enabled && typeof setOverlayRuntimeState === "function")
+    setOverlayRuntimeState("failed", "helper-unavailable");
+  debugWarn(
+    "worker marked unavailable generation=" +
+      workerLifecycleGeneration +
+      " reason=" +
+      message,
+  );
+  return true;
+}
 async function startBackendWorkerProcess(dicts, language) {
+  const startedAt = Date.now();
   await ensureBundledBackendInstalled();
   await ensureDataDirs();
   await clearDirFiles(workerQueueDir());
@@ -782,6 +838,17 @@ async function startBackendWorkerProcess(dicts, language) {
       "Could not start dictionary lookup: " +
         ((res && (res.stderr || res.stdout)) || "unknown error"),
     );
+  workerProcessCreationCount++;
+  debugLog(
+    "worker lifecycle " +
+      JSON.stringify({
+        event: "process-started",
+        elapsedMs: Date.now() - startedAt,
+        creationCount: workerProcessCreationCount,
+        destructionCount: workerProcessDestructionCount,
+        generation: workerLifecycleGeneration,
+      }),
+  );
 }
 function readWorkerReady() {
   try {
@@ -793,12 +860,14 @@ function readWorkerReady() {
     return null;
   }
 }
-async function waitForWorkerReady(fingerprint, timeoutMs) {
+async function waitForWorkerReady(fingerprint, timeoutMs, generation) {
   const deadline =
     Date.now() +
     Math.max(5000, timeoutMs || prefNumber("backendTimeoutMs", 30000));
   let last = null;
   while (Date.now() < deadline) {
+    if (generation !== workerLifecycleGeneration)
+      throw new Error("worker-start-obsolete");
     const ready = readWorkerReady();
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
@@ -858,20 +927,40 @@ async function ensureBackendWorker(dicts, language) {
   );
   if (activeWorkerFingerprint === fingerprint && activeWorkerReady)
     return activeWorkerReady;
-  if (workerStartInFlight) return workerStartInFlight;
-  workerStartInFlight = (async () => {
+  if (workerStartInFlight) {
+    if (
+      workerStartInFlight.fingerprint === fingerprint &&
+      workerStartInFlight.generation === workerLifecycleGeneration
+    )
+      return workerStartInFlight.promise;
+    try {
+      await workerStartInFlight.promise;
+    } catch (_) {}
+    return ensureBackendWorker(dicts, lang);
+  }
+  const generation = workerLifecycleGeneration;
+  const startup = (async () => {
     await stopBackendWorker().catch(() => {});
+    if (generation !== workerLifecycleGeneration)
+      throw new Error("worker-start-obsolete");
     setOverlayStatus("Preparing dictionary lookup...", "info", 4000);
     await startBackendWorkerProcess(dicts, lang);
+    if (generation !== workerLifecycleGeneration) {
+      await stopBackendWorker().catch(() => {});
+      throw new Error("worker-start-obsolete");
+    }
     return await waitForWorkerReady(
       fingerprint,
       Math.max(8000, prefNumber("backendTimeoutMs", 30000)),
+      generation,
     );
   })();
+  workerStartInFlight = { fingerprint, generation, promise: startup };
   try {
-    return await workerStartInFlight;
+    return await startup;
   } finally {
-    workerStartInFlight = null;
+    if (workerStartInFlight && workerStartInFlight.promise === startup)
+      workerStartInFlight = null;
   }
 }
 async function clearPendingWorkerRequests() {

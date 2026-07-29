@@ -114,6 +114,15 @@ function request(testCase) {
     type: "ass-geometry",
     protocol: 1,
     requestId: "fixture-" + testCase.id,
+    ...(testCase.diagnostics === undefined
+      ? {}
+      : { diagnostics: testCase.diagnostics }),
+    ...(testCase.validateInstrumentation === undefined
+      ? {}
+      : { validateInstrumentation: testCase.validateInstrumentation }),
+    ...(testCase.requestAlphaMask === undefined
+      ? {}
+      : { requestAlphaMask: testCase.requestAlphaMask }),
     source: {
       path: testCase.source || fixture,
       ffIndex: 0,
@@ -165,6 +174,27 @@ function invoke(payload) {
     return JSON.parse(
       execFileSync(binary, ["ass-geometry", requestPath], { encoding: "utf8" }),
     );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function invokeBatch(payloads) {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "iinatan-ass-batch-"),
+  );
+  try {
+    const requestPaths = payloads.map((payload, index) => {
+      const requestPath = path.join(directory, `request-${index}.json`);
+      fs.writeFileSync(requestPath, JSON.stringify(payload));
+      return requestPath;
+    });
+    return execFileSync(binary, ["ass-geometry", ...requestPaths], {
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -245,6 +275,60 @@ for (const testCase of cases) {
     "alpha mask exactly covers its declared crop",
   );
 }
+
+const productionRequests = [0, 1].map((iteration) =>
+  request({
+    ...cases[0],
+    id: "production-" + iteration,
+    diagnostics: true,
+    validateInstrumentation: false,
+    requestAlphaMask: false,
+  }),
+);
+const productionResponses = invokeBatch(productionRequests);
+productionResponses.forEach((response) => {
+  assert.strictEqual(response.ok, true, JSON.stringify(response));
+  assert.strictEqual(response.alphaMask, undefined);
+  assert.strictEqual(response.diagnostics.validationEnabled, false);
+  assert.strictEqual(response.diagnostics.alphaMaskRequested, false);
+  assert.strictEqual(response.diagnostics.alphaComposedPixels, 0);
+  assert.strictEqual(response.diagnostics.alphaMaskScannedPixels, 0);
+});
+assert.strictEqual(productionResponses[0].diagnostics.demuxCacheHit, false);
+assert.strictEqual(productionResponses[1].diagnostics.demuxCacheHit, true);
+assert.strictEqual(productionResponses[1].diagnostics.requestCount, 2);
+assert.strictEqual(productionResponses[1].diagnostics.sessionCreationCount, 1);
+assert.strictEqual(
+  productionResponses[1].diagnostics.sessionDestructionCount,
+  0,
+);
+
+const validatedMaskResponse = invoke(
+  request({
+    ...cases[0],
+    id: "validated-mask",
+    validateInstrumentation: true,
+    requestAlphaMask: true,
+  }),
+);
+const croppedMaskResponse = invoke(
+  request({
+    ...cases[0],
+    id: "cropped-mask",
+    diagnostics: true,
+    validateInstrumentation: false,
+    requestAlphaMask: true,
+  }),
+);
+assert.deepStrictEqual(
+  croppedMaskResponse.alphaMask,
+  validatedMaskResponse.alphaMask,
+  "demand-driven cropped mask encoding remains byte-identical",
+);
+assert.ok(
+  croppedMaskResponse.diagnostics.alphaComposedPixels < 1280 * 720,
+  "mask-only production rendering composes only subtitle bounds",
+);
 
 withGeneratedAttachments([{ size: 23275812 }], (source) => {
   const response = invoke(

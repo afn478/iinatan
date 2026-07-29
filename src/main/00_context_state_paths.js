@@ -186,6 +186,15 @@ const RECOMMENDED_DICTIONARIES_BY_LANGUAGE = {
 
 let enabled = false;
 let initialized = false;
+let overlayDocumentReady = false;
+let overlayRuntimeState = "disabled";
+let overlayLifecycleGeneration = 0;
+let overlayEnableStartedAt = 0;
+let overlayRuntimeReadyAt = 0;
+let overlayFirstHitLayerAt = 0;
+let overlayHitLayerReady = false;
+let nativeGeometrySessionReady = false;
+let profileReconfigurationStartedAt = 0;
 let pollTimer = null;
 let activeSubtitlePollMs = 0;
 let lastSubtitle = null;
@@ -199,6 +208,14 @@ let nativeSubtitleFontMetricGeneration = 0;
 let nativeAssGeometryCache = Object.create(null);
 let nativeAssGeometryInFlight = Object.create(null);
 let nativeAssGeometryGeneration = 0;
+let nativeAssGeometryStats = {
+  requests: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  completions: 0,
+  failures: 0,
+  maxOutstanding: 0,
+};
 let nativeExternalSrtCache = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
@@ -211,6 +228,10 @@ let lookupInFlight = Object.create(null);
 let lookupCache = Object.create(null);
 let statusTimer = null;
 let workerStartInFlight = null;
+let workerStopInFlight = null;
+let workerLifecycleGeneration = 0;
+let workerProcessCreationCount = 0;
+let workerProcessDestructionCount = 0;
 let activeWorkerFingerprint = null;
 let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;

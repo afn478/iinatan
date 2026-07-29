@@ -102,6 +102,9 @@ struct GeometryRendererRequest {
 struct GeometryRequest {
   int protocol = 0;
   std::string request_id;
+  bool diagnostics = false;
+  bool validate_instrumentation = true;
+  bool request_alpha_mask = true;
   GeometrySourceRequest source;
   GeometryCueRequest cue;
   GeometryRendererRequest renderer;

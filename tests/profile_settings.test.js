@@ -94,7 +94,8 @@ assert(
   prefs.experimentalNativeSubtitleHitLayer === false &&
     prefs.experimentalNativeSubtitleLookupHighlight === true &&
     prefs.experimentalNativeSubtitleHitBoxes === false &&
-    prefs.experimentalNativeSubtitleTextOpacity === 0,
+    prefs.experimentalNativeSubtitleTextOpacity === 0 &&
+    prefs.experimentalNativeSubtitleValidation === false,
   "Native lookup highlighting should default on while experimental diagnostics stay invisible",
 );
 
@@ -124,6 +125,7 @@ prefs = settings.normalizeProfilePreferences({
   experimentalNativeSubtitleLookupHighlight: "0",
   experimentalNativeSubtitleHitBoxes: "1",
   experimentalNativeSubtitleTextOpacity: 4,
+  experimentalNativeSubtitleValidation: "yes",
   unknownSetting: "ignored",
 });
 
@@ -140,6 +142,7 @@ assert(
 assert(
   prefs.experimentalNativeSubtitleHitLayer === true &&
     prefs.experimentalNativeSubtitleHitBoxes === true &&
+    prefs.experimentalNativeSubtitleValidation === true &&
     prefs.experimentalNativeSubtitleLookupHighlight === false,
   "Experimental native subtitle booleans should normalize",
 );

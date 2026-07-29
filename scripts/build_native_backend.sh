@@ -96,7 +96,10 @@ cmake -S "$WRAPPER_DIR" -B "$BUILD_DIR" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 cmake --build "$BUILD_DIR" --target iina-hoshi-dicts --config Release -j "$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+cmake -E remove_directory "$BUILD_DIR/iina-hoshi-dicts.dSYM"
+xcrun dsymutil "$BUILD_DIR/iina-hoshi-dicts" -o "$BUILD_DIR/iina-hoshi-dicts.dSYM"
 cp "$BUILD_DIR/iina-hoshi-dicts" "$BIN_DIR/iina-hoshi-dicts"
+strip -S -x "$BIN_DIR/iina-hoshi-dicts"
 chmod 755 "$BIN_DIR/iina-hoshi-dicts"
 "$BIN_DIR/iina-hoshi-dicts" version
 if ! vtool -show-build "$BIN_DIR/iina-hoshi-dicts" |

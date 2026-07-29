@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Reused native ASS demux/libass sessions across nearby cues, made full instrumentation validation and alpha-mask generation demand-driven diagnostics, added structured lifecycle/performance counters, and stripped release symbols while retaining local dSYM output.
 - Added an optional default-style looked-up-text highlight to the experimental native-subtitle layer, with a profile toggle for popup-only invisible operation.
 - Extended the experimental native-subtitle lookup layer to Japanese, English, German, French, Chinese, and Korean through shared language character policies.
 - Added independent primary and selected-secondary subtitle lookup surfaces, with one stable primary-then-secondary lookup stream, faithful secondary ASS geometry through mpv's plain observation, and isolated fallback when either surface is unavailable.
@@ -18,6 +19,7 @@
 
 ### Fixed
 
+- Fixed persisted native-overlay startup and rapid settings reconfiguration by separating desired enablement from runtime/helper/session/hit-layer readiness, invalidating stale async generations, serializing exact-PID worker teardown/startup, and limiting settings changes to their required cache, DOM, polling, visibility, or helper effects.
 - Fixed simultaneous external SubRip cues being collapsed into one copied multiline block by retaining their event boundaries, tolerating ffmpeg-accepted blank separators after timing lines, and stacking each cue independently in mpv display order.
 - Fixed enabled-by-default startup when the overlay reports ready during document loading, and ensured a newly ready overlay receives the current subtitle even when its cue identity was already cached.
 - Stabilized native ASS hit geometry while playback advances, rejected animated ASS Effect events, and preserved every visual-row hit box when padded boxes overlap.

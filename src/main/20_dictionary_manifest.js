@@ -916,23 +916,84 @@ function uniqueProfileId(base, profiles) {
   }
   return id;
 }
-function resetLookupRuntimeForProfileChange() {
-  lookupCache = Object.create(null);
-  lookupInFlight = Object.create(null);
-  activeWorkerFingerprint = null;
-  activeWorkerReady = null;
-  lookupBackendReadyForNativeHide = false;
-  try {
-    if (typeof stopBackendWorker === "function")
-      stopBackendWorker().catch(() => {});
-  } catch (_) {}
+function changedProfilePreferenceKeys(previous, next) {
+  return PROFILE_PREFERENCE_KEYS.filter(
+    (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
+  );
 }
-function refreshRuntimeAfterProfileChange(reloadOverlay) {
-  resetLookupRuntimeForProfileChange();
-  if (reloadOverlay && typeof reloadOverlayForProfileChange === "function") {
-    reloadOverlayForProfileChange();
+function profileRuntimePlan(changedKeys, reloadOverlay) {
+  const keys = Array.isArray(changedKeys) ? changedKeys : null;
+  if (!keys)
+    return {
+      lookupCache: true,
+      geometryCache: true,
+      hitLayer: true,
+      polling: true,
+      nativeVisibility: true,
+      backendRestart: true,
+      overlayReload: !!reloadOverlay,
+    };
+  const includes = (values) => keys.some((key) => values.indexOf(key) >= 0);
+  return {
+    lookupCache: includes([
+      "lookupLanguage",
+      "scanLength",
+      "maxEntries",
+      "maxGlossesPerEntry",
+    ]),
+    geometryCache: includes([
+      "lookupLanguage",
+      "flattenSubtitleLineBreaks",
+      "experimentalNativeSubtitleHitLayer",
+      "experimentalNativeSubtitleTextOpacity",
+      "experimentalNativeSubtitleValidation",
+    ]),
+    hitLayer: keys.indexOf("experimentalNativeSubtitleHitBoxes") >= 0,
+    polling: keys.indexOf("subtitlePollMs") >= 0,
+    nativeVisibility: includes([
+      "hideNativeSubtitles",
+      "experimentalNativeSubtitleHitLayer",
+    ]),
+    backendRestart: includes(["lookupLanguage", "workerIdleSleepMs"]),
+    overlayReload: !!reloadOverlay,
+  };
+}
+function resetLookupRuntimeForProfileChange(runtimePlan) {
+  const plan = runtimePlan || profileRuntimePlan(null, false);
+  if (plan.lookupCache) {
+    lookupCache = Object.create(null);
+    lookupInFlight = Object.create(null);
+  }
+  if (plan.backendRestart) {
+    lookupBackendReadyForNativeHide = false;
+    try {
+      if (typeof invalidateBackendWorkerRuntime === "function")
+        invalidateBackendWorkerRuntime("profile-settings-change").catch(
+          () => {},
+        );
+    } catch (_) {}
+  }
+}
+function refreshRuntimeAfterProfileChange(
+  reloadOverlay,
+  changedPreferenceKeys,
+) {
+  const plan = profileRuntimePlan(changedPreferenceKeys, reloadOverlay);
+  debugLog(
+    "profile runtime plan keys=" +
+      JSON.stringify(changedPreferenceKeys || ["all"]) +
+      " effects=" +
+      JSON.stringify(plan),
+  );
+  profileReconfigurationStartedAt = Date.now();
+  resetLookupRuntimeForProfileChange(plan);
+  if (
+    plan.overlayReload &&
+    typeof reloadOverlayForProfileChange === "function"
+  ) {
+    reloadOverlayForProfileChange(plan);
   } else if (typeof pushOverlayConfigForProfileChange === "function") {
-    pushOverlayConfigForProfileChange();
+    pushOverlayConfigForProfileChange(plan);
   }
 }
 function createDictionaryProfile(name, sourceProfileId) {
@@ -1016,9 +1077,14 @@ function updateDictionaryProfilePreferences(profileId, prefs) {
   writeManifest(manifest);
   if (id === manifest.activeProfileId) {
     applyProfilePreferences(manifest.profiles[id]);
+    const changedKeys = changedProfilePreferenceKeys(
+      previous,
+      manifest.profiles[id].preferences,
+    );
     refreshRuntimeAfterProfileChange(
       previous.lookupLanguage !==
         manifest.profiles[id].preferences.lookupLanguage,
+      changedKeys,
     );
     rebuildMenu();
   }

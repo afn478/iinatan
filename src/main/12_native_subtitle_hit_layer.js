@@ -1147,13 +1147,36 @@ function normalizeNativeAssGeometryResponse(response, request) {
       data: mask.data,
     };
   }
-  return { ok: true, units, alphaMask };
+  return {
+    ok: true,
+    units,
+    alphaMask,
+    diagnostics:
+      response.diagnostics && typeof response.diagnostics === "object"
+        ? response.diagnostics
+        : null,
+  };
 }
 
 function pruneNativeAssGeometryCache() {
   const cacheKeys = Object.keys(nativeAssGeometryCache);
   while (cacheKeys.length > 16)
     delete nativeAssGeometryCache[cacheKeys.shift()];
+}
+
+function nativeAssGeometryStatistics() {
+  if (typeof nativeAssGeometryStats !== "undefined")
+    return nativeAssGeometryStats;
+  if (!globalThis.__iinatanNativeAssGeometryStats)
+    globalThis.__iinatanNativeAssGeometryStats = {
+      requests: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      completions: 0,
+      failures: 0,
+      maxOutstanding: 0,
+    };
+  return globalThis.__iinatanNativeAssGeometryStats;
 }
 
 function nativeAssGeometryCacheKey(request) {
@@ -1167,12 +1190,19 @@ function nativeAssGeometryCacheKey(request) {
 }
 
 function nativeAssGeometrySnapshot(request) {
+  const statistics = nativeAssGeometryStatistics();
   const key = nativeAssGeometryCacheKey(request);
   const cached = nativeAssGeometryCache[key];
-  if (cached) return cached;
+  if (cached) {
+    statistics.cacheHits++;
+    return cached;
+  }
+  statistics.cacheMisses++;
   const generation = nativeAssGeometryGeneration;
   if (!nativeAssGeometryInFlight[key]) {
+    statistics.requests++;
     const liveRequest = request;
+    const startedAt = Date.now();
     const inFlight = Promise.resolve()
       .then(() =>
         runWorkerQueueRequestDirect(
@@ -1188,12 +1218,37 @@ function nativeAssGeometrySnapshot(request) {
           liveRequest,
         );
         nativeAssGeometryCache[key] = normalized;
+        statistics.completions++;
+        if (normalized.ok && typeof nativeGeometrySessionReady !== "undefined")
+          nativeGeometrySessionReady = true;
+        if (normalized.diagnostics) {
+          const nativeTotalMs =
+            Number(normalized.diagnostics.totalUs || 0) / 1000;
+          debugVerbose(
+            "native geometry profile " +
+              JSON.stringify({
+                elapsedMs: Date.now() - startedAt,
+                ipcAndSchedulingMs: Math.max(
+                  0,
+                  Date.now() - startedAt - nativeTotalMs,
+                ),
+                cacheHits: statistics.cacheHits,
+                cacheMisses: statistics.cacheMisses,
+                requests: statistics.requests,
+                outstanding: Object.keys(nativeAssGeometryInFlight).length,
+                native: normalized.diagnostics,
+              }),
+          );
+        }
         pruneNativeAssGeometryCache();
         if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
           scheduleExperimentalNativeLayoutRebuild();
       })
       .catch((error) => {
         if (generation !== nativeAssGeometryGeneration) return;
+        statistics.failures++;
+        if (typeof markBackendWorkerUnavailable === "function")
+          markBackendWorkerUnavailable(error);
         const message = String(
           (error && (error.reason || error.message)) || "ass-geometry-failed",
         );
@@ -1212,6 +1267,10 @@ function nativeAssGeometrySnapshot(request) {
           delete nativeAssGeometryInFlight[key];
       });
     nativeAssGeometryInFlight[key] = inFlight;
+    statistics.maxOutstanding = Math.max(
+      statistics.maxOutstanding,
+      Object.keys(nativeAssGeometryInFlight).length,
+    );
   }
   return { reason: "ass-geometry-pending" };
 }
@@ -1399,6 +1458,14 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
       const request = {
         type: "ass-geometry",
         protocol: 1,
+        diagnostics:
+          typeof verboseLogEnabled === "function" && verboseLogEnabled(),
+        validateInstrumentation: prefBool(
+          "experimentalNativeSubtitleValidation",
+          false,
+        ),
+        requestAlphaMask:
+          prefNumber("experimentalNativeSubtitleTextOpacity", 0) > 0,
         source,
         cue: {
           timeMs,
