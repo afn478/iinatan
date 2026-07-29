@@ -64,6 +64,8 @@ struct GeometrySourceRequest {
   std::string path;
   int ff_index = -1;
   bool external = false;
+  bool auto_ass_stream = false;
+  bool cache_excerpt = false;
 };
 
 struct GeometryCueRequest {
@@ -72,6 +74,8 @@ struct GeometryCueRequest {
   int64_t end_ms = -1;
   std::string observed_ass;
   std::string observed_plain;
+  std::string ass_extradata;
+  std::string ass_full;
   bool uses_observed_plain = false;
 };
 

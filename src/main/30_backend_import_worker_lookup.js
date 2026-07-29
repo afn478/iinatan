@@ -718,6 +718,7 @@ function writeWorkerConfig(dicts, fingerprint, language) {
 async function writeWorkerStartScript() {
   const script = String.raw`#!/usr/bin/env bash
 set -eu
+umask 077
 DATA_ROOT="$1"
 SLEEP_MS="${"$"}{2:-2}"
 WORKER_ROOT="$DATA_ROOT/worker"
@@ -728,6 +729,7 @@ PID="$WORKER_ROOT/worker.pid"
 STOP="$WORKER_ROOT/stop"
 READY="$WORKER_ROOT/state/ready.json"
 mkdir -p "$WORKER_ROOT/queue" "$WORKER_ROOT/responses" "$WORKER_ROOT/state"
+chmod 700 "$WORKER_ROOT" "$WORKER_ROOT/queue" "$WORKER_ROOT/responses" "$WORKER_ROOT/state"
 rm -f "$STOP" "$READY" "$PID"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin:${"$"}{PATH:-}"
 if [ -z "${"$"}{HOME:-}" ]; then

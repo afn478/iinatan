@@ -198,13 +198,13 @@ export LDFLAGS="-L$STAGE/lib -Wl,-dead_strip"
     --enable-static \
     --disable-programs \
     --disable-doc \
-    --disable-network \
     --disable-autodetect \
     --disable-everything \
     --enable-avutil \
     --enable-avcodec \
     --enable-avformat \
-    --enable-protocol=file \
+    --enable-protocol=file,http,https,tcp,tls \
+    --enable-securetransport \
     --enable-demuxer=matroska,ass \
     --enable-zlib \
     --extra-cflags="-I$STAGE/include" \

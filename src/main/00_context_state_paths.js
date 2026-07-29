@@ -207,6 +207,7 @@ let nativeSubtitleFontMetricInFlight = Object.create(null);
 let nativeSubtitleFontMetricGeneration = 0;
 let nativeAssGeometryCache = Object.create(null);
 let nativeAssGeometryInFlight = Object.create(null);
+let nativeAssGeometryFailures = Object.create(null);
 let nativeAssGeometryGeneration = 0;
 let nativeAssGeometryStats = {
   requests: 0,
@@ -217,12 +218,15 @@ let nativeAssGeometryStats = {
   maxOutstanding: 0,
 };
 let nativeExternalSrtCache = Object.create(null);
+let nativeExternalSrtInFlight = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
 let nativeSubVisibilityBeforeEnable = null;
 let nativeSubtitleVisibilityOwned = false;
 let nativeSubtitlePlaybackActive = false;
+let nativeSubtitleLayoutTrigger = "startup";
 let lastNativeSubtitleDiagnosticKey = "";
+let lastNativeAssReadinessDiagnosticKey = "";
 let requestSerial = 0;
 let lookupInFlight = Object.create(null);
 let lookupCache = Object.create(null);

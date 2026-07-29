@@ -682,24 +682,39 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
       request.renderer.font_provider != "autodetect")
     return fail(request, "unsupported-renderer-option", "sub-font-provider");
   const GeometryClock::time_point demux_started = GeometryClock::now();
+  const bool has_ass_observation =
+      can_apply_ass_observation(
+          request.source, request.cue.ass_extradata,
+          request.cue.ass_full);
+  const int64_t preroll_ms = ass_demux_preroll_ms(request.source);
+  const int64_t postroll_ms = ass_demux_postroll_ms(request.source);
   const int64_t needed_start_ms =
-      std::max<int64_t>(0, request.cue.start_ms - 30'000);
-  const int64_t needed_end_ms = request.cue.end_ms + 30'000;
+      std::max<int64_t>(0, request.cue.start_ms - preroll_ms);
+  const int64_t needed_end_ms = request.cue.end_ms + postroll_ms;
   const bool same_source =
       state.media_valid && state.source_path == request.source.path &&
       state.source_ff_index == request.source.ff_index &&
       state.source_external == request.source.external &&
       demuxed_source_unchanged(state.media, request.source);
   const bool demux_hit =
-      same_source && needed_start_ms >= state.window_start_ms &&
-      needed_end_ms <= state.window_end_ms;
+      same_source &&
+      (has_ass_observation ||
+       (needed_start_ms >= state.window_start_ms &&
+        needed_end_ms <= state.window_end_ms));
   if (demux_hit) {
     ++state.demux_hit_count;
+    if (has_ass_observation &&
+        !apply_ass_observation(
+            state.media, request.cue.ass_extradata,
+            request.cue.ass_full))
+      return fail(request, "invalid-ass-observation");
   } else {
     ++state.demux_miss_count;
     DemuxResult demux =
         demux_ass_source(
-            request.source, request.cue.start_ms, request.cue.end_ms);
+            request.source, request.cue.start_ms, request.cue.end_ms,
+            request.cue.observed_ass,
+            request.cue.ass_extradata, request.cue.ass_full);
     if (!demux.ok) return fail(request, demux.reason, demux.detail);
     if (!same_source) state.destroy_session();
     state.media = std::move(demux.media);
@@ -973,6 +988,11 @@ protocol::Json GeometryService::handle(const GeometryRequest& request) {
         Json::Object{
             {"validationEnabled", request.validate_instrumentation},
             {"alphaMaskRequested", request.request_alpha_mask},
+            {"assObservation", has_ass_observation},
+            {"embeddedFontCount",
+             static_cast<int64_t>(media.fonts.size())},
+            {"demuxPacketsRead",
+             static_cast<int64_t>(media.packets_read)},
             {"demuxCacheHit", demux_hit},
             {"requestCount", static_cast<int64_t>(state.request_count)},
             {"demuxHitCount", static_cast<int64_t>(state.demux_hit_count)},

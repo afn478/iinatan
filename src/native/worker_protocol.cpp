@@ -381,6 +381,12 @@ GeometryRequest parse_geometry_request(const Json& root) {
       static_cast<int>(required(source, "ffIndex").integer());
   request.source.external =
       source.find("external") && source.find("external")->boolean_or(false);
+  request.source.auto_ass_stream =
+      source.find("autoAssStream") &&
+      source.find("autoAssStream")->boolean_or(false);
+  request.source.cache_excerpt =
+      source.find("cacheExcerpt") &&
+      source.find("cacheExcerpt")->boolean_or(false);
 
   const Json& cue = required(root, "cue");
   request.cue.time_ms = required(cue, "timeMs").integer();
@@ -404,6 +410,17 @@ GeometryRequest parse_geometry_request(const Json& root) {
     request.cue.observed_plain = observed_plain->string();
   else
     request.cue.observed_ass = observed_ass->string();
+  const Json* ass_extradata = cue.find("assExtradata");
+  const Json* ass_full = cue.find("assFull");
+  if (!!ass_extradata != !!ass_full ||
+      (ass_extradata && !ass_extradata->is_string()) ||
+      (ass_full && !ass_full->is_string()))
+    throw std::runtime_error(
+        "cue requires both assExtradata and assFull");
+  if (ass_extradata) {
+    request.cue.ass_extradata = ass_extradata->string();
+    request.cue.ass_full = ass_full->string();
+  }
 
   const Json& renderer = required(root, "renderer");
   request.renderer.width =
@@ -464,12 +481,17 @@ GeometryRequest parse_geometry_request(const Json& root) {
 
   if (request.source.path.empty() || request.source.path.size() > 4096)
     throw std::runtime_error("invalid source path");
-  if (request.source.ff_index < 0)
+  if (request.source.ff_index < 0 &&
+      !(request.source.ff_index == -1 &&
+        request.source.auto_ass_stream &&
+        request.source.cache_excerpt))
     throw std::runtime_error("invalid ffIndex");
   if (request.cue.time_ms < 0 || request.cue.start_ms < 0 ||
       request.cue.end_ms <= request.cue.start_ms ||
       request.cue.observed_ass.size() > 64 * 1024 ||
-      request.cue.observed_plain.size() > 64 * 1024)
+      request.cue.observed_plain.size() > 64 * 1024 ||
+      request.cue.ass_extradata.size() > 512 * 1024 ||
+      request.cue.ass_full.size() > 256 * 1024)
     throw std::runtime_error("invalid cue");
   if (request.renderer.width < 64 || request.renderer.height < 64 ||
       static_cast<int64_t>(request.renderer.width) * request.renderer.height >

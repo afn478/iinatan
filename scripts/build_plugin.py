@@ -67,6 +67,7 @@ LANGUAGE_PARTS = [
 ]
 MAIN_RUNTIME_PARTS = [
     "src/main/00_context_state_paths.js",
+    "src/main/05_media_source.js",
     *["src/languages/" + name for name in LANGUAGE_PARTS],
     "src/main/10_subtitle_text_style.js",
     "src/main/12_native_subtitle_hit_layer.js",

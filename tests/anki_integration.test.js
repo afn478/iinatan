@@ -4,6 +4,7 @@ const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 const files = [
+  "src/main/05_media_source.js",
   "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
   "src/main/51_anki_connect.js",
@@ -81,6 +82,7 @@ const context = {
       return false;
     },
   },
+  safeDelete() {},
   utils: {
     async exec() {
       return { status: 0, stdout: "{}", stderr: "" };
@@ -543,6 +545,137 @@ async function testPassiveAnkiStatusCoalesces() {
   context.ankiConnectInvoke = previousInvoke;
 }
 
+async function testStreamingSentenceAudioSources() {
+  const previous = {
+    exec: context.utils.exec,
+    exists: context.file.exists,
+    safeDelete: context.safeDelete,
+    command: context.mpv.command,
+    currentMediaSourceSnapshot: context.currentMediaSourceSnapshot,
+    ankiFindFfmpegPath: context.ankiFindFfmpegPath,
+    ensureAnkiMediaRoot: context.ensureAnkiMediaRoot,
+    ankiStoreMediaFile: context.ankiStoreMediaFile,
+    ankiMediaFileHashHex: context.ankiMediaFileHashHex,
+    ankiSubtitleBoundary: context.ankiSubtitleBoundary,
+  };
+  const prefs = {
+    ankiAudioFormat: "mp3",
+    ankiAudioBitrateKbps: 128,
+    ankiSentenceAudioPaddingMs: 0,
+  };
+  const cardContext = { documentTitle: "Stream", timePos: 11 };
+  let existing = new Set();
+  let execCalls = [];
+  let mpvCommands = [];
+  try {
+    context.ankiFindFfmpegPath = async () => "/usr/local/bin/ffmpeg";
+    context.ensureAnkiMediaRoot = async () => {};
+    context.ankiStoreMediaFile = async (filename) => filename;
+    context.ankiMediaFileHashHex = async () => "0123456789ab";
+    context.ankiSubtitleBoundary = (name) => (name === "sub-start" ? 10 : 12);
+    context.file.exists = (filePath) => existing.has(String(filePath));
+    context.safeDelete = (filePath) => existing.delete(String(filePath));
+    context.utils.exec = async (command, args) => {
+      execCalls.push({ command, args: Array.from(args || []) });
+      existing.add(String(args[args.length - 1] || ""));
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    context.mpv.command = (name, args) => {
+      mpvCommands.push({ name, args: Array.from(args || []) });
+    };
+
+    context.currentMediaSourceSnapshot = () =>
+      context.mediaSourceSnapshot({
+        path: "/Volumes/Media/video.mkv",
+        streamOpenFilename: "/Volumes/Media/video.mkv",
+      });
+    await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    assert(
+      mpvCommands.length === 0 &&
+        execCalls[0].args.includes("/Volumes/Media/video.mkv"),
+      "Local sentence audio keeps direct FFmpeg extraction without cache dumping",
+    );
+
+    existing = new Set();
+    execCalls = [];
+    mpvCommands = [];
+    context.currentMediaSourceSnapshot = () =>
+      context.mediaSourceSnapshot({
+        path: "https://video.example/watch/123",
+        streamOpenFilename: "https://cdn.example/master.m3u8?sig=resolved",
+      });
+    context.mpv.command = (name, args) => {
+      mpvCommands.push({ name, args: Array.from(args || []) });
+      existing.add(String(args[2] || ""));
+    };
+    await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    assert(
+      mpvCommands[0].name === "dump-cache" &&
+        execCalls[0].args.some((value) => /\.mkv$/.test(value)) &&
+        !execCalls[0].args.includes("https://video.example/watch/123"),
+      "Resolved streams prefer a bounded mpv cache excerpt over reopening a webpage URL",
+    );
+
+    existing = new Set();
+    execCalls = [];
+    mpvCommands = [];
+    context.currentMediaSourceSnapshot = () =>
+      context.mediaSourceSnapshot({
+        path: "https://video.example/watch/123",
+        streamOpenFilename: "edl://resolved-by-mpv",
+        trackList: [
+          {
+            type: "audio",
+            selected: true,
+            external: true,
+            "external-filename":
+              "https://audio.example/track.m4a?sig=resolved-audio",
+          },
+        ],
+      });
+    await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    assert(
+      mpvCommands.length === 0 &&
+        execCalls[0].args.includes(
+          "https://audio.example/track.m4a?sig=resolved-audio",
+        ),
+      "Resolved separate audio tracks use their effective audio URL",
+    );
+
+    existing = new Set();
+    execCalls = [];
+    mpvCommands = [];
+    context.currentMediaSourceSnapshot = () =>
+      context.mediaSourceSnapshot({
+        path: "https://video.example/watch/123",
+        streamOpenFilename: "https://cdn.example/video.mp4?sig=resolved",
+      });
+    context.mpv.command = (name, args) => {
+      mpvCommands.push({ name, args: Array.from(args || []) });
+    };
+    await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    assert(
+      mpvCommands[0].name === "dump-cache" &&
+        execCalls[0].args.includes(
+          "https://cdn.example/video.mp4?sig=resolved",
+        ) &&
+        !execCalls[0].args.includes("https://video.example/watch/123"),
+      "A cache miss falls back to mpv's resolved media URL, never the webpage URL",
+    );
+  } finally {
+    context.utils.exec = previous.exec;
+    context.file.exists = previous.exists;
+    context.safeDelete = previous.safeDelete;
+    context.mpv.command = previous.command;
+    context.currentMediaSourceSnapshot = previous.currentMediaSourceSnapshot;
+    context.ankiFindFfmpegPath = previous.ankiFindFfmpegPath;
+    context.ensureAnkiMediaRoot = previous.ensureAnkiMediaRoot;
+    context.ankiStoreMediaFile = previous.ankiStoreMediaFile;
+    context.ankiMediaFileHashHex = previous.ankiMediaFileHashHex;
+    context.ankiSubtitleBoundary = previous.ankiSubtitleBoundary;
+  }
+}
+
 const prefs = context.normalizeProfilePreferences({
   ankiConnectUrl: "ftp://example.invalid",
   ankiConnectTimeoutSeconds: 999,
@@ -707,6 +840,7 @@ assert(
 testAnkiBridgeRecoversAfterConnectTimeout()
   .then(testAnkiBridgeActions)
   .then(testPassiveAnkiStatusCoalesces)
+  .then(testStreamingSentenceAudioSources)
   .then(() => {
     console.log("anki integration tests passed");
   })

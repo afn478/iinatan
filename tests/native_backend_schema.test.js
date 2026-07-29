@@ -102,6 +102,11 @@ assert(
   "Worker launch script should pass IINA's owner pid to the native worker",
 );
 assert(
+  /umask 077/.test(workerSource) &&
+    /chmod 700 "\$WORKER_ROOT"/.test(workerSource),
+  "Worker IPC containing media URLs should stay private to the current user",
+);
+assert(
   workerSource.indexOf("file.write(bodyPath") <
     workerSource.indexOf('file.write(workerRequestPath(requestId, ".json")'),
   "JavaScript worker requests should publish a marker only after writing the body",

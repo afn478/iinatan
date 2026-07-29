@@ -21,11 +21,14 @@ struct FontAttachment {
 
 struct DemuxedAss {
   std::string canonical_path;
+  bool network_source = false;
+  bool observation_only_source = false;
   uint64_t device = 0;
   uint64_t inode = 0;
   uint64_t size = 0;
   int64_t modified_ns = 0;
   int stream_index = -1;
+  int packets_read = 0;
   std::vector<uint8_t> codec_private;
   std::vector<FontAttachment> fonts;
   std::vector<SubtitlePacket> packets;
@@ -40,7 +43,20 @@ struct DemuxResult {
 
 DemuxResult demux_ass_source(
     const protocol::GeometrySourceRequest& source,
-    int64_t cue_start_ms, int64_t cue_end_ms);
+    int64_t cue_start_ms, int64_t cue_end_ms,
+    const std::string& observed_ass = "",
+    const std::string& ass_extradata = "",
+    const std::string& ass_full = "");
+bool apply_ass_observation(
+    DemuxedAss& media, const std::string& ass_extradata,
+    const std::string& ass_full);
+bool can_apply_ass_observation(
+    const protocol::GeometrySourceRequest& source,
+    const std::string& ass_extradata, const std::string& ass_full);
+int64_t ass_demux_preroll_ms(
+    const protocol::GeometrySourceRequest& source);
+int64_t ass_demux_postroll_ms(
+    const protocol::GeometrySourceRequest& source);
 bool demuxed_source_unchanged(
     const DemuxedAss& media,
     const protocol::GeometrySourceRequest& source);

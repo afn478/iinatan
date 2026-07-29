@@ -40,7 +40,7 @@ function updateOverlayRuntimeState(reason) {
     setOverlayRuntimeState("starting-helper", reason);
     return;
   }
-  if (!mpvStringProp(["path", "filename"], "")) {
+  if (!currentMediaSourceSnapshot().primary.raw) {
     setOverlayRuntimeState("waiting-for-media", reason);
     return;
   }
@@ -86,6 +86,8 @@ function handleOverlayDocumentReady(payload, source) {
   postToOverlay("enabled", { enabled });
   replayActiveOverlayTask();
   if (enabled) {
+    nativeSubtitleLayoutTrigger =
+      "overlay-ready:" + String(source || "message");
     lastSubtitleCueIdentity = null;
     pollSubtitle();
   }
@@ -285,6 +287,9 @@ function warmActiveProfileBackend() {
           }),
       );
       profileReconfigurationStartedAt = 0;
+      nativeSubtitleLayoutTrigger = "helper-ready";
+      invalidateExperimentalNativeLayout("helper-ready");
+      scheduleExperimentalNativeLayoutRebuild();
       updateOverlayRuntimeState("helper-ready");
     })
     .catch((error) => {
@@ -439,6 +444,7 @@ function setEnabled(next, options) {
   const wasEnabled = enabled;
   const requested = !!next;
   const trigger = String((options && options.trigger) || "runtime");
+  nativeSubtitleLayoutTrigger = trigger;
   debugLog(
     "setEnabled requested next=" +
       String(!!next) +
@@ -485,7 +491,7 @@ function setEnabled(next, options) {
     try {
       nativeSubtitlePlaybackActive =
         nativeSubtitlePlaybackActive ||
-        !!mpvStringProp(["path", "filename"], "");
+        !!currentMediaSourceSnapshot().primary.raw;
       if (nativeSubtitlePlaybackActive) {
         acquireNativeSubtitleVisibilityOwnership();
         syncNativeSubtitleVisibility();

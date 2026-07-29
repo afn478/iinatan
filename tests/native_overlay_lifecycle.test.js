@@ -21,13 +21,17 @@ async function flushPromises() {
   await Promise.resolve();
 }
 
-function lifecycleContext() {
+function lifecycleContext(options) {
+  const settings = options || {};
   const handlers = Object.create(null);
   const backend = deferred();
   const preferenceWrites = [];
   const clickableCalls = [];
   let backendCalls = 0;
   let intervalCalls = 0;
+  const activeIntervals = new Set();
+  let maxActiveIntervals = 0;
+  let pollCalls = 0;
   let loadCalls = 0;
   const context = vm.createContext({
     VERSION: "test",
@@ -54,6 +58,7 @@ function lifecycleContext() {
     lastSubtitle: null,
     lookupInFlight: Object.create(null),
     nativeSubtitlePlaybackActive: false,
+    nativeSubtitleLayoutTrigger: "startup",
     console: { log() {}, warn() {}, error() {} },
     Date,
     JSON,
@@ -66,9 +71,14 @@ function lifecycleContext() {
     clearTimeout,
     setInterval(callback) {
       intervalCalls++;
-      return { callback };
+      const timer = { callback, id: intervalCalls };
+      activeIntervals.add(timer);
+      maxActiveIntervals = Math.max(maxActiveIntervals, activeIntervals.size);
+      return timer;
     },
-    clearInterval() {},
+    clearInterval(timer) {
+      activeIntervals.delete(timer);
+    },
     preferences: {
       set(key, value) {
         preferenceWrites.push([key, value]);
@@ -108,7 +118,11 @@ function lifecycleContext() {
       return {};
     },
     replayActiveOverlayTask() {},
-    pollSubtitle() {},
+    pollSubtitle() {
+      pollCalls++;
+      if (typeof settings.pollSubtitle === "function")
+        settings.pollSubtitle(context);
+    },
     handleLookupAt() {},
     handleLookupPopupVisibility() {},
     openExternalUrlFromOverlay() {},
@@ -133,6 +147,10 @@ function lifecycleContext() {
     resetLookupPopupPause() {},
     advanceNativeSubtitleFontMetricGeneration() {},
     invalidateCurrentSubtitleLookupLine() {},
+    invalidateExperimentalNativeLayout(reason) {
+      context.nativeSubtitleLayoutTrigger = String(reason || "");
+    },
+    scheduleExperimentalNativeLayoutRebuild() {},
     advanceNativeAssGeometryGeneration() {},
     refreshPollingInterval() {},
     publishSubtitle() {},
@@ -145,13 +163,21 @@ function lifecycleContext() {
     prefNumber() {
       return 120;
     },
-    prefBool() {
-      return false;
+    prefBool(name, fallback) {
+      if (
+        settings.preferences &&
+        Object.prototype.hasOwnProperty.call(settings.preferences, name)
+      )
+        return !!settings.preferences[name];
+      return fallback;
     },
     rebuildMenu() {},
     acquireNativeSubtitleVisibilityOwnership() {},
     restoreNativeSubtitleVisibility() {},
     showOSD() {},
+    currentMediaSourceSnapshot() {
+      return { primary: { raw: "/video.mkv" } };
+    },
     mpvStringProp(names) {
       if (names.indexOf("path") >= 0) return "/video.mkv";
       if (
@@ -181,6 +207,15 @@ function lifecycleContext() {
     },
     get intervalCalls() {
       return intervalCalls;
+    },
+    get activeIntervals() {
+      return activeIntervals.size;
+    },
+    get maxActiveIntervals() {
+      return maxActiveIntervals;
+    },
+    get pollCalls() {
+      return pollCalls;
     },
     get loadCalls() {
       return loadCalls;
@@ -216,6 +251,108 @@ async function testPersistedStartupAndIdempotence() {
   assert.strictEqual(harness.backendCalls, 1);
   assert.strictEqual(harness.intervalCalls, 1);
   assert.strictEqual(harness.context.overlayRuntimeState, "ready");
+}
+
+async function testPersistedStartupReadinessOrdering() {
+  const readiness = {
+    file: false,
+    track: false,
+    source: false,
+    timing: false,
+    dimensions: false,
+  };
+  let geometryRequests = 0;
+  const harness = lifecycleContext({
+    preferences: {
+      enabledByDefault: true,
+      experimentalNativeSubtitleHitLayer: true,
+    },
+    pollSubtitle(context) {
+      if (
+        context.enabled &&
+        context.overlayDocumentReady &&
+        context.activeWorkerReady &&
+        readiness.file &&
+        readiness.track &&
+        readiness.source &&
+        readiness.timing &&
+        readiness.dimensions &&
+        geometryRequests === 0
+      )
+        geometryRequests++;
+    },
+  });
+  const eventHandlers = Object.create(null);
+  Object.assign(harness.context, {
+    nativeSubtitlePropertyRebuildTimer: null,
+    nativeExternalSrtCache: Object.create(null),
+    lookupCache: Object.create(null),
+    nativeSubVisibilityBeforeEnable: null,
+    nativeSubtitleVisibilityOwned: false,
+    registerShortcut() {},
+    scheduleIINAAppearanceHintRefresh() {},
+    prepareNativeSubtitlePrivateCueDirectory() {
+      return Promise.resolve();
+    },
+    experimentalNativeSubtitleMode() {
+      return true;
+    },
+    event: {
+      on(name, callback) {
+        eventHandlers[name] = callback;
+      },
+    },
+    core: { window: { loaded: false } },
+  });
+  vm.runInContext(
+    fs.readFileSync(path.join(root, "src/main/99_bootstrap.js"), "utf8"),
+    harness.context,
+  );
+
+  eventHandlers["iina.window-loaded"]();
+  assert.strictEqual(harness.context.enabled, true);
+  harness.handlers.ready({});
+  readiness.file = true;
+  eventHandlers["mpv.file-loaded"]();
+  readiness.dimensions = true;
+  eventHandlers["mpv.osd-dimensions.changed"]();
+  readiness.timing = true;
+  eventHandlers["mpv.sub-start.changed"]();
+  readiness.track = true;
+  eventHandlers["mpv.track-list.changed"]();
+  harness.context.activeWorkerReady = { fingerprint: "ready" };
+  harness.backend.resolve(harness.context.activeWorkerReady);
+  await flushPromises();
+  readiness.source = true;
+  eventHandlers["mpv.stream-open-filename.changed"]();
+  eventHandlers["mpv.stream-open-filename.changed"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.strictEqual(
+    geometryRequests,
+    1,
+    "persisted startup rebuilds once all URL ASS prerequisites arrive",
+  );
+  assert.strictEqual(
+    harness.backendCalls,
+    1,
+    "readiness events do not create duplicate native workers",
+  );
+  assert.strictEqual(
+    harness.loadCalls,
+    1,
+    "readiness events do not create duplicate overlays",
+  );
+  assert.strictEqual(
+    harness.maxActiveIntervals,
+    1,
+    "file-loaded replaces the startup poll interval instead of duplicating it",
+  );
+  assert.strictEqual(
+    harness.preferenceWrites.length,
+    0,
+    "startup recovery never invokes or persists the toggle path",
+  );
 }
 
 function testPersistedDisabledStartup() {
@@ -505,6 +642,7 @@ function testBridgeHelloMarksOverlayReady() {
 
 (async () => {
   await testPersistedStartupAndIdempotence();
+  await testPersistedStartupReadinessOrdering();
   testPersistedDisabledStartup();
   await testDisableInvalidatesPendingEnablement();
   await testWorkerStopOwnsExactPid();

@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 
 const DEFAULT_TIMEOUT_MS = 180000;
 const TESTS = [
+  ["media", "tests/media_source.test.js"],
   ["language", "tests/languages.test.js"],
   ["dictionary", "tests/import_validation.test.js"],
   ["dictionary", "tests/dictionary_pipeline.test.js"],

@@ -2,7 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const binary = path.join(root, "bin", "iina-hoshi-dicts");
@@ -24,6 +24,21 @@ const attachmentFixture = path.join(
   "fixtures",
   "native_font_attachment.txt",
 );
+const assFixtureText = fs.readFileSync(fixture, "utf8");
+const assExtradata = assFixtureText.slice(
+  0,
+  assFixtureText.indexOf("Dialogue:"),
+);
+
+function assFullAt(startMs) {
+  const seconds = Math.floor(startMs / 1000);
+  const timestamp = `0:${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}.00`;
+  const line = assFixtureText
+    .split(/\r?\n/)
+    .find((candidate) => candidate.startsWith(`Dialogue: 0,${timestamp},`));
+  assert.ok(line, `fixture has an ASS event at ${timestamp}`);
+  return line;
+}
 const systemFontFixture = "/System/Library/Fonts/Symbol.ttf";
 assert.ok(
   fs.existsSync(systemFontFixture),
@@ -130,13 +145,21 @@ function request(testCase) {
       : { requestAlphaMask: testCase.requestAlphaMask }),
     source: {
       path: testCase.source || fixture,
-      ffIndex: 0,
+      ffIndex: testCase.ffIndex === undefined ? 0 : Number(testCase.ffIndex),
       external: true,
+      ...(testCase.autoAssStream ? { autoAssStream: true } : {}),
+      ...(testCase.cacheExcerpt ? { cacheExcerpt: true } : {}),
     },
     cue: {
       timeMs: testCase.start + 500,
       startMs: testCase.start,
       endMs: testCase.end,
+      ...(testCase.assObservation
+        ? {
+            assExtradata,
+            assFull: assFullAt(testCase.start),
+          }
+        : {}),
       ...observedCue,
     },
     units: testCase.units.map(([position, start, end]) => ({
@@ -200,6 +223,120 @@ function invokeBatch(payloads) {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function withHttpFixture(mediaPath, callback) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "iinatan-ass-http-"));
+  const portPath = path.join(directory, "port");
+  const server = spawn(
+    "/usr/bin/python3",
+    [
+      "-u",
+      "-c",
+      [
+        "import http.server, os, sys",
+        "os.chdir(sys.argv[1])",
+        "class Quiet(http.server.SimpleHTTPRequestHandler):",
+        "  def log_message(self, *args): pass",
+        "server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Quiet)",
+        "open(sys.argv[2], 'w').write(str(server.server_port))",
+        "server.serve_forever()",
+      ].join("\n"),
+      path.dirname(mediaPath),
+      portPath,
+    ],
+    { stdio: "ignore" },
+  );
+  try {
+    const deadline = Date.now() + 3000;
+    while (!fs.existsSync(portPath) && Date.now() < deadline)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    assert.ok(
+      fs.existsSync(portPath),
+      "local HTTP fixture server did not start",
+    );
+    const port = fs.readFileSync(portPath, "utf8").trim();
+    callback(`http://127.0.0.1:${port}/${path.basename(mediaPath)}?token=test`);
+  } finally {
+    server.kill("SIGTERM");
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function withGeneratedMuxedMedia(callback) {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "iinatan-ass-muxed-"),
+  );
+  const output = path.join(directory, "muxed.mkv");
+  try {
+    execFileSync(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=black:size=320x180:rate=10:duration=60",
+        "-f",
+        "ass",
+        "-i",
+        fixture,
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:s:0",
+        "-c:v",
+        "mpeg4",
+        "-q:v",
+        "8",
+        "-g",
+        "20",
+        "-c:s",
+        "copy",
+        output,
+      ],
+      { stdio: "pipe" },
+    );
+    callback(output);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function withGeneratedCacheExcerpt(callback) {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "iinatan-ass-cache-"),
+  );
+  const output = path.join(directory, "excerpt.mkv");
+  try {
+    execFileSync(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-y",
+        "-ss",
+        "13",
+        "-to",
+        "15",
+        "-i",
+        matroskaFixture,
+        "-map",
+        "0:s:0",
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "make_zero",
+        output,
+      ],
+      { stdio: "pipe" },
+    );
+    callback(output);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -280,6 +417,103 @@ for (const testCase of cases) {
     "alpha mask exactly covers its declared crop",
   );
 }
+
+withHttpFixture(matroskaFixture, (source) => {
+  const responses = invokeBatch(
+    [cases[4], cases[5]].map((testCase) =>
+      request({
+        ...testCase,
+        id: `${testCase.id}-http-observation`,
+        source,
+        diagnostics: true,
+        assObservation: true,
+      }),
+    ),
+  );
+  responses.forEach((response, index) => {
+    assert.strictEqual(response.ok, true, JSON.stringify(response));
+    assert.strictEqual(response.units.length, cases[index + 4].units.length);
+  });
+  assert.strictEqual(responses[0].diagnostics.demuxCacheHit, false);
+  assert.strictEqual(responses[0].diagnostics.assObservation, true);
+  assert.strictEqual(
+    responses[1].diagnostics.demuxCacheHit,
+    true,
+    "the next URL cue reuses source metadata and replaces only mpv's current ASS event",
+  );
+});
+
+withGeneratedCacheExcerpt((excerpt) => {
+  const response = invoke(
+    request({
+      ...cases[4],
+      id: "zh-cached-excerpt",
+      source: excerpt,
+      ffIndex: -1,
+      autoAssStream: true,
+      cacheExcerpt: true,
+      diagnostics: true,
+    }),
+  );
+  assert.strictEqual(
+    response.ok,
+    true,
+    "a rebased mpv cache excerpt selects its ASS stream and aligns it to the live cue: " +
+      JSON.stringify(response),
+  );
+  assert.strictEqual(response.diagnostics.assObservation, false);
+});
+
+withGeneratedMuxedMedia((muxedMedia) => {
+  withHttpFixture(muxedMedia, (source) => {
+    const response = invoke(
+      request({
+        ...cases[4],
+        id: "zh-http-muxed-fallback",
+        source,
+        ffIndex: 1,
+        diagnostics: true,
+      }),
+    );
+    assert.strictEqual(response.ok, true, JSON.stringify(response));
+    assert.strictEqual(response.diagnostics.assObservation, false);
+    assert.ok(
+      response.diagnostics.demuxPacketsRead < 150,
+      "mpv 0.38 fallback reads only the current HTTP cluster, not a broad multiplexed window: " +
+        JSON.stringify(response.diagnostics),
+    );
+  });
+});
+
+const unavailableObservedStream = invoke(
+  request({
+    ...cases[4],
+    id: "zh-unavailable-observed-stream",
+    source: "http://127.0.0.1:9/unavailable.mkv",
+    assObservation: true,
+  }),
+);
+assert.strictEqual(
+  unavailableObservedStream.ok,
+  true,
+  "mpv's decoded ASS observation remains usable when a stream cannot be independently reopened: " +
+    JSON.stringify(unavailableObservedStream),
+);
+
+const opaqueObservedStream = invoke(
+  request({
+    ...cases[4],
+    id: "zh-opaque-observed-stream",
+    source: "memory://mpv-owned-stream",
+    assObservation: true,
+  }),
+);
+assert.strictEqual(
+  opaqueObservedStream.ok,
+  true,
+  "an mpv-only source uses the decoded ASS observation without reopening the pseudo-URL: " +
+    JSON.stringify(opaqueObservedStream),
+);
 
 const productionRequests = [0, 1].map((iteration) =>
   request({

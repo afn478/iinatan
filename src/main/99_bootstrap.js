@@ -23,6 +23,7 @@ event.on("mpv.file-loaded", () => {
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
   lookupCache = Object.create(null);
+  invalidateExperimentalNativeLayout("file-loaded");
   lookupInFlight = Object.create(null);
   if (enabled) {
     acquireNativeSubtitleVisibilityOwnership();
@@ -69,6 +70,7 @@ event.on("iina.window-will-close", () => {
 });
 function invalidateExperimentalNativeLayout(reason) {
   if (!experimentalNativeSubtitleMode()) return;
+  nativeSubtitleLayoutTrigger = String(reason || "stale-layout");
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
@@ -84,8 +86,12 @@ function scheduleExperimentalNativeLayoutRebuild() {
   }, 0);
 }
 [
+  "path",
+  "stream-open-filename",
   "sub-text",
   "sub-text-ass",
+  "sub-text/ass-full",
+  "sub-ass-extradata",
   "sub-start",
   "sub-end",
   "secondary-sub-text",
@@ -188,6 +194,8 @@ function scheduleExperimentalNativeLayoutRebuild() {
       if (
         property.indexOf("secondary-sub-") >= 0 ||
         [
+          "path",
+          "stream-open-filename",
           "sid",
           "secondary-sid",
           "secondary-sub-text",

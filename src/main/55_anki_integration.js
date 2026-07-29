@@ -196,14 +196,7 @@ function ankiMediaTitleFromMpv() {
   return "";
 }
 function ankiSourcePathFromMpv() {
-  const props = ["path", "stream-open-filename"];
-  for (let i = 0; i < props.length; i++) {
-    try {
-      const value = String(mpv.getString(props[i]) || "").trim();
-      if (value) return value;
-    } catch (_) {}
-  }
-  return "";
+  return currentMediaSourceSnapshot().display.raw;
 }
 function ankiTimePosFromMpv() {
   try {
@@ -369,9 +362,8 @@ async function ankiFindFfmpegPath() {
   return "";
 }
 async function ankiCaptureSentenceAudio(context, prefs) {
-  const sourcePath = ankiSourcePathFromMpv();
-  if (!sourcePath || /^https?:\/\//i.test(sourcePath))
-    throw new Error("Sentence audio requires a local media file.");
+  const mediaSources = currentMediaSourceSnapshot();
+  const source = mediaSources.audio;
   const ffmpegPath = await ankiFindFfmpegPath();
   if (!ffmpegPath)
     throw new Error("ffmpeg was not found for sentence audio capture.");
@@ -400,37 +392,76 @@ async function ankiCaptureSentenceAudio(context, prefs) {
   const documentName = context.documentTitle || "video";
   const tempFilename = ankiMediaFilename(documentName, ankiRandomHex(12), ext);
   const outPath = ankiMediaPath(tempFilename);
+  const cachedPath = ankiMediaPath(
+    ankiMediaFilename(documentName, ankiRandomHex(12), "mkv"),
+  );
   await ensureAnkiMediaRoot();
   const codecArgs =
     format === "opus"
       ? ["-c:a", "libopus", "-b:a", String(bitrate) + "k"]
       : ["-codec:a", "libmp3lame", "-b:a", String(bitrate) + "k"];
-  const args = [
-    "-nostdin",
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-y",
-    "-ss",
-    String(start.toFixed(3)),
-    "-i",
-    sourcePath,
-    "-t",
-    String(duration.toFixed(3)),
-    "-map",
-    "0:a:0",
-    "-vn",
-    "-sn",
-    "-dn",
-    "-threads",
-    "2",
-  ].concat(codecArgs, [outPath]);
-  const result = await utils.exec(ffmpegPath, args, dataRoot());
+  const ffmpegArgs = (input, seek) =>
+    [
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-ss",
+      String(seek.toFixed(3)),
+      "-i",
+      input,
+      "-t",
+      String(duration.toFixed(3)),
+      "-map",
+      "0:a:0",
+      "-vn",
+      "-sn",
+      "-dn",
+      "-threads",
+      "2",
+    ].concat(codecArgs, [outPath]);
+  let result = null;
+  if (
+    source.kind !== "local-file" &&
+    source.origin !== "selected-audio-track"
+  ) {
+    try {
+      mpv.command("dump-cache", [
+        String(start.toFixed(3)),
+        String(end.toFixed(3)),
+        cachedPath,
+      ]);
+      if (file.exists(cachedPath))
+        result = await utils.exec(
+          ffmpegPath,
+          ffmpegArgs(cachedPath, 0),
+          dataRoot(),
+        );
+    } catch (error) {
+      debugVerbose("Anki cache audio fallback failed: " + compactError(error));
+    } finally {
+      safeDelete(cachedPath);
+    }
+  }
+  if (
+    (!result || result.status !== 0 || !file.exists(outPath)) &&
+    source.ffmpegReadable
+  ) {
+    result = await utils.exec(
+      ffmpegPath,
+      ffmpegArgs(source.locator, start),
+      dataRoot(),
+    );
+  }
   if (!result || result.status !== 0 || !file.exists(outPath)) {
+    const limitation = source.ffmpegReadable
+      ? "ffmpeg failed"
+      : "source is only readable by mpv and its current cache had no usable audio";
     throw new Error(
       "Sentence audio capture failed: " +
         String(
-          (result && (result.stderr || result.stdout)) || "ffmpeg failed",
+          (result && (result.stderr || result.stdout)) || limitation,
         ).slice(0, 500),
     );
   }

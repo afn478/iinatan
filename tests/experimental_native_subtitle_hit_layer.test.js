@@ -114,9 +114,13 @@ function loadMainNativeHelpers(properties) {
     nativeSubtitleFontMetricActiveKey: "",
     nativeAssGeometryCache: Object.create(null),
     nativeAssGeometryInFlight: Object.create(null),
+    nativeAssGeometryFailures: Object.create(null),
     nativeAssGeometryGeneration: 0,
     nativeAssGeometryActiveKey: "",
     nativeExternalSrtCache: Object.create(null),
+    nativeExternalSrtInFlight: Object.create(null),
+    nativeSubtitleLayoutTrigger: "test",
+    lastNativeAssReadinessDiagnosticKey: "",
     nativeSubtitlePrivateCueSerial: 0,
     nativeSubtitlePrivateCueDirectoryPromise: null,
     __testUseActualFontMetrics: !!values.__useActualFontMetricResolver,
@@ -126,6 +130,7 @@ function loadMainNativeHelpers(properties) {
     __testPrivateFiles: privateFiles,
     __testExecEvents: execEvents,
     __testGeometryRequests: geometryRequests,
+    __testValues: values,
     async ensureBundledBackendInstalled() {},
     async runWorkerQueueRequestDirect(request) {
       geometryRequests.push(request);
@@ -136,6 +141,8 @@ function loadMainNativeHelpers(properties) {
     utils: {
       async exec(command, args, cwd) {
         execEvents.push({ command, args: Array.from(args || []), cwd });
+        if (command === "/usr/bin/curl" && values.__curlResult)
+          return values.__curlResult;
         if (command === "/bin/mkdir" || command === "/bin/chmod")
           return { status: 0, stdout: "", stderr: "" };
         return fontMetricExec(command, args, cwd);
@@ -181,7 +188,19 @@ function loadMainNativeHelpers(properties) {
     debugWarn(message) {
       fontMetricLogs.push(String(message || ""));
     },
+    debugLog(message) {
+      fontMetricLogs.push(String(message || ""));
+    },
     mpv: {
+      command(name, args) {
+        if (typeof values.__mpvCommand === "function")
+          return values.__mpvCommand(
+            name,
+            Array.from(args || []),
+            privateFiles,
+          );
+        throw new Error("unexpected mpv command");
+      },
       getNative(name) {
         return values[name];
       },
@@ -261,10 +280,12 @@ function loadMainNativeHelpers(properties) {
   };
   vm.createContext(context);
   vm.runInContext(
-    fs.readFileSync(
-      path.join(root, "src/main/12_native_subtitle_hit_layer.js"),
-      "utf8",
-    ) +
+    fs.readFileSync(path.join(root, "src/main/05_media_source.js"), "utf8") +
+      "\n" +
+      fs.readFileSync(
+        path.join(root, "src/main/12_native_subtitle_hit_layer.js"),
+        "utf8",
+      ) +
       `
 if (!globalThis.__testUseActualFontMetrics) {
   nativeSubtitleFontMetricSnapshot = function (options) {
@@ -301,8 +322,10 @@ globalThis.nativeHelpers = {
   parseSimpleNativeAssCue,
   nativeAssDisplayText,
   nativeAssGeometryUnits,
+  nativeAssSourceSnapshot,
   nativeSrtTimestampMs,
   parseNativeSrtCues,
+  nativeExternalSrtCues,
   nativeExternalSrtEventBlocks,
   nativeGraphemeBreakFallback,
   nativeGraphemeSegments,
@@ -312,12 +335,14 @@ globalThis.nativeHelpers = {
   advanceNativeAssGeometryGeneration,
   nativeSubtitleCueSnapshot,
   nativeSubtitleCombinedCueSnapshot,
+  reportNativeAssReadiness,
   nativeSubtitleVisibilityTarget,
   testFontMetricEvents: globalThis.__fontMetricEvents,
   testFontMetricLogs: globalThis.__fontMetricLogs,
   testPrivateFiles: globalThis.__testPrivateFiles,
   testExecEvents: globalThis.__testExecEvents,
-  testGeometryRequests: globalThis.__testGeometryRequests
+  testGeometryRequests: globalThis.__testGeometryRequests,
+  testValues: globalThis.__testValues
 };`,
     context,
   );
@@ -385,6 +410,48 @@ function waitForLayout() {
   );
 
   const helpers = loadMainNativeHelpers();
+  assertEqual(
+    helpers.nativeAssSourceSnapshot({
+      ffIndex: 14,
+      external: false,
+    }),
+    { reason: "unsafe-media-path" },
+    "an absent ASS source still fails closed",
+  );
+  const opaqueSourceHelpers = loadMainNativeHelpers({
+    "stream-open-filename": "memory://mpv-owned-stream",
+  });
+  assertEqual(
+    opaqueSourceHelpers.nativeAssSourceSnapshot(
+      {
+        ffIndex: 14,
+        external: false,
+      },
+      true,
+    ),
+    {
+      path: "memory://mpv-owned-stream",
+      ffIndex: 14,
+      external: false,
+    },
+    "mpv-only sources are accepted only with a complete decoded ASS observation",
+  );
+  const remoteSourceHelpers = loadMainNativeHelpers({
+    "stream-open-filename":
+      "https://media.example.test/video.mkv?access_token=private",
+  });
+  assertEqual(
+    remoteSourceHelpers.nativeAssSourceSnapshot({
+      ffIndex: 14,
+      external: false,
+    }),
+    {
+      path: "https://media.example.test/video.mkv?access_token=private",
+      ffIndex: 14,
+      external: false,
+    },
+    "embedded ASS tracks retain an HTTP(S) playback source for native demuxing",
+  );
   const overlappingSrtPath = "/tmp/overlapping.srt";
   const overlappingSrtText = [
     "202",
@@ -479,6 +546,40 @@ function waitForLayout() {
     flattenedSrtBlocks.eventBlocks.map((block) => block.lookupStart),
     [0, 12],
     "flattened subtitle line breaks preserve simultaneous SRT event offsets",
+  );
+  const streamedSrtUrl = "https://media.example.test/subtitles/ja.srt?sig=1";
+  const streamedSrtHelpers = loadMainNativeHelpers({
+    __curlResult: {
+      status: 0,
+      stdout: overlappingSrtText,
+      stderr: "",
+    },
+  });
+  assertEqual(
+    streamedSrtHelpers.nativeExternalSrtCues({
+      external: true,
+      externalFilename: streamedSrtUrl,
+    }).reason,
+    "srt-read-pending",
+    "URL-backed external SRT starts one bounded asynchronous read",
+  );
+  await waitForLayout();
+  assertEqual(
+    streamedSrtHelpers.nativeExternalSrtCues({
+      external: true,
+      externalFilename: streamedSrtUrl,
+    }).cues.length,
+    2,
+    "URL-backed external SRT retains event boundaries after the read completes",
+  );
+  const streamedSrtRequest = streamedSrtHelpers.testExecEvents.find(
+    (event) => event.command === "/usr/bin/curl",
+  );
+  assert(
+    streamedSrtRequest &&
+      streamedSrtRequest.args.includes("=http,https") &&
+      streamedSrtRequest.args.includes(String(8 * 1024 * 1024)),
+    "external SRT reads restrict protocols and response size",
   );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
@@ -926,6 +1027,9 @@ function waitForLayout() {
     ],
     sid: 8,
     "sub-text-ass": "Bonjour",
+    "sub-text/ass-full":
+      "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Bonjour",
+    "sub-ass-extradata": "[Script Info]\nPlayResX: 1280\nPlayResY: 720\n",
     "time-pos": 1.5,
     "sub-start": 1,
     "sub-end": 2,
@@ -961,6 +1065,17 @@ function waitForLayout() {
   const authoredRenderer = authoredAssHelpers.testGeometryRequests[0].renderer;
   assertEqual(
     {
+      assFull: authoredAssHelpers.testGeometryRequests[0].cue.assFull,
+      assExtradata: authoredAssHelpers.testGeometryRequests[0].cue.assExtradata,
+    },
+    {
+      assFull: authoredAssProperties["sub-text/ass-full"],
+      assExtradata: authoredAssProperties["sub-ass-extradata"],
+    },
+    "primary authored ASS sends mpv's already-decoded full event and track header",
+  );
+  assertEqual(
+    {
       overrideMode: authoredRenderer.overrideMode,
       linePosition: authoredRenderer.linePosition,
       pixelAspect: authoredRenderer.pixelAspect,
@@ -982,6 +1097,69 @@ function waitForLayout() {
     },
     "authored ASS renderer coordinates and compatibility options match mpv 0.38",
   );
+
+  const readinessHelpers = loadMainNativeHelpers({
+    ...authoredAssProperties,
+    path: "ytdl://watch.example.invalid/page",
+    "stream-open-filename": "",
+    "track-list": [],
+    "osd-dimensions": undefined,
+    "video-params": undefined,
+    "time-pos": undefined,
+    "sub-start": undefined,
+    "sub-end": undefined,
+  });
+  const readinessValues = readinessHelpers.testValues;
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "unsupported-codec",
+    "persisted startup waits for subtitle-track discovery",
+  );
+  readinessValues["track-list"] = [
+    {
+      ...authoredAssProperties["track-list"][0],
+      external: false,
+      "external-filename": "",
+      "ff-index": undefined,
+    },
+  ];
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "missing-osd-dimensions",
+    "persisted startup waits for OSD dimensions",
+  );
+  readinessValues["osd-dimensions"] = authoredAssProperties["osd-dimensions"];
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "missing-video-dimensions",
+    "persisted startup waits for video dimensions",
+  );
+  readinessValues["video-params"] = authoredAssProperties["video-params"];
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "cue-timing-unavailable",
+    "mpv's decoded ASS observation makes an opaque source independent of FFmpeg track mapping",
+  );
+  readinessValues["time-pos"] = authoredAssProperties["time-pos"];
+  readinessValues["sub-start"] = authoredAssProperties["sub-start"];
+  readinessValues["sub-end"] = authoredAssProperties["sub-end"];
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "ass-geometry-pending",
+    "the same persisted-enabled state starts geometry when its final prerequisite arrives",
+  );
+  await waitForLayout();
+  assertEqual(
+    readinessHelpers.nativeSubtitleCueSnapshot("Bonjour").kind,
+    "ass-native",
+    "startup readiness recovery succeeds without calling the toggle path",
+  );
+  assertEqual(
+    readinessHelpers.testGeometryRequests.length,
+    1,
+    "readiness rejections do not create premature or duplicate geometry requests",
+  );
+
   const overlappingAssHelpers = loadMainNativeHelpers({
     ...authoredAssProperties,
     "sub-text-ass": "Top\nBottom\\Nline",
@@ -1275,6 +1453,92 @@ function waitForLayout() {
     units: [{ position: 0, displayStartUtf16: 0, displayEndUtf16: 7 }],
     renderer: { width: 1280, height: 720 },
   };
+  const cacheDumpCommands = [];
+  const cacheExcerptHelpers = loadMainNativeHelpers({
+    __mpvCommand(name, args, privateFiles) {
+      cacheDumpCommands.push({ name, args });
+      privateFiles[args[2]] = "cached media excerpt";
+    },
+    __geometryResponse(request) {
+      return geometryResponse(request);
+    },
+  });
+  const streamedGeometryRequest = {
+    ...geometryRequest,
+    source: {
+      path: "https://media.example.test/video.mkv?token=private",
+      ffIndex: 14,
+      external: false,
+    },
+  };
+  assertEqual(
+    cacheExcerptHelpers.nativeAssGeometrySnapshot(streamedGeometryRequest)
+      .reason,
+    "ass-geometry-pending",
+    "an embedded ASS cue from HTTP starts geometry asynchronously",
+  );
+  await waitForLayout();
+  assert(
+    cacheExcerptHelpers.nativeAssGeometrySnapshot(streamedGeometryRequest).ok,
+    "mpv's cached excerpt produces the streamed cue geometry",
+  );
+  assertEqual(
+    {
+      command: cacheDumpCommands[0].name,
+      start: cacheDumpCommands[0].args[0],
+      end: cacheDumpCommands[0].args[1],
+      source: cacheExcerptHelpers.testGeometryRequests[0].source,
+    },
+    {
+      command: "dump-cache",
+      start: "0.900",
+      end: "2.100",
+      source: {
+        path: cacheDumpCommands[0].args[2],
+        ffIndex: -1,
+        external: false,
+        autoAssStream: true,
+        cacheExcerpt: true,
+      },
+    },
+    "mpv 0.38 geometry uses only the already-buffered cue instead of reopening HTTP",
+  );
+  assert(
+    !Object.prototype.hasOwnProperty.call(
+      cacheExcerptHelpers.testPrivateFiles,
+      cacheDumpCommands[0].args[2],
+    ),
+    "the private cache excerpt is removed after native rendering",
+  );
+
+  const cacheFallbackHelpers = loadMainNativeHelpers({
+    __mpvCommand(_name, args, privateFiles) {
+      privateFiles[args[2]] = "unusable cached media excerpt";
+    },
+    __geometryResponse(request) {
+      return request.source.cacheExcerpt
+        ? { ok: false, protocol: 1, reason: "cue-not-found" }
+        : geometryResponse(request);
+    },
+  });
+  cacheFallbackHelpers.nativeAssGeometrySnapshot(streamedGeometryRequest);
+  await waitForLayout();
+  assert(
+    cacheFallbackHelpers.nativeAssGeometrySnapshot(streamedGeometryRequest).ok,
+    "a cache excerpt that cannot be demuxed falls back to the resolved HTTP source",
+  );
+  assertEqual(
+    cacheFallbackHelpers.testGeometryRequests.map((request) => ({
+      cacheExcerpt: !!request.source.cacheExcerpt,
+      sourceKind: request.source.path.startsWith("https://") ? "http" : "local",
+    })),
+    [
+      { cacheExcerpt: true, sourceKind: "local" },
+      { cacheExcerpt: false, sourceKind: "http" },
+    ],
+    "the remote reopen is retained only as a narrow fallback",
+  );
+
   assertEqual(
     advancingHelpers.nativeAssGeometrySnapshot(geometryRequest).reason,
     "ass-geometry-pending",
@@ -1391,6 +1655,181 @@ function waitForLayout() {
     2,
     "generation invalidation launches one fresh geometry request",
   );
+
+  const retryClock = { now: 0 };
+  let retryCalls = 0;
+  const retryHelpers = loadMainNativeHelpers({
+    __clock: retryClock,
+    __geometryResponse(request) {
+      retryCalls++;
+      return retryCalls === 1
+        ? { ok: false, protocol: 1, reason: "media-open-failed" }
+        : geometryResponse(request);
+    },
+  });
+  assertEqual(
+    retryHelpers.nativeAssGeometrySnapshot(geometryRequest).reason,
+    "ass-geometry-pending",
+    "an initial URL reopen starts one geometry request",
+  );
+  await waitForLayout();
+  assertEqual(
+    retryHelpers.nativeAssGeometrySnapshot(geometryRequest),
+    { reason: "media-open-failed", retryScheduled: true },
+    "an early media-open failure is retained only as bounded retry state",
+  );
+  retryClock.now = 119;
+  retryHelpers.nativeAssGeometrySnapshot(geometryRequest);
+  await waitForLayout();
+  assertEqual(
+    retryHelpers.testGeometryRequests.length,
+    1,
+    "polling before the retry boundary does not duplicate geometry requests",
+  );
+  retryClock.now = 120;
+  assertEqual(
+    retryHelpers.nativeAssGeometrySnapshot(geometryRequest).reason,
+    "ass-geometry-pending",
+    "the bounded retry starts when the media source can be reopened",
+  );
+  await waitForLayout();
+  assert(
+    retryHelpers.nativeAssGeometrySnapshot(geometryRequest).ok,
+    "a successful retry replaces failure state with reusable geometry",
+  );
+  assertEqual(
+    retryHelpers.testGeometryRequests.length,
+    2,
+    "startup recovery needs no toggle-driven geometry generation",
+  );
+
+  const boundedClock = { now: 0 };
+  const boundedRetryHelpers = loadMainNativeHelpers({
+    __clock: boundedClock,
+    __geometryResponse() {
+      return { ok: false, protocol: 1, reason: "media-open-failed" };
+    },
+  });
+  for (const retryAt of [0, 120, 420, 1170]) {
+    boundedClock.now = retryAt;
+    boundedRetryHelpers.nativeAssGeometrySnapshot(geometryRequest);
+    await waitForLayout();
+  }
+  boundedClock.now = 10000;
+  assertEqual(
+    boundedRetryHelpers.nativeAssGeometrySnapshot(geometryRequest),
+    { reason: "media-open-failed", retryScheduled: false },
+    "a persistently unavailable stream stops after the bounded retry budget",
+  );
+  assertEqual(
+    boundedRetryHelpers.testGeometryRequests.length,
+    4,
+    "normal subtitle polling cannot turn a persistent failure into an uncontrolled request loop",
+  );
+
+  let resolveWebpageGeometry;
+  const resolvedSourceHelpers = loadMainNativeHelpers({
+    ...authoredAssProperties,
+    path: "https://watch.example.invalid/page",
+    "stream-open-filename": "",
+    "sub-text": "Bonjour",
+    "track-list": [
+      {
+        ...authoredAssProperties["track-list"][0],
+        external: false,
+        "external-filename": "",
+      },
+    ],
+    __geometryResponse(request) {
+      if (request.source.path.includes("watch.example"))
+        return new Promise((resolve) => {
+          resolveWebpageGeometry = resolve;
+        });
+      return geometryResponse(request);
+    },
+  });
+  assertEqual(
+    resolvedSourceHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "ass-geometry-pending",
+    "a webpage-like startup path publishes no premature geometry",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resolvedSourceHelpers.testValues["stream-open-filename"] =
+    "https://cdn.example.invalid/video.mkv?signature=resolved";
+  resolvedSourceHelpers.advanceNativeAssGeometryGeneration();
+  assertEqual(
+    resolvedSourceHelpers.nativeSubtitleCueSnapshot("Bonjour").reason,
+    "ass-geometry-pending",
+    "resolved-source invalidation launches fresh geometry automatically",
+  );
+  await waitForLayout();
+  assertEqual(
+    resolvedSourceHelpers.nativeSubtitleCueSnapshot("Bonjour").kind,
+    "ass-native",
+    "the resolved media URL produces native geometry without a toggle",
+  );
+  resolveWebpageGeometry({
+    ok: false,
+    protocol: 1,
+    reason: "unsupported-container",
+  });
+  await waitForLayout();
+  assertEqual(
+    resolvedSourceHelpers.nativeSubtitleCueSnapshot("Bonjour").kind,
+    "ass-native",
+    "a stale webpage response cannot replace resolved-stream geometry",
+  );
+  assertEqual(
+    resolvedSourceHelpers.testGeometryRequests.map(
+      (request) => request.source.path,
+    ),
+    [
+      "https://watch.example.invalid/page",
+      "https://cdn.example.invalid/video.mkv?signature=resolved",
+    ],
+    "the lifecycle switches from the original webpage candidate to mpv's resolved URL",
+  );
+
+  const privateUrl =
+    "https://cdn.example.invalid/video.mkv?token=never-log-this";
+  const diagnosticHelpers = loadMainNativeHelpers({
+    ...authoredAssProperties,
+    path: "https://watch.example.invalid/page?cookie=never-log-this",
+    "stream-open-filename": privateUrl,
+    "sub-text": "Bonjour",
+    "track-list": [
+      {
+        ...authoredAssProperties["track-list"][0],
+        external: false,
+        "external-filename": "",
+        "ff-index": undefined,
+      },
+    ],
+    "time-pos": undefined,
+    "sub-start": undefined,
+    "sub-end": undefined,
+  });
+  const diagnosticSnapshot =
+    diagnosticHelpers.nativeSubtitleCombinedCueSnapshot();
+  diagnosticHelpers.reportNativeAssReadiness(diagnosticSnapshot);
+  const readinessLog = diagnosticHelpers.testFontMetricLogs.find((line) =>
+    line.includes("native ASS readiness"),
+  );
+  assert(
+    readinessLog &&
+      readinessLog.includes('"sourceClass":"resolved-url"') &&
+      readinessLog.includes('"reason":"cue-timing-unavailable"') &&
+      readinessLog.includes('"retryScheduled":true'),
+    "structured readiness logs identify a resolved URL and retryable rejection",
+  );
+  assert(
+    !readinessLog.includes("never-log-this") &&
+      !readinessLog.includes("cdn.example") &&
+      !readinessLog.includes("watch.example") &&
+      !readinessLog.includes("Bonjour"),
+    "native readiness diagnostics contain no URL, query, credential, or subtitle text",
+  );
+
   let emptyMetricExecCount = 0;
   [
     { displayText: "", lookupText: "" },
@@ -2017,6 +2456,9 @@ function waitForLayout() {
       debugLog() {},
       verboseLogEnabled() {
         return false;
+      },
+      currentMediaSourceSnapshot() {
+        return { primary: { raw: "/video.mkv" } };
       },
       mpvStringProp(names) {
         if (names.indexOf("path") >= 0) return "/video.mkv";
@@ -3565,6 +4007,7 @@ function waitForLayout() {
     nativeLayoutStablePolls: 0,
     nativeSubtitlePropertyRebuildTimer: null,
     nativeSubtitlePlaybackActive: false,
+    nativeSubtitleLayoutTrigger: "startup",
     nativeSubVisibilityBeforeEnable: null,
     nativeSubtitleVisibilityOwned: false,
     registerShortcut() {},
@@ -3587,6 +4030,11 @@ function waitForLayout() {
     updateOverlayRuntimeState() {},
     setOverlayRuntimeState() {},
     debugWarn() {},
+    initializeOverlay() {},
+    setEnabled(next, options) {
+      this.enabled = !!next;
+      propertyChangeOrder.push("enable:" + String(options && options.trigger));
+    },
     postToOverlay(name) {
       if (name === "native-layout-invalidate")
         propertyChangeOrder.push("invalidate");
@@ -3628,8 +4076,12 @@ function waitForLayout() {
     "actual IINA display-change event is registered",
   );
   [
+    "path",
+    "stream-open-filename",
     "sub-text",
     "sub-text-ass",
+    "sub-text/ass-full",
+    "sub-ass-extradata",
     "sub-start",
     "sub-end",
     "osd-dimensions",
@@ -3664,6 +4116,12 @@ function waitForLayout() {
     1,
     "loading a new file invalidates the prior line-bound lookup text",
   );
+  assertEqual(
+    bootstrapContext.nativeSubtitleLayoutTrigger,
+    "file-loaded",
+    "file-loaded records the readiness trigger before rebuilding",
+  );
+  propertyChangeOrder.length = 0;
   bootstrapFontMetricGeneration = 0;
   bootstrapHandlers["mpv.sub-text.changed"]();
   assertEqual(
@@ -3703,6 +4161,26 @@ function waitForLayout() {
     "secondary property changes immediately clear stale surface geometry",
   );
   scheduledRebuilds.shift()();
+  propertyChangeOrder.length = 0;
+  const sourceGeneration = bootstrapGeometryGeneration;
+  bootstrapHandlers["mpv.stream-open-filename.changed"]();
+  bootstrapHandlers["mpv.stream-open-filename.changed"]();
+  assertEqual(
+    bootstrapGeometryGeneration,
+    sourceGeneration + 2,
+    "each resolved-source change invalidates stale in-flight geometry",
+  );
+  assertEqual(
+    scheduledRebuilds.length,
+    1,
+    "repeated resolved-source readiness events share one scheduled rebuild",
+  );
+  scheduledRebuilds.shift()();
+  assertEqual(
+    propertyChangeOrder,
+    ["invalidate", "invalidate", "poll"],
+    "resolved URL readiness rebuilds automatically without a toggle",
+  );
   propertyChangeOrder.length = 0;
   bootstrapHandlers["mpv.sub-font.changed"]();
   assertEqual(

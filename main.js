@@ -208,6 +208,7 @@ let nativeSubtitleFontMetricInFlight = Object.create(null);
 let nativeSubtitleFontMetricGeneration = 0;
 let nativeAssGeometryCache = Object.create(null);
 let nativeAssGeometryInFlight = Object.create(null);
+let nativeAssGeometryFailures = Object.create(null);
 let nativeAssGeometryGeneration = 0;
 let nativeAssGeometryStats = {
   requests: 0,
@@ -218,12 +219,15 @@ let nativeAssGeometryStats = {
   maxOutstanding: 0,
 };
 let nativeExternalSrtCache = Object.create(null);
+let nativeExternalSrtInFlight = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
 let nativeSubtitlePrivateCueDirectoryPromise = null;
 let nativeSubVisibilityBeforeEnable = null;
 let nativeSubtitleVisibilityOwned = false;
 let nativeSubtitlePlaybackActive = false;
+let nativeSubtitleLayoutTrigger = "startup";
 let lastNativeSubtitleDiagnosticKey = "";
+let lastNativeAssReadinessDiagnosticKey = "";
 let requestSerial = 0;
 let lookupInFlight = Object.create(null);
 let lookupCache = Object.create(null);
@@ -815,6 +819,161 @@ async function clearDirFiles(dir) {
     const items = file.list(dir, { includeSubDir: false }) || [];
     for (const item of items) if (item && !item.isDir) safeDelete(item.path);
   } catch (_) {}
+}
+
+const FFMPEG_MEDIA_URL_SCHEMES = Object.freeze({
+  ftp: true,
+  ftps: true,
+  http: true,
+  https: true,
+  rtmp: true,
+  rtmps: true,
+  rtp: true,
+  rtsp: true,
+  rtsps: true,
+  smb: true,
+  srt: true,
+  tcp: true,
+  udp: true,
+});
+
+function mediaFileUrlPath(value) {
+  let path = String(value || "")
+    .replace(/^file:\/\/localhost/i, "file://")
+    .replace(/^file:\/\//i, "");
+  try {
+    path = decodeURIComponent(path);
+  } catch (_) {}
+  return path;
+}
+
+function mediaSourceDescriptor(rawValue, origin) {
+  const raw = String(rawValue || "").trim();
+  const source = {
+    raw,
+    locator: raw,
+    origin: String(origin || ""),
+    kind: "unusable",
+    ffmpegReadable: false,
+    nativeAssReadable: false,
+  };
+  if (!raw) return source;
+  if (raw.charAt(0) === "/") {
+    source.kind = "local-file";
+    source.ffmpegReadable = true;
+    source.nativeAssReadable = true;
+    return source;
+  }
+  if (/^file:\/\/(?:localhost)?\//i.test(raw)) {
+    source.locator = mediaFileUrlPath(raw);
+    if (source.locator.charAt(0) === "/") {
+      source.kind = "local-file";
+      source.ffmpegReadable = true;
+      source.nativeAssReadable = true;
+    }
+    return source;
+  }
+  const match = raw.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (!match) return source;
+  const scheme = match[1].toLowerCase();
+  if (scheme === "http" || scheme === "https") {
+    if (/[\s<>"']/.test(raw)) return source;
+    source.kind = "http-url";
+    source.ffmpegReadable = true;
+    source.nativeAssReadable = true;
+    return source;
+  }
+  if (FFMPEG_MEDIA_URL_SCHEMES[scheme]) {
+    source.kind = "ffmpeg-url";
+    source.ffmpegReadable = true;
+    return source;
+  }
+  source.kind = "mpv-only";
+  return source;
+}
+
+function mediaSourceTrackList() {
+  try {
+    const value = mpv.getNative("track-list");
+    if (Array.isArray(value)) return value;
+  } catch (_) {}
+  try {
+    const value = JSON.parse(String(mpv.getString("track-list") || "[]"));
+    if (Array.isArray(value)) return value;
+  } catch (_) {}
+  return [];
+}
+
+function mediaSourceProperty(name) {
+  try {
+    return String(mpv.getString(name) || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function mediaSourceSnapshot(values) {
+  const input = values && typeof values === "object" ? values : {};
+  const original = mediaSourceDescriptor(input.path, "path");
+  const effective = mediaSourceDescriptor(
+    input.streamOpenFilename,
+    "stream-open-filename",
+  );
+  // A nonempty effective source is authoritative even when only mpv can open
+  // it. Falling back to an original webpage URL would hand HTML to FFmpeg.
+  const primary = effective.raw ? effective : original;
+  const tracks = Array.isArray(input.trackList) ? input.trackList : [];
+  const selectedAudio = tracks.find(
+    (track) =>
+      track &&
+      String(track.type || "").toLowerCase() === "audio" &&
+      !!track.selected,
+  );
+  const externalAudio = selectedAudio
+    ? String(
+        selectedAudio.externalFilename ||
+          selectedAudio["external-filename"] ||
+          "",
+      ).trim()
+    : "";
+  const audio = externalAudio
+    ? mediaSourceDescriptor(externalAudio, "selected-audio-track")
+    : primary;
+  return {
+    original,
+    effective,
+    primary,
+    audio,
+    display: original.raw ? original : primary,
+  };
+}
+
+function currentMediaSourceSnapshot() {
+  return mediaSourceSnapshot({
+    path: mediaSourceProperty("path"),
+    streamOpenFilename: mediaSourceProperty("stream-open-filename"),
+    trackList: mediaSourceTrackList(),
+  });
+}
+
+function mediaSourceDiagnosticClass(source) {
+  const value = source && typeof source === "object" ? source : {};
+  if (value.origin === "subtitle-track")
+    return value.kind === "local-file"
+      ? "external-subtitle-file"
+      : value.kind === "http-url"
+        ? "external-subtitle-url"
+        : "external-subtitle-unsupported";
+  if (value.kind === "local-file")
+    return String(value.locator || "").indexOf("/Volumes/") === 0
+      ? "mounted-share"
+      : "local-file";
+  if (value.kind === "http-url")
+    return value.origin === "stream-open-filename"
+      ? "resolved-url"
+      : "direct-url";
+  if (value.kind === "mpv-only") return "pseudo-url";
+  return value.kind === "ffmpeg-url" ? "ffmpeg-url" : "unavailable";
 }
 
 const IINATAN_LOOKUP_CHARACTER_POLICY = (() => {
@@ -5636,9 +5795,7 @@ function publishSubtitle(text, nativeCue) {
       " activeDicts=" +
       dicts.length +
       " len=" +
-      String(lookupText || "").length +
-      " text=" +
-      JSON.stringify(String(lookupText || "").slice(0, 80)),
+      String(lookupText || "").length,
   );
   postToOverlay("subtitle", {
     text: lookupText,
@@ -5776,6 +5933,8 @@ function pollSubtitle() {
     if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
       scheduleExperimentalNativeLayoutRebuild();
   }
+  if (typeof reportNativeAssReadiness === "function")
+    reportNativeAssReadiness(nativeCue);
   const identity = JSON.stringify({
     subtitle: experimentalLookupText,
     cue: currentSubtitleCueIdentity(nativeCue),
@@ -6715,17 +6874,26 @@ function nativeAssGeometryUnits(mapping, lookupText, language) {
   return units;
 }
 
-function nativeAssSourceSnapshot(track) {
+function nativeAssSourceSnapshot(track, hasAssObservation) {
   const selected = track || {};
-  const path = selected.external
-    ? selected.externalFilename
-    : mpvStringProp(["stream-open-filename", "path"], "");
-  if (!path || path.charAt(0) !== "/") return { reason: "unsafe-media-path" };
-  if (!Number.isInteger(selected.ffIndex) || selected.ffIndex < 0)
-    return { reason: "ambiguous-stream-map" };
+  const source = selected.external
+    ? mediaSourceDescriptor(selected.externalFilename, "subtitle-track")
+    : currentMediaSourceSnapshot().primary;
+  if (
+    !source.nativeAssReadable &&
+    !(hasAssObservation && source.raw && source.kind !== "local-file")
+  )
+    return { reason: "unsafe-media-path" };
+  const streamIndex =
+    Number.isInteger(selected.ffIndex) && selected.ffIndex >= 0
+      ? selected.ffIndex
+      : hasAssObservation && Number.isInteger(selected.id) && selected.id >= 0
+        ? selected.id
+        : -1;
+  if (streamIndex < 0) return { reason: "ambiguous-stream-map" };
   return {
-    path,
-    ffIndex: selected.ffIndex,
+    path: source.locator,
+    ffIndex: streamIndex,
     external: !!selected.external,
   };
 }
@@ -6795,10 +6963,67 @@ function parseNativeSrtCues(raw) {
 
 function nativeExternalSrtCues(track) {
   const selected = track || {};
-  const path = String(selected.externalFilename || "");
-  if (!selected.external || !path || path.charAt(0) !== "/")
+  const source = mediaSourceDescriptor(
+    selected.externalFilename,
+    "subtitle-track",
+  );
+  const path = source.locator;
+  if (!selected.external || !path)
     return { reason: "srt-event-boundaries-unavailable" };
   if (nativeExternalSrtCache[path]) return nativeExternalSrtCache[path];
+  if (source.kind === "http-url") {
+    if (!nativeExternalSrtInFlight[path]) {
+      nativeExternalSrtInFlight[path] = Promise.resolve()
+        .then(() =>
+          utils.exec(
+            "/usr/bin/curl",
+            [
+              "--silent",
+              "--show-error",
+              "--location",
+              "--proto",
+              "=http,https",
+              "--proto-redir",
+              "=http,https",
+              "--max-filesize",
+              String(8 * 1024 * 1024),
+              "--max-time",
+              "8",
+              path,
+            ],
+            dataRoot(),
+          ),
+        )
+        .then((result) => {
+          const parsed =
+            result && result.status === 0
+              ? parseNativeSrtCues(String(result.stdout || ""))
+              : { reason: "srt-read-failed" };
+          putBoundedCache(
+            nativeExternalSrtCache,
+            path,
+            parsed,
+            NATIVE_EXTERNAL_SRT_CACHE_MAX_ENTRIES,
+          );
+          if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+            scheduleExperimentalNativeLayoutRebuild();
+        })
+        .catch(() => {
+          putBoundedCache(
+            nativeExternalSrtCache,
+            path,
+            { reason: "srt-read-failed" },
+            NATIVE_EXTERNAL_SRT_CACHE_MAX_ENTRIES,
+          );
+        })
+        .finally(() => {
+          delete nativeExternalSrtInFlight[path];
+        });
+    }
+    return { reason: "srt-read-pending" };
+  }
+  if (source.kind !== "local-file")
+    return { reason: "srt-event-boundaries-unavailable" };
   let parsed = null;
   try {
     parsed = parseNativeSrtCues(String(file.read(path) || ""));
@@ -6971,6 +7196,9 @@ function pruneNativeAssGeometryCache() {
   const cacheKeys = Object.keys(nativeAssGeometryCache);
   while (cacheKeys.length > 16)
     delete nativeAssGeometryCache[cacheKeys.shift()];
+  const failureKeys = Object.keys(nativeAssGeometryFailures);
+  while (failureKeys.length > 16)
+    delete nativeAssGeometryFailures[failureKeys.shift()];
 }
 
 function nativeAssGeometryStatistics() {
@@ -6998,6 +7226,112 @@ function nativeAssGeometryCacheKey(request) {
   );
 }
 
+const NATIVE_ASS_GEOMETRY_RETRY_DELAYS_MS = [120, 300, 750, 1500];
+
+async function prepareNativeAssCacheExcerpt(request) {
+  const source = request && request.source;
+  const cue = request && request.cue;
+  const descriptor = mediaSourceDescriptor(
+    source && source.path,
+    "ass-geometry",
+  );
+  if (
+    !source ||
+    source.external ||
+    descriptor.kind !== "http-url" ||
+    !cue ||
+    cue.assFull
+  )
+    return null;
+  await prepareNativeSubtitlePrivateCueDirectory();
+  nativeSubtitlePrivateCueSerial++;
+  const excerptPath =
+    nativeSubtitlePrivateCueDirectory() +
+    "/iinatan-ass-cache-" +
+    Date.now().toString(36) +
+    "-" +
+    nativeSubtitlePrivateCueSerial.toString(36) +
+    ".mkv";
+  const start = Math.max(0, Number(cue.startMs) / 1000 - 0.1);
+  const end = Math.max(start + 0.25, Number(cue.endMs) / 1000 + 0.1);
+  try {
+    mpv.command("dump-cache", [
+      String(start.toFixed(3)),
+      String(end.toFixed(3)),
+      excerptPath,
+    ]);
+    if (!file.exists(excerptPath)) {
+      safeDelete(excerptPath);
+      return null;
+    }
+    return {
+      path: excerptPath,
+      request: Object.assign({}, request, {
+        source: {
+          path: excerptPath,
+          ffIndex: -1,
+          external: false,
+          autoAssStream: true,
+          cacheExcerpt: true,
+        },
+      }),
+    };
+  } catch (error) {
+    safeDelete(excerptPath);
+    debugVerbose(
+      "native ASS cache excerpt unavailable: " + compactError(error),
+    );
+    return null;
+  }
+}
+
+async function runNativeAssGeometryRequest(request, language, timeoutMs) {
+  const excerpt = await prepareNativeAssCacheExcerpt(request);
+  try {
+    if (excerpt) {
+      try {
+        const response = await runWorkerQueueRequestDirect(
+          excerpt.request,
+          language,
+          timeoutMs,
+        );
+        if (response && response.ok === true) return response;
+      } catch (_) {}
+    }
+    return await runWorkerQueueRequestDirect(request, language, timeoutMs);
+  } finally {
+    if (excerpt) safeDelete(excerpt.path);
+  }
+}
+
+function nativeAssGeometryFailureResult(key) {
+  const failure = nativeAssGeometryFailures[key];
+  if (!failure) return null;
+  const retryScheduled =
+    failure.attempts < NATIVE_ASS_GEOMETRY_RETRY_DELAYS_MS.length;
+  if (retryScheduled && Date.now() >= failure.retryAt) return null;
+  return {
+    reason: failure.reason,
+    retryScheduled,
+  };
+}
+
+function rememberNativeAssGeometryFailure(key, reason) {
+  const previous = nativeAssGeometryFailures[key];
+  const message = String(reason || "ass-geometry-failed");
+  const attempts = Math.min(
+    (previous && previous.attempts ? previous.attempts : 0) + 1,
+    NATIVE_ASS_GEOMETRY_RETRY_DELAYS_MS.length,
+  );
+  nativeAssGeometryFailures[key] = {
+    attempts,
+    reason: /^[a-z0-9-]+$/.test(message) ? message : "ass-geometry-failed",
+    retryAt: Date.now() + NATIVE_ASS_GEOMETRY_RETRY_DELAYS_MS[attempts - 1],
+  };
+  pruneNativeAssGeometryCache();
+  return nativeAssGeometryFailureResult(key);
+}
+
 function nativeAssGeometrySnapshot(request) {
   const statistics = nativeAssGeometryStatistics();
   const key = nativeAssGeometryCacheKey(request);
@@ -7006,6 +7340,8 @@ function nativeAssGeometrySnapshot(request) {
     statistics.cacheHits++;
     return cached;
   }
+  const failed = nativeAssGeometryFailureResult(key);
+  if (failed) return failed;
   statistics.cacheMisses++;
   const generation = nativeAssGeometryGeneration;
   if (!nativeAssGeometryInFlight[key]) {
@@ -7014,7 +7350,7 @@ function nativeAssGeometrySnapshot(request) {
     const startedAt = Date.now();
     const inFlight = Promise.resolve()
       .then(() =>
-        runWorkerQueueRequestDirect(
+        runNativeAssGeometryRequest(
           liveRequest,
           selectedLanguageModule(),
           Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
@@ -7026,10 +7362,16 @@ function nativeAssGeometrySnapshot(request) {
           response,
           liveRequest,
         );
-        nativeAssGeometryCache[key] = normalized;
         statistics.completions++;
-        if (normalized.ok && typeof nativeGeometrySessionReady !== "undefined")
-          nativeGeometrySessionReady = true;
+        if (normalized.ok) {
+          nativeAssGeometryCache[key] = normalized;
+          delete nativeAssGeometryFailures[key];
+          if (typeof nativeGeometrySessionReady !== "undefined")
+            nativeGeometrySessionReady = true;
+        } else {
+          statistics.failures++;
+          rememberNativeAssGeometryFailure(key, normalized.reason);
+        }
         if (normalized.diagnostics) {
           const nativeTotalMs =
             Number(normalized.diagnostics.totalUs || 0) / 1000;
@@ -7061,12 +7403,10 @@ function nativeAssGeometrySnapshot(request) {
         const message = String(
           (error && (error.reason || error.message)) || "ass-geometry-failed",
         );
-        nativeAssGeometryCache[key] = {
-          reason: /^[a-z0-9-]+$/.test(message)
-            ? message
-            : "ass-geometry-failed",
-        };
-        pruneNativeAssGeometryCache();
+        rememberNativeAssGeometryFailure(
+          key,
+          /^[a-z0-9-]+$/.test(message) ? message : "ass-geometry-failed",
+        );
         debugWarn("native ASS geometry failed: " + compactError(error));
         if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
           scheduleExperimentalNativeLayoutRebuild();
@@ -7081,13 +7421,14 @@ function nativeAssGeometrySnapshot(request) {
       Object.keys(nativeAssGeometryInFlight).length,
     );
   }
-  return { reason: "ass-geometry-pending" };
+  return { reason: "ass-geometry-pending", retryScheduled: true };
 }
 
 function advanceNativeAssGeometryGeneration() {
   nativeAssGeometryGeneration++;
   nativeAssGeometryCache = Object.create(null);
   nativeAssGeometryInFlight = Object.create(null);
+  nativeAssGeometryFailures = Object.create(null);
 }
 
 function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
@@ -7110,6 +7451,8 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
   if (eligibility.reason) return { reason: eligibility.reason };
   let plain = "";
   let ass = "";
+  let assFull = "";
+  let assExtradata = "";
   try {
     plain = String(
       mpv.getString(
@@ -7124,6 +7467,12 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
       ) || "",
     );
   } catch (_) {}
+  if (surface === "primary") {
+    try {
+      assFull = String(mpv.getString("sub-text/ass-full") || "");
+      assExtradata = String(mpv.getString("sub-ass-extradata") || "");
+    } catch (_) {}
+  }
   let displayText = "";
   if (eligibility.kind === "srt") {
     displayText = cleanNativeDisplayText(plain);
@@ -7218,7 +7567,10 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
         if (value && value !== "[]" && value !== "no")
           return { reason: "unsupported-renderer-option" };
       }
-      const source = nativeAssSourceSnapshot(eligibility.track);
+      const source = nativeAssSourceSnapshot(
+        eligibility.track,
+        !!(assFull && assExtradata),
+      );
       if (source.reason) return source;
       const units = nativeAssGeometryUnits(
         mapping,
@@ -7280,6 +7632,7 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
           timeMs,
           startMs,
           endMs,
+          ...(assFull && assExtradata ? { assFull, assExtradata } : {}),
           ...(surface === "secondary"
             ? { observedFormat: "plain", observedPlain: plain }
             : { observedAss: ass }),
@@ -7342,6 +7695,7 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
       if (!geometry.ok)
         return {
           reason: geometry.reason || "ass-geometry-failed",
+          retryScheduled: geometry.retryScheduled === true,
           trackId: eligibility.track.id,
           displayText,
         };
@@ -7473,6 +7827,7 @@ function nativeSubtitleCombinedCueSnapshot() {
         ),
         lookupSpans: [],
         reason: (snapshot && snapshot.reason) || "unsupported-codec",
+        retryScheduled: snapshot && snapshot.retryScheduled === true,
       });
       continue;
     }
@@ -7510,6 +7865,78 @@ function nativeSubtitleCombinedCueSnapshot() {
       : surfaces.map((surface) => surface.reason).filter(Boolean)[0] ||
         "empty-subtitle",
   };
+}
+
+function reportNativeAssReadiness(snapshot) {
+  const surfaces =
+    snapshot && Array.isArray(snapshot.surfaces)
+      ? snapshot.surfaces
+      : [snapshot || {}];
+  const rejected = surfaces.find((surface) => surface && surface.reason);
+  if (!rejected) {
+    lastNativeAssReadinessDiagnosticKey = "";
+    return;
+  }
+  const surface = rejected.surface === "secondary" ? "secondary" : "primary";
+  const tracks = normalizeNativeTrackList(
+    nativeSubtitleJsonProperty("track-list", []),
+  );
+  const selectedId =
+    surface === "secondary"
+      ? mpvNumberProp(["secondary-sid", "options/secondary-sid"], -1)
+      : mpvNumberProp(["sid", "options/sid"], -1);
+  const track = tracks.find((candidate) => candidate.id === selectedId) || null;
+  const assObserved = mpvStringProp(
+    [surface === "secondary" ? "secondary-sub-text" : "sub-text-ass"],
+    "",
+  );
+  if ((!track || track.codec !== "ass") && !assObserved) {
+    lastNativeAssReadinessDiagnosticKey = "";
+    return;
+  }
+
+  const media = currentMediaSourceSnapshot();
+  const source =
+    track && track.external
+      ? mediaSourceDescriptor(track.externalFilename, "subtitle-track")
+      : media.primary;
+  const retryableReadinessReasons = {
+    "ambiguous-stream-map": true,
+    "ass-geometry-pending": true,
+    "cue-timing-unavailable": true,
+    "missing-osd-dimensions": true,
+    "missing-video-dimensions": true,
+    "subtitle-track-unavailable": true,
+    "unsupported-codec": true,
+    "unsafe-media-path": true,
+  };
+  const rawReason = String(rejected.reason || "unsupported");
+  const reason = /^[a-z0-9-]+$/.test(rawReason)
+    ? rawReason
+    : "ass-geometry-failed";
+  const diagnostic = {
+    event: "ass-readiness",
+    mediaGeneration: nativeAssGeometryGeneration,
+    sourceClass: mediaSourceDiagnosticClass(source),
+    pathPresent: !!media.original.raw,
+    streamOpenFilenamePresent: !!media.effective.raw,
+    selectedTrackId: track ? track.id : selectedId >= 0 ? selectedId : null,
+    ffIndex:
+      track && Number.isInteger(track.ffIndex) && track.ffIndex >= 0
+        ? track.ffIndex
+        : null,
+    lifecycleTrigger:
+      typeof nativeSubtitleLayoutTrigger === "string"
+        ? nativeSubtitleLayoutTrigger
+        : "poll",
+    reason,
+    retryScheduled:
+      rejected.retryScheduled === true || !!retryableReadinessReasons[reason],
+  };
+  const key = JSON.stringify(diagnostic);
+  if (key === lastNativeAssReadinessDiagnosticKey) return;
+  lastNativeAssReadinessDiagnosticKey = key;
+  debugLog("native ASS readiness " + key);
 }
 
 const DEFAULT_PROFILE_ID = "default";
@@ -9807,6 +10234,7 @@ function writeWorkerConfig(dicts, fingerprint, language) {
 async function writeWorkerStartScript() {
   const script = String.raw`#!/usr/bin/env bash
 set -eu
+umask 077
 DATA_ROOT="$1"
 SLEEP_MS="${"$"}{2:-2}"
 WORKER_ROOT="$DATA_ROOT/worker"
@@ -9817,6 +10245,7 @@ PID="$WORKER_ROOT/worker.pid"
 STOP="$WORKER_ROOT/stop"
 READY="$WORKER_ROOT/state/ready.json"
 mkdir -p "$WORKER_ROOT/queue" "$WORKER_ROOT/responses" "$WORKER_ROOT/state"
+chmod 700 "$WORKER_ROOT" "$WORKER_ROOT/queue" "$WORKER_ROOT/responses" "$WORKER_ROOT/state"
 rm -f "$STOP" "$READY" "$PID"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Xcode.app/Contents/Developer/usr/bin:${"$"}{PATH:-}"
 if [ -z "${"$"}{HOME:-}" ]; then
@@ -13553,14 +13982,7 @@ function ankiMediaTitleFromMpv() {
   return "";
 }
 function ankiSourcePathFromMpv() {
-  const props = ["path", "stream-open-filename"];
-  for (let i = 0; i < props.length; i++) {
-    try {
-      const value = String(mpv.getString(props[i]) || "").trim();
-      if (value) return value;
-    } catch (_) {}
-  }
-  return "";
+  return currentMediaSourceSnapshot().display.raw;
 }
 function ankiTimePosFromMpv() {
   try {
@@ -13726,9 +14148,8 @@ async function ankiFindFfmpegPath() {
   return "";
 }
 async function ankiCaptureSentenceAudio(context, prefs) {
-  const sourcePath = ankiSourcePathFromMpv();
-  if (!sourcePath || /^https?:\/\//i.test(sourcePath))
-    throw new Error("Sentence audio requires a local media file.");
+  const mediaSources = currentMediaSourceSnapshot();
+  const source = mediaSources.audio;
   const ffmpegPath = await ankiFindFfmpegPath();
   if (!ffmpegPath)
     throw new Error("ffmpeg was not found for sentence audio capture.");
@@ -13757,37 +14178,76 @@ async function ankiCaptureSentenceAudio(context, prefs) {
   const documentName = context.documentTitle || "video";
   const tempFilename = ankiMediaFilename(documentName, ankiRandomHex(12), ext);
   const outPath = ankiMediaPath(tempFilename);
+  const cachedPath = ankiMediaPath(
+    ankiMediaFilename(documentName, ankiRandomHex(12), "mkv"),
+  );
   await ensureAnkiMediaRoot();
   const codecArgs =
     format === "opus"
       ? ["-c:a", "libopus", "-b:a", String(bitrate) + "k"]
       : ["-codec:a", "libmp3lame", "-b:a", String(bitrate) + "k"];
-  const args = [
-    "-nostdin",
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-y",
-    "-ss",
-    String(start.toFixed(3)),
-    "-i",
-    sourcePath,
-    "-t",
-    String(duration.toFixed(3)),
-    "-map",
-    "0:a:0",
-    "-vn",
-    "-sn",
-    "-dn",
-    "-threads",
-    "2",
-  ].concat(codecArgs, [outPath]);
-  const result = await utils.exec(ffmpegPath, args, dataRoot());
+  const ffmpegArgs = (input, seek) =>
+    [
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-ss",
+      String(seek.toFixed(3)),
+      "-i",
+      input,
+      "-t",
+      String(duration.toFixed(3)),
+      "-map",
+      "0:a:0",
+      "-vn",
+      "-sn",
+      "-dn",
+      "-threads",
+      "2",
+    ].concat(codecArgs, [outPath]);
+  let result = null;
+  if (
+    source.kind !== "local-file" &&
+    source.origin !== "selected-audio-track"
+  ) {
+    try {
+      mpv.command("dump-cache", [
+        String(start.toFixed(3)),
+        String(end.toFixed(3)),
+        cachedPath,
+      ]);
+      if (file.exists(cachedPath))
+        result = await utils.exec(
+          ffmpegPath,
+          ffmpegArgs(cachedPath, 0),
+          dataRoot(),
+        );
+    } catch (error) {
+      debugVerbose("Anki cache audio fallback failed: " + compactError(error));
+    } finally {
+      safeDelete(cachedPath);
+    }
+  }
+  if (
+    (!result || result.status !== 0 || !file.exists(outPath)) &&
+    source.ffmpegReadable
+  ) {
+    result = await utils.exec(
+      ffmpegPath,
+      ffmpegArgs(source.locator, start),
+      dataRoot(),
+    );
+  }
   if (!result || result.status !== 0 || !file.exists(outPath)) {
+    const limitation = source.ffmpegReadable
+      ? "ffmpeg failed"
+      : "source is only readable by mpv and its current cache had no usable audio";
     throw new Error(
       "Sentence audio capture failed: " +
         String(
-          (result && (result.stderr || result.stdout)) || "ffmpeg failed",
+          (result && (result.stderr || result.stdout)) || limitation,
         ).slice(0, 500),
     );
   }
@@ -14260,7 +14720,7 @@ function updateOverlayRuntimeState(reason) {
     setOverlayRuntimeState("starting-helper", reason);
     return;
   }
-  if (!mpvStringProp(["path", "filename"], "")) {
+  if (!currentMediaSourceSnapshot().primary.raw) {
     setOverlayRuntimeState("waiting-for-media", reason);
     return;
   }
@@ -14306,6 +14766,8 @@ function handleOverlayDocumentReady(payload, source) {
   postToOverlay("enabled", { enabled });
   replayActiveOverlayTask();
   if (enabled) {
+    nativeSubtitleLayoutTrigger =
+      "overlay-ready:" + String(source || "message");
     lastSubtitleCueIdentity = null;
     pollSubtitle();
   }
@@ -14505,6 +14967,9 @@ function warmActiveProfileBackend() {
           }),
       );
       profileReconfigurationStartedAt = 0;
+      nativeSubtitleLayoutTrigger = "helper-ready";
+      invalidateExperimentalNativeLayout("helper-ready");
+      scheduleExperimentalNativeLayoutRebuild();
       updateOverlayRuntimeState("helper-ready");
     })
     .catch((error) => {
@@ -14659,6 +15124,7 @@ function setEnabled(next, options) {
   const wasEnabled = enabled;
   const requested = !!next;
   const trigger = String((options && options.trigger) || "runtime");
+  nativeSubtitleLayoutTrigger = trigger;
   debugLog(
     "setEnabled requested next=" +
       String(!!next) +
@@ -14705,7 +15171,7 @@ function setEnabled(next, options) {
     try {
       nativeSubtitlePlaybackActive =
         nativeSubtitlePlaybackActive ||
-        !!mpvStringProp(["path", "filename"], "");
+        !!currentMediaSourceSnapshot().primary.raw;
       if (nativeSubtitlePlaybackActive) {
         acquireNativeSubtitleVisibilityOwnership();
         syncNativeSubtitleVisibility();
@@ -15427,6 +15893,7 @@ event.on("mpv.file-loaded", () => {
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
   lookupCache = Object.create(null);
+  invalidateExperimentalNativeLayout("file-loaded");
   lookupInFlight = Object.create(null);
   if (enabled) {
     acquireNativeSubtitleVisibilityOwnership();
@@ -15473,6 +15940,7 @@ event.on("iina.window-will-close", () => {
 });
 function invalidateExperimentalNativeLayout(reason) {
   if (!experimentalNativeSubtitleMode()) return;
+  nativeSubtitleLayoutTrigger = String(reason || "stale-layout");
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
@@ -15488,8 +15956,12 @@ function scheduleExperimentalNativeLayoutRebuild() {
   }, 0);
 }
 [
+  "path",
+  "stream-open-filename",
   "sub-text",
   "sub-text-ass",
+  "sub-text/ass-full",
+  "sub-ass-extradata",
   "sub-start",
   "sub-end",
   "secondary-sub-text",
@@ -15592,6 +16064,8 @@ function scheduleExperimentalNativeLayoutRebuild() {
       if (
         property.indexOf("secondary-sub-") >= 0 ||
         [
+          "path",
+          "stream-open-filename",
           "sid",
           "secondary-sid",
           "secondary-sub-text",

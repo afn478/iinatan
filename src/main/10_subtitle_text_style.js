@@ -406,9 +406,7 @@ function publishSubtitle(text, nativeCue) {
       " activeDicts=" +
       dicts.length +
       " len=" +
-      String(lookupText || "").length +
-      " text=" +
-      JSON.stringify(String(lookupText || "").slice(0, 80)),
+      String(lookupText || "").length,
   );
   postToOverlay("subtitle", {
     text: lookupText,
@@ -546,6 +544,8 @@ function pollSubtitle() {
     if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
       scheduleExperimentalNativeLayoutRebuild();
   }
+  if (typeof reportNativeAssReadiness === "function")
+    reportNativeAssReadiness(nativeCue);
   const identity = JSON.stringify({
     subtitle: experimentalLookupText,
     cue: currentSubtitleCueIdentity(nativeCue),
