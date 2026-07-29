@@ -9228,7 +9228,7 @@ function changedProfilePreferenceKeys(previous, next) {
     (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
   );
 }
-function profileRuntimePlan(changedKeys, reloadOverlay) {
+function profileRuntimePlan(changedKeys) {
   const keys = Array.isArray(changedKeys) ? changedKeys : null;
   if (!keys)
     return {
@@ -9238,7 +9238,6 @@ function profileRuntimePlan(changedKeys, reloadOverlay) {
       polling: true,
       nativeVisibility: true,
       backendRestart: true,
-      overlayReload: !!reloadOverlay,
     };
   const effects = profilePreferenceRuntimeEffects(keys);
   return {
@@ -9248,11 +9247,10 @@ function profileRuntimePlan(changedKeys, reloadOverlay) {
     polling: effects.polling === true,
     nativeVisibility: effects.nativeVisibility === true,
     backendRestart: effects.backendRestart === true,
-    overlayReload: !!reloadOverlay,
   };
 }
 function resetLookupRuntimeForProfileChange(runtimePlan) {
-  const plan = runtimePlan || profileRuntimePlan(null, false);
+  const plan = runtimePlan || profileRuntimePlan(null);
   if (plan.lookupCache) {
     lookupCache = Object.create(null);
     lookupInFlight = Object.create(null);
@@ -9267,11 +9265,8 @@ function resetLookupRuntimeForProfileChange(runtimePlan) {
     } catch (_) {}
   }
 }
-function refreshRuntimeAfterProfileChange(
-  reloadOverlay,
-  changedPreferenceKeys,
-) {
-  const plan = profileRuntimePlan(changedPreferenceKeys, reloadOverlay);
+function refreshRuntimeAfterProfileChange(changedPreferenceKeys) {
+  const plan = profileRuntimePlan(changedPreferenceKeys);
   debugLog(
     "profile runtime plan keys=" +
       JSON.stringify(changedPreferenceKeys || ["all"]) +
@@ -9280,12 +9275,7 @@ function refreshRuntimeAfterProfileChange(
   );
   profileReconfigurationStartedAt = Date.now();
   resetLookupRuntimeForProfileChange(plan);
-  if (
-    plan.overlayReload &&
-    typeof reloadOverlayForProfileChange === "function"
-  ) {
-    reloadOverlayForProfileChange(plan);
-  } else if (typeof pushOverlayConfigForProfileChange === "function") {
+  if (typeof pushOverlayConfigForProfileChange === "function") {
     pushOverlayConfigForProfileChange(plan);
   }
 }
@@ -9346,7 +9336,7 @@ function deleteDictionaryProfile(profileId) {
   writeManifest(normalized);
   if (wasActive) {
     applyProfilePreferences(activeDictionaryProfile(normalized));
-    refreshRuntimeAfterProfileChange(true);
+    refreshRuntimeAfterProfileChange();
   } else {
     rebuildMenu();
   }
@@ -9374,11 +9364,7 @@ function updateDictionaryProfilePreferences(profileId, prefs) {
       previous,
       manifest.profiles[id].preferences,
     );
-    refreshRuntimeAfterProfileChange(
-      previous.lookupLanguage !==
-        manifest.profiles[id].preferences.lookupLanguage,
-      changedKeys,
-    );
+    refreshRuntimeAfterProfileChange(changedKeys);
     rebuildMenu();
   }
   if (typeof postDictionaryManagerState === "function")
@@ -9437,7 +9423,7 @@ function setActiveDictionaryProfile(profileId) {
   const normalized = normalizeManifestShape(manifest);
   writeManifest(normalized);
   applyProfilePreferences(activeDictionaryProfile(normalized));
-  refreshRuntimeAfterProfileChange(true);
+  refreshRuntimeAfterProfileChange();
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function")
     postDictionaryManagerState();
@@ -14894,7 +14880,6 @@ function normalizedProfileRuntimePlan(plan) {
       polling: true,
       nativeVisibility: true,
       backendRestart: true,
-      overlayReload: true,
     };
   return {
     lookupCache: plan.lookupCache === true,
@@ -14903,12 +14888,11 @@ function normalizedProfileRuntimePlan(plan) {
     polling: plan.polling === true,
     nativeVisibility: plan.nativeVisibility === true,
     backendRestart: plan.backendRestart === true,
-    overlayReload: plan.overlayReload === true,
   };
 }
 function prepareRuntimeAfterProfileChange(runtimePlan) {
   const plan = normalizedProfileRuntimePlan(runtimePlan);
-  if (plan.backendRestart || plan.overlayReload) {
+  if (plan.backendRestart) {
     overlayLifecycleGeneration++;
     overlayHitLayerReady = false;
     nativeGeometrySessionReady = false;
@@ -14993,8 +14977,7 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
   }
   if (enabled) {
     if (plan.polling) refreshPollingInterval();
-    if (plan.geometryCache || plan.hitLayer || plan.overlayReload)
-      pollSubtitle();
+    if (plan.geometryCache || plan.hitLayer) pollSubtitle();
     if (plan.nativeVisibility || plan.geometryCache)
       syncNativeSubtitleVisibility();
     if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
@@ -15009,49 +14992,6 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
         }),
     );
     profileReconfigurationStartedAt = 0;
-  }
-}
-function videoWindowAvailableForOverlayLoad() {
-  try {
-    return !!(core && core.window && core.window.loaded);
-  } catch (_) {
-    return false;
-  }
-}
-function reloadOverlayForProfileChange(runtimePlan) {
-  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
-  if (!videoWindowAvailableForOverlayLoad()) {
-    debugLog(
-      "deferring overlay reload for profile change until iina.window-loaded",
-    );
-    return;
-  }
-  if (!initialized) {
-    initializeOverlay();
-  } else {
-    try {
-      debugLog(
-        "reloading overlay for active profile language=" +
-          selectedLanguageModule().id,
-      );
-      overlayDocumentReady = false;
-      overlayHitLayerReady = false;
-      overlay.loadFile("overlay.html");
-      overlay.setOpacity(1);
-      overlay.setClickable(enabled);
-      if (enabled) overlay.show();
-    } catch (error) {
-      debugWarn(
-        "overlay reload failed for profile change: " + compactError(error),
-      );
-    }
-  }
-  if (enabled) {
-    startPolling();
-    syncNativeSubtitleVisibility();
-    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
-  } else {
-    publishSubtitle("");
   }
 }
 function startPolling() {

@@ -214,7 +214,6 @@ function normalizedProfileRuntimePlan(plan) {
       polling: true,
       nativeVisibility: true,
       backendRestart: true,
-      overlayReload: true,
     };
   return {
     lookupCache: plan.lookupCache === true,
@@ -223,12 +222,11 @@ function normalizedProfileRuntimePlan(plan) {
     polling: plan.polling === true,
     nativeVisibility: plan.nativeVisibility === true,
     backendRestart: plan.backendRestart === true,
-    overlayReload: plan.overlayReload === true,
   };
 }
 function prepareRuntimeAfterProfileChange(runtimePlan) {
   const plan = normalizedProfileRuntimePlan(runtimePlan);
-  if (plan.backendRestart || plan.overlayReload) {
+  if (plan.backendRestart) {
     overlayLifecycleGeneration++;
     overlayHitLayerReady = false;
     nativeGeometrySessionReady = false;
@@ -313,8 +311,7 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
   }
   if (enabled) {
     if (plan.polling) refreshPollingInterval();
-    if (plan.geometryCache || plan.hitLayer || plan.overlayReload)
-      pollSubtitle();
+    if (plan.geometryCache || plan.hitLayer) pollSubtitle();
     if (plan.nativeVisibility || plan.geometryCache)
       syncNativeSubtitleVisibility();
     if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
@@ -329,49 +326,6 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
         }),
     );
     profileReconfigurationStartedAt = 0;
-  }
-}
-function videoWindowAvailableForOverlayLoad() {
-  try {
-    return !!(core && core.window && core.window.loaded);
-  } catch (_) {
-    return false;
-  }
-}
-function reloadOverlayForProfileChange(runtimePlan) {
-  const plan = prepareRuntimeAfterProfileChange(runtimePlan);
-  if (!videoWindowAvailableForOverlayLoad()) {
-    debugLog(
-      "deferring overlay reload for profile change until iina.window-loaded",
-    );
-    return;
-  }
-  if (!initialized) {
-    initializeOverlay();
-  } else {
-    try {
-      debugLog(
-        "reloading overlay for active profile language=" +
-          selectedLanguageModule().id,
-      );
-      overlayDocumentReady = false;
-      overlayHitLayerReady = false;
-      overlay.loadFile("overlay.html");
-      overlay.setOpacity(1);
-      overlay.setClickable(enabled);
-      if (enabled) overlay.show();
-    } catch (error) {
-      debugWarn(
-        "overlay reload failed for profile change: " + compactError(error),
-      );
-    }
-  }
-  if (enabled) {
-    startPolling();
-    syncNativeSubtitleVisibility();
-    if (plan.backendRestart || !activeWorkerReady) warmActiveProfileBackend();
-  } else {
-    publishSubtitle("");
   }
 }
 function startPolling() {

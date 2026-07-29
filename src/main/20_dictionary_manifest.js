@@ -986,7 +986,7 @@ function changedProfilePreferenceKeys(previous, next) {
     (key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key]),
   );
 }
-function profileRuntimePlan(changedKeys, reloadOverlay) {
+function profileRuntimePlan(changedKeys) {
   const keys = Array.isArray(changedKeys) ? changedKeys : null;
   if (!keys)
     return {
@@ -996,7 +996,6 @@ function profileRuntimePlan(changedKeys, reloadOverlay) {
       polling: true,
       nativeVisibility: true,
       backendRestart: true,
-      overlayReload: !!reloadOverlay,
     };
   const effects = profilePreferenceRuntimeEffects(keys);
   return {
@@ -1006,11 +1005,10 @@ function profileRuntimePlan(changedKeys, reloadOverlay) {
     polling: effects.polling === true,
     nativeVisibility: effects.nativeVisibility === true,
     backendRestart: effects.backendRestart === true,
-    overlayReload: !!reloadOverlay,
   };
 }
 function resetLookupRuntimeForProfileChange(runtimePlan) {
-  const plan = runtimePlan || profileRuntimePlan(null, false);
+  const plan = runtimePlan || profileRuntimePlan(null);
   if (plan.lookupCache) {
     lookupCache = Object.create(null);
     lookupInFlight = Object.create(null);
@@ -1025,11 +1023,8 @@ function resetLookupRuntimeForProfileChange(runtimePlan) {
     } catch (_) {}
   }
 }
-function refreshRuntimeAfterProfileChange(
-  reloadOverlay,
-  changedPreferenceKeys,
-) {
-  const plan = profileRuntimePlan(changedPreferenceKeys, reloadOverlay);
+function refreshRuntimeAfterProfileChange(changedPreferenceKeys) {
+  const plan = profileRuntimePlan(changedPreferenceKeys);
   debugLog(
     "profile runtime plan keys=" +
       JSON.stringify(changedPreferenceKeys || ["all"]) +
@@ -1038,12 +1033,7 @@ function refreshRuntimeAfterProfileChange(
   );
   profileReconfigurationStartedAt = Date.now();
   resetLookupRuntimeForProfileChange(plan);
-  if (
-    plan.overlayReload &&
-    typeof reloadOverlayForProfileChange === "function"
-  ) {
-    reloadOverlayForProfileChange(plan);
-  } else if (typeof pushOverlayConfigForProfileChange === "function") {
+  if (typeof pushOverlayConfigForProfileChange === "function") {
     pushOverlayConfigForProfileChange(plan);
   }
 }
@@ -1104,7 +1094,7 @@ function deleteDictionaryProfile(profileId) {
   writeManifest(normalized);
   if (wasActive) {
     applyProfilePreferences(activeDictionaryProfile(normalized));
-    refreshRuntimeAfterProfileChange(true);
+    refreshRuntimeAfterProfileChange();
   } else {
     rebuildMenu();
   }
@@ -1132,11 +1122,7 @@ function updateDictionaryProfilePreferences(profileId, prefs) {
       previous,
       manifest.profiles[id].preferences,
     );
-    refreshRuntimeAfterProfileChange(
-      previous.lookupLanguage !==
-        manifest.profiles[id].preferences.lookupLanguage,
-      changedKeys,
-    );
+    refreshRuntimeAfterProfileChange(changedKeys);
     rebuildMenu();
   }
   if (typeof postDictionaryManagerState === "function")
@@ -1195,7 +1181,7 @@ function setActiveDictionaryProfile(profileId) {
   const normalized = normalizeManifestShape(manifest);
   writeManifest(normalized);
   applyProfilePreferences(activeDictionaryProfile(normalized));
-  refreshRuntimeAfterProfileChange(true);
+  refreshRuntimeAfterProfileChange();
   rebuildMenu();
   if (typeof postDictionaryManagerState === "function")
     postDictionaryManagerState();

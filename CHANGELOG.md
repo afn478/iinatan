@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed experimental native-subtitle lookup becoming unavailable after switching language profiles by hot-updating the existing overlay instead of relying on an intermittent IINA WebView reload.
 - Made URL-backed media first-class across native ASS/SRT hit boxes and Anki sentence audio: resolved mpv stream and selected-audio URLs are preferred over webpage paths, current ASS events already decoded by newer mpv avoid remote video scans, mpv 0.38 renders embedded ASS from the cue already buffered by mpv before falling back to bounded HTTP reads, persisted startup retries cover source and track readiness, small cache excerpts cover mpv-only inputs when available, mounted/local paths retain their behavior, and URL-bearing worker IPC is user-private.
 
 ## 2.0.1 - 2026-07-29

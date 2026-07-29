@@ -154,9 +154,6 @@ function lifecycleContext(options) {
     advanceNativeAssGeometryGeneration() {},
     refreshPollingInterval() {},
     publishSubtitle() {},
-    videoWindowAvailableForOverlayLoad() {
-      return true;
-    },
     configuredSubtitlePollMs() {
       return 120;
     },
@@ -513,34 +510,38 @@ function testSettingsClassification() {
       "\nthis.settingsApi={profileRuntimePlan,changedProfilePreferenceKeys};",
     context,
   );
-  const popup = context.settingsApi.profileRuntimePlan(["popupScale"], false);
+  const popup = context.settingsApi.profileRuntimePlan(["popupScale"]);
   assert.strictEqual(popup.backendRestart, false);
   assert.strictEqual(popup.geometryCache, false);
   assert.strictEqual(popup.lookupCache, false);
-
-  const validation = context.settingsApi.profileRuntimePlan(
-    ["experimentalNativeSubtitleValidation"],
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(popup, "overlayReload"),
     false,
+    "profile settings should hot-update the existing overlay document",
   );
+
+  const validation = context.settingsApi.profileRuntimePlan([
+    "experimentalNativeSubtitleValidation",
+  ]);
   assert.strictEqual(validation.geometryCache, true);
   assert.strictEqual(validation.backendRestart, false);
 
-  const hitBoxes = context.settingsApi.profileRuntimePlan(
-    ["experimentalNativeSubtitleHitBoxes"],
-    false,
-  );
+  const hitBoxes = context.settingsApi.profileRuntimePlan([
+    "experimentalNativeSubtitleHitBoxes",
+  ]);
   assert.strictEqual(hitBoxes.hitLayer, true);
   assert.strictEqual(hitBoxes.geometryCache, false);
   assert.strictEqual(hitBoxes.backendRestart, false);
 
-  const language = context.settingsApi.profileRuntimePlan(
-    ["lookupLanguage"],
-    true,
-  );
+  const language = context.settingsApi.profileRuntimePlan(["lookupLanguage"]);
   assert.strictEqual(language.backendRestart, true);
   assert.strictEqual(language.lookupCache, true);
   assert.strictEqual(language.geometryCache, true);
-  assert.strictEqual(language.overlayReload, true);
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(language, "overlayReload"),
+    false,
+    "language changes should not reload IINA's overlay WebView",
+  );
 }
 
 function testBridgeHelloMarksOverlayReady() {

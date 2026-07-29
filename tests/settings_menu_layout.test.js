@@ -750,6 +750,10 @@ const lifecycleSource = fs.readFileSync(
   path.join(root, "src/main/60_overlay_lifecycle_toggle.js"),
   "utf8",
 );
+const manifestSource = fs.readFileSync(
+  path.join(root, "src/main/20_dictionary_manifest.js"),
+  "utf8",
+);
 assert(
   /overlay\.onMessage\("anki-card-add"/.test(lifecycleSource),
   "Main overlay lifecycle should accept direct Anki add messages from the webview",
@@ -759,21 +763,26 @@ assert(
   "Main overlay lifecycle should accept direct Anki reveal messages from the webview",
 );
 assert(
-  /function reloadOverlayForProfileChange\(runtimePlan\)/.test(lifecycleSource),
-  "Profile changes should be able to reload the overlay",
+  /function pushOverlayConfigForProfileChange\(runtimePlan\)/.test(
+    lifecycleSource,
+  ),
+  "Profile changes should hot-update the existing overlay",
 );
 assert(
-  /function videoWindowAvailableForOverlayLoad\(\)/.test(lifecycleSource),
-  "Profile overlay reload should have a video-window availability guard",
+  !/function reloadOverlayForProfileChange\(runtimePlan\)/.test(
+    lifecycleSource,
+  ),
+  "Profile changes should not reload IINA's overlay WebView",
 );
 assert(
-  /core\.window\.loaded/.test(lifecycleSource),
-  "Profile overlay reload should check IINA window availability before overlay.loadFile",
+  !/plan\.overlayReload/.test(lifecycleSource),
+  "Profile runtime plans should not carry obsolete overlay reload state",
 );
 assert(
-  lifecycleSource.indexOf("if (!videoWindowAvailableForOverlayLoad())") <
-    lifecycleSource.indexOf("initializeOverlay();"),
-  "Profile overlay reload should skip initializeOverlay before iina.window-loaded",
+  /function refreshRuntimeAfterProfileChange\(changedPreferenceKeys\)[\s\S]*?pushOverlayConfigForProfileChange\(plan\)/.test(
+    manifestSource,
+  ),
+  "Profile changes should push their runtime config into the live overlay",
 );
 
 console.log("settings and menu layout tests passed");
