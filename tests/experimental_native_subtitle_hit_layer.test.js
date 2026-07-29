@@ -3843,6 +3843,29 @@ function waitForLayout() {
     "experimental mode does not mutate unrelated root styles",
   );
 
+  const stalledAnimationFrames = loadOverlayForTest(["state"], {
+    requestAnimationFrame() {
+      return 1;
+    },
+  });
+  stalledAnimationFrames.context.__handlers.enabled({ enabled: true });
+  stalledAnimationFrames.context.__handlers.subtitle(nativeLayerPayload);
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  assert(
+    stalledAnimationFrames.context.document.getElementById(
+      "native-subtitle-hit-boxes",
+    ).children.length > 0,
+    "plain subtitle measurement does not depend on animation frames",
+  );
+  assert(
+    stalledAnimationFrames.context.__posted.some(
+      (message) =>
+        message.name === "native-layout-diagnostic" &&
+        message.payload.reason === "accepted-layout",
+    ),
+    "synchronous measurement still reports accepted layout readiness",
+  );
+
   const directSurfaceLayout = (position, x, y) => ({
     osd: nativeLayerPayload.nativeLayout.osd,
     directRects: [

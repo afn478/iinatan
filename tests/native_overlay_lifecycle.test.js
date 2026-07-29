@@ -402,12 +402,97 @@ function testSettingsClassification() {
   assert.strictEqual(language.overlayReload, true);
 }
 
+function testBridgeHelloMarksOverlayReady() {
+  let connectionHandler = null;
+  let messageHandler = null;
+  const readiness = [];
+  const layoutDiagnostics = [];
+  const layoutPerformance = [];
+  const context = vm.createContext({
+    overlayBridgeStarted: false,
+    overlayBridgePort: 19741,
+    ws: {
+      createServer() {},
+      onStateUpdate() {},
+      onNewConnection(callback) {
+        connectionHandler = callback;
+      },
+      onConnectionStateUpdate() {},
+      onMessage(callback) {
+        messageHandler = callback;
+      },
+      startServer() {},
+    },
+    rememberOverlayBridgeConnection() {},
+    forgetOverlayBridgeConnection() {},
+    debugLog() {},
+    debugVerbose() {},
+    compactError(error) {
+      return String(error);
+    },
+    handleOverlayDocumentReady(payload, source) {
+      readiness.push({ payload, source });
+    },
+    handleLookupPopupVisibility() {},
+    handleBridgeLookup() {},
+    handleBridgeAudioSource() {},
+    handleBridgeAnkiCardStatus() {},
+    handleBridgeAnkiCardAdd() {},
+    handleBridgeAnkiCardOpen() {},
+    openExternalUrlFromOverlay() {},
+    handleNativeLayoutDiagnostic(payload) {
+      layoutDiagnostics.push(payload);
+    },
+    handleNativeLayoutPerformance(payload) {
+      layoutPerformance.push(payload);
+    },
+  });
+  const source = fs.readFileSync(
+    path.join(root, "src/main/50_overlay_bridge_pause.js"),
+    "utf8",
+  );
+  vm.runInContext(source + "\nensureOverlayBridge();", context);
+  assert.strictEqual(typeof connectionHandler, "function");
+  connectionHandler("connection", { path: "127.0.0.1:12345" });
+  assert.strictEqual(readiness.length, 1);
+  assert.strictEqual(readiness[0].source, "bridge-connection");
+  assert.strictEqual(typeof messageHandler, "function");
+  messageHandler("connection", {
+    text() {
+      return JSON.stringify({ type: "hello", source: "overlay" });
+    },
+  });
+  assert.strictEqual(readiness.length, 2);
+  assert.strictEqual(readiness[1].source, "bridge-hello");
+  messageHandler("connection", {
+    text() {
+      return JSON.stringify({
+        type: "native-layout-diagnostic",
+        reason: "accepted-layout",
+      });
+    },
+  });
+  assert.strictEqual(layoutDiagnostics.length, 1);
+  assert.strictEqual(layoutDiagnostics[0].reason, "accepted-layout");
+  messageHandler("connection", {
+    text() {
+      return JSON.stringify({
+        type: "native-layout-performance",
+        hitTargetCount: 12,
+      });
+    },
+  });
+  assert.strictEqual(layoutPerformance.length, 1);
+  assert.strictEqual(layoutPerformance[0].hitTargetCount, 12);
+}
+
 (async () => {
   await testPersistedStartupAndIdempotence();
   testPersistedDisabledStartup();
   await testDisableInvalidatesPendingEnablement();
   await testWorkerStopOwnsExactPid();
   testSettingsClassification();
+  testBridgeHelloMarksOverlayReady();
   console.log("native overlay lifecycle tests passed");
 })().catch((error) => {
   console.error(error);

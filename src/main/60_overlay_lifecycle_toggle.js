@@ -51,6 +51,88 @@ function updateOverlayRuntimeState(reason) {
   }
   setOverlayRuntimeState("ready", reason);
 }
+function handleOverlayDocumentReady(payload, source) {
+  const wasReady = overlayDocumentReady;
+  overlayDocumentReady = true;
+  debugLog(
+    "overlay document ready source=" +
+      String(source || "plugin-message") +
+      " first=" +
+      String(!wasReady) +
+      " payloadType=" +
+      typeof payload,
+  );
+  if (
+    !wasReady ||
+    (typeof lookupPopupSessionFromPayload === "function" &&
+      lookupPopupSessionFromPayload(payload))
+  )
+    handleLookupPopupOverlayReady(payload);
+  postToOverlay("config", overlayConfig());
+  postToOverlay("enabled", { enabled });
+  replayActiveOverlayTask();
+  if (enabled) {
+    lastSubtitleCueIdentity = null;
+    pollSubtitle();
+  }
+  updateOverlayRuntimeState("overlay-ready:" + String(source || "message"));
+}
+function handleNativeLayoutDiagnostic(payload) {
+  const diagnostic = payload && typeof payload === "object" ? payload : {};
+  overlayHitLayerReady =
+    diagnostic.accepted === true || diagnostic.reason === "accepted-layout";
+  if (overlayHitLayerReady && !overlayFirstHitLayerAt) {
+    overlayFirstHitLayerAt = Date.now();
+    debugLog(
+      "overlay lifecycle " +
+        JSON.stringify({
+          event: "first-hit-layer",
+          startupToHitLayerMs: overlayEnableStartedAt
+            ? overlayFirstHitLayerAt - overlayEnableStartedAt
+            : 0,
+          ...overlayLifecycleSnapshot(),
+        }),
+    );
+  }
+  if (!logEnabled()) return;
+  const key = JSON.stringify([
+    diagnostic.lineId,
+    diagnostic.reason,
+    diagnostic.osd,
+    diagnostic.viewport,
+    diagnostic.ratios,
+    diagnostic.layoutMetrics,
+    diagnostic.fontState,
+  ]);
+  if (key === lastNativeSubtitleDiagnosticKey) return;
+  lastNativeSubtitleDiagnosticKey = key;
+  debugLog(
+    "experimental native subtitle hit layer: " +
+      String(diagnostic.reason || "unsupported") +
+      " geometry=" +
+      JSON.stringify({
+        osd: diagnostic.osd || null,
+        viewport: diagnostic.viewport || null,
+        dpr: diagnostic.dpr || 0,
+        hidpiScale: diagnostic.hidpiScale || 0,
+        ratios: diagnostic.ratios || null,
+        layoutMetrics: diagnostic.layoutMetrics || null,
+        fontState: diagnostic.fontState || null,
+      }),
+  );
+}
+function handleNativeLayoutPerformance(payload) {
+  if (!verboseLogEnabled()) return;
+  const diagnostic = payload && typeof payload === "object" ? payload : {};
+  debugVerbose(
+    "native overlay DOM profile " +
+      JSON.stringify({
+        mode: String(diagnostic.mode || ""),
+        domUpdateMs: Number(diagnostic.domUpdateMs || 0),
+        hitTargetCount: Number(diagnostic.hitTargetCount || 0),
+      }),
+  );
+}
 function initializeOverlay() {
   ensureOverlayBridge();
   if (initialized) return;
@@ -63,17 +145,7 @@ function initializeOverlay() {
       enabled,
   );
   overlay.onMessage("ready", (payload) => {
-    overlayDocumentReady = true;
-    debugLog("overlay ready received payloadType=" + typeof payload);
-    handleLookupPopupOverlayReady(payload);
-    postToOverlay("config", overlayConfig());
-    postToOverlay("enabled", { enabled });
-    replayActiveOverlayTask();
-    if (enabled) {
-      lastSubtitleCueIdentity = null;
-      pollSubtitle();
-    }
-    updateOverlayRuntimeState("overlay-ready");
+    handleOverlayDocumentReady(payload, "plugin-message");
   });
   overlay.onMessage("lookup-at", (payload) => {
     handleLookupAt(payload);
@@ -94,62 +166,8 @@ function initializeOverlay() {
     nativeLayoutStablePolls = 0;
     if (enabled) pollSubtitle();
   });
-  overlay.onMessage("native-layout-diagnostic", (payload) => {
-    const diagnostic = payload && typeof payload === "object" ? payload : {};
-    overlayHitLayerReady =
-      diagnostic.accepted === true || diagnostic.reason === "accepted-layout";
-    if (overlayHitLayerReady && !overlayFirstHitLayerAt) {
-      overlayFirstHitLayerAt = Date.now();
-      debugLog(
-        "overlay lifecycle " +
-          JSON.stringify({
-            event: "first-hit-layer",
-            startupToHitLayerMs: overlayEnableStartedAt
-              ? overlayFirstHitLayerAt - overlayEnableStartedAt
-              : 0,
-            ...overlayLifecycleSnapshot(),
-          }),
-      );
-    }
-    if (!logEnabled()) return;
-    const key = JSON.stringify([
-      diagnostic.lineId,
-      diagnostic.reason,
-      diagnostic.osd,
-      diagnostic.viewport,
-      diagnostic.ratios,
-      diagnostic.layoutMetrics,
-      diagnostic.fontState,
-    ]);
-    if (key === lastNativeSubtitleDiagnosticKey) return;
-    lastNativeSubtitleDiagnosticKey = key;
-    debugLog(
-      "experimental native subtitle hit layer: " +
-        String(diagnostic.reason || "unsupported") +
-        " geometry=" +
-        JSON.stringify({
-          osd: diagnostic.osd || null,
-          viewport: diagnostic.viewport || null,
-          dpr: diagnostic.dpr || 0,
-          hidpiScale: diagnostic.hidpiScale || 0,
-          ratios: diagnostic.ratios || null,
-          layoutMetrics: diagnostic.layoutMetrics || null,
-          fontState: diagnostic.fontState || null,
-        }),
-    );
-  });
-  overlay.onMessage("native-layout-performance", (payload) => {
-    if (!verboseLogEnabled()) return;
-    const diagnostic = payload && typeof payload === "object" ? payload : {};
-    debugVerbose(
-      "native overlay DOM profile " +
-        JSON.stringify({
-          mode: String(diagnostic.mode || ""),
-          domUpdateMs: Number(diagnostic.domUpdateMs || 0),
-          hitTargetCount: Number(diagnostic.hitTargetCount || 0),
-        }),
-    );
-  });
+  overlay.onMessage("native-layout-diagnostic", handleNativeLayoutDiagnostic);
+  overlay.onMessage("native-layout-performance", handleNativeLayoutPerformance);
   overlay.onMessage("open-external-url", (payload) => {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,

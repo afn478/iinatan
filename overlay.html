@@ -2783,18 +2783,21 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       const key = JSON.stringify([state.lineId, reason, viewport, fontState]);
       if (key !== state.nativeDiagnosticKey) {
         state.nativeDiagnosticKey = key;
+        const diagnostic = {
+          type: "native-layout-diagnostic",
+          lineId: state.lineId,
+          reason,
+          viewport,
+          osd: state.nativeLayout && state.nativeLayout.osd,
+          fontState,
+          dpr: Number(window.devicePixelRatio || 0),
+          hidpiScale: Number(
+            (state.nativeLayout && state.nativeLayout.hidpiScale) || 0,
+          ),
+        };
+        sendBridgeMessage(diagnostic);
         try {
-          iina.postMessage("native-layout-diagnostic", {
-            lineId: state.lineId,
-            reason,
-            viewport,
-            osd: state.nativeLayout && state.nativeLayout.osd,
-            fontState,
-            dpr: Number(window.devicePixelRatio || 0),
-            hidpiScale: Number(
-              (state.nativeLayout && state.nativeLayout.hidpiScale) || 0,
-            ),
-          });
+          iina.postMessage("native-layout-diagnostic", diagnostic);
         } catch (_) {}
       }
     }
@@ -2861,6 +2864,10 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const key = JSON.stringify(diagnostic);
     if (key === state.nativeAcceptedDiagnosticKey) return;
     state.nativeAcceptedDiagnosticKey = key;
+    sendBridgeMessage({
+      type: "native-layout-diagnostic",
+      ...diagnostic,
+    });
     try {
       // Deliberately excludes display/lookup text so ordinary diagnostics do
       // not leak caption contents.
@@ -2880,12 +2887,15 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     hitTargetCount,
   ) {
     if (!state.config || state.config.debugLogVerbose !== true) return;
+    const diagnostic = {
+      type: "native-layout-performance",
+      mode: String(mode || ""),
+      domUpdateMs: Math.max(0, nativeSubtitleDomNow() - startedAt),
+      hitTargetCount: Math.max(0, Number(hitTargetCount) || 0),
+    };
+    sendBridgeMessage(diagnostic);
     try {
-      iina.postMessage("native-layout-performance", {
-        mode: String(mode || ""),
-        domUpdateMs: Math.max(0, nativeSubtitleDomNow() - startedAt),
-        hitTargetCount: Math.max(0, Number(hitTargetCount) || 0),
-      });
+      iina.postMessage("native-layout-performance", diagnostic);
     } catch (_) {}
   }
 
@@ -4064,14 +4074,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     };
     const afterFonts = () => {
       if (!isCurrentCueGeneration()) return;
-      const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 0));
-      raf(() => {
-        if (!isCurrentCueGeneration()) return;
-        raf(() => {
-          if (!isCurrentCueGeneration()) return;
-          measure();
-        });
-      });
+      measure();
     };
     const fontSet = document.fonts;
     if (
@@ -4102,12 +4105,12 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         .then((fontLoad) => {
           if (!fontLoad || !isCurrentCueGeneration()) return;
           const fontSetAccepted = fontSet.check(fontLoad.fontSpec, displayText);
-          if (!isCurrentCueGeneration()) return;
-          if (
-            !fontSetAccepted ||
-            (!fontLoad.fontResolution.localFontVerified &&
-              !nativeFontFamilyAvailable(layout.fontFamily, displayText))
-          ) {
+          const cueIsCurrent = isCurrentCueGeneration();
+          const fontFamilyAvailable =
+            fontLoad.fontResolution.localFontVerified ||
+            nativeFontFamilyAvailable(layout.fontFamily, displayText);
+          if (!cueIsCurrent) return;
+          if (!fontSetAccepted || !fontFamilyAvailable) {
             if (isCurrentCueGeneration()) {
               releaseNativeSubtitleLocalFont();
               invalidateNativeSubtitleHitLayer("font-unavailable");

@@ -25,6 +25,11 @@ function ensureOverlayBridge() {
           " path=" +
           (info && info.path ? info.path : ""),
       );
+      if (typeof handleOverlayDocumentReady === "function")
+        handleOverlayDocumentReady(
+          { type: "connection", connection: String(conn || "") },
+          "bridge-connection",
+        );
     });
     ws.onConnectionStateUpdate((conn, state, error) => {
       if (/close|fail|error|cancel/i.test(String(state || "")))
@@ -54,6 +59,14 @@ function ensureOverlayBridge() {
           payload = JSON.parse(raw);
         } catch (_) {}
         if (
+          payload &&
+          typeof payload === "object" &&
+          payload.type === "hello" &&
+          payload.source === "overlay"
+        ) {
+          if (typeof handleOverlayDocumentReady === "function")
+            handleOverlayDocumentReady(payload, "bridge-hello");
+        } else if (
           payload &&
           typeof payload === "object" &&
           payload.type === "popup"
@@ -95,6 +108,18 @@ function ensureOverlayBridge() {
           payload.type === "open-url"
         ) {
           openExternalUrlFromOverlay(payload.url);
+        } else if (
+          payload &&
+          typeof payload === "object" &&
+          payload.type === "native-layout-diagnostic"
+        ) {
+          handleNativeLayoutDiagnostic(payload);
+        } else if (
+          payload &&
+          typeof payload === "object" &&
+          payload.type === "native-layout-performance"
+        ) {
+          handleNativeLayoutPerformance(payload);
         } else if (
           payload &&
           typeof payload === "object" &&

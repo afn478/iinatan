@@ -411,6 +411,8 @@ function makeOverlayContext(options) {
       },
       getComputedStyle: fakeComputedStyle,
       requestAnimationFrame(handler) {
+        if (typeof options.requestAnimationFrame === "function")
+          return options.requestAnimationFrame(handler);
         return setTimeout(handler, 0);
       },
     },
