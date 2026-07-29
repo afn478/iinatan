@@ -30,6 +30,7 @@
 - Published JavaScript worker requests through complete body files plus commit markers, bounded native request bodies and IDs, and rejected response-path redirection through mismatched request IDs.
 - Preserved an explicitly zero Anki sentence-audio padding value and made profile/global preference write failures propagate instead of being silently ignored.
 - Restricted audio-source redirects to HTTP/HTTPS and limited resolver responses to 4 MiB.
+- Made Apple Silicon release validation install its FFmpeg fixture tool and prevented headless CoreText font probes from hanging CI.
 - Reapplied IINA overlay clickability through a false-to-enabled transition after the WebView reports ready, preventing cold starts from leaving valid subtitle targets invisible and non-interactive until Shift+H is toggled twice.
 - Added native ASS hit geometry for dialogue containing bounded inline italic overrides, so an otherwise ordinary subtitle no longer loses all word targets when one word is italicized.
 - Fixed persisted native-overlay startup and rapid settings reconfiguration by separating desired enablement from runtime/helper/session/hit-layer readiness, accepting overlay readiness and layout diagnostics through the reliable WebSocket bridge, measuring plain-subtitle targets synchronously after font loading when IINA suspends WebView callbacks, invalidating stale async generations, serializing exact-PID worker teardown/startup, and limiting settings changes to their required cache, DOM, polling, visibility, or helper effects.

@@ -163,7 +163,8 @@ const nativeBinary = path.join(root, "bin/iina-hoshi-dicts");
 if (
   process.platform === "darwin" &&
   process.arch === "arm64" &&
-  fs.existsSync(nativeBinary)
+  fs.existsSync(nativeBinary) &&
+  process.env.IINATAN_SKIP_NATIVE_FONT_METRICS !== "1"
 ) {
   function runFontMetrics(requested, bold, italic, cue) {
     const tempRoot = fs.mkdtempSync(
@@ -187,7 +188,12 @@ if (
           "--cue-file",
           cuePath,
         ],
-        { encoding: "utf8" },
+        { encoding: "utf8", timeout: 15000 },
+      );
+      assert(
+        !result.error,
+        "Native font metric probe failed to complete: " +
+          String(result.error || ""),
       );
       assert(
         !fs.existsSync(cuePath),

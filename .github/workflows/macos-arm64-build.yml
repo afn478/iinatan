@@ -39,6 +39,7 @@ jobs:
       - name: Ensure build tools
         run: |
           brew list cmake >/dev/null 2>&1 || brew install cmake
+          brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
 
       - name: Generate plugin runtime files
         run: python3 scripts/build_plugin.py
@@ -52,6 +53,11 @@ jobs:
           file bin/iina-hoshi-dicts
 
       - name: Run JavaScript and native geometry tests
+        env:
+          # CoreText font selection can block without a logged-in WindowServer
+          # session. Static font protocol checks still run here; live probes
+          # remain part of local macOS validation.
+          IINATAN_SKIP_NATIVE_FONT_METRICS: "1"
         run: npm test
 
       - name: Package corresponding native source
