@@ -73,6 +73,7 @@ MAIN_RUNTIME_PARTS = [
     "src/main/12_native_subtitle_hit_layer.js",
     "src/main/15_profile_settings.js",
     "src/main/20_dictionary_manifest.js",
+    "src/main/22_profile_backup.js",
     "src/main/25_import_validation.js",
     "src/main/30_backend_import_worker_lookup.js",
     "src/main/40_legacy_line_precompute.js",

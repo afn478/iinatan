@@ -8,6 +8,7 @@ function emptyManifest() {
     dictionaryOrder: [],
     activeProfileId: DEFAULT_PROFILE_ID,
     profiles: {},
+    pendingDictionaryReferences: {},
   };
 }
 function normalizeDictionaryOrder(order) {
@@ -23,11 +24,44 @@ function normalizeDictionaryOrder(order) {
   });
   return out;
 }
+function validManifestMapKey(value) {
+  const key = String(value || "").trim();
+  return !!(
+    key &&
+    key !== "__proto__" &&
+    key !== "constructor" &&
+    key !== "prototype"
+  );
+}
 function normalizeDisabledMap(map) {
   const out = {};
   if (!map || typeof map !== "object") return out;
   Object.keys(map).forEach((name) => {
-    if (map[name]) out[name] = true;
+    if (validManifestMapKey(name) && map[name]) out[name] = true;
+  });
+  return out;
+}
+function normalizeDictionaryReference(reference, fallbackTitle) {
+  const source =
+    reference && typeof reference === "object" && !Array.isArray(reference)
+      ? reference
+      : {};
+  const out = {
+    title: String(source.title || fallbackTitle || "").trim(),
+  };
+  ["revision", "indexUrl", "downloadUrl", "language"].forEach((key) => {
+    const value = String(source[key] || "").trim();
+    if (value) out[key] = value;
+  });
+  return out;
+}
+function normalizePendingDictionaryReferences(references) {
+  const out = {};
+  if (!references || typeof references !== "object") return out;
+  Object.keys(references).forEach((name) => {
+    const key = String(name || "").trim();
+    if (!validManifestMapKey(key) || key.length > 500) return;
+    out[key] = normalizeDictionaryReference(references[name], key);
   });
   return out;
 }
@@ -81,10 +115,14 @@ function normalizeManifestShape(manifest) {
   out.disabled = normalizeDisabledMap(out.disabled);
   out.dictionaryOrder = normalizeDictionaryOrder(out.dictionaryOrder);
   out.activeProfileId = String(out.activeProfileId || DEFAULT_PROFILE_ID);
+  out.pendingDictionaryReferences = normalizePendingDictionaryReferences(
+    out.pendingDictionaryReferences,
+  );
   const sourceProfiles =
     out.profiles && typeof out.profiles === "object" ? out.profiles : {};
   const profiles = {};
   Object.keys(sourceProfiles).forEach((id) => {
+    if (!validManifestMapKey(id)) return;
     profiles[id] = normalizeManifestProfile(id, sourceProfiles[id], out, true);
   });
   if (!profiles[out.activeProfileId])
@@ -709,6 +747,9 @@ function removeDictionaryReferencesFromManifest(manifest, names) {
   Object.keys(normalized.disabled).forEach((name) => {
     if (removeMap[name]) delete normalized.disabled[name];
   });
+  Object.keys(normalized.pendingDictionaryReferences || {}).forEach((name) => {
+    if (removeMap[name]) delete normalized.pendingDictionaryReferences[name];
+  });
   return normalizeManifestShape(normalized);
 }
 function replaceDictionaryReferencesInProfile(
@@ -778,6 +819,17 @@ function replaceDictionaryReferencesInManifest(
   });
   if (replacement && replacementDisabled)
     normalized.disabled[replacement] = true;
+  Object.keys(normalized.pendingDictionaryReferences || {}).forEach((name) => {
+    if (!removeMap[name]) return;
+    const reference = normalized.pendingDictionaryReferences[name];
+    delete normalized.pendingDictionaryReferences[name];
+    if (replacement && !normalized.pendingDictionaryReferences[replacement])
+      normalized.pendingDictionaryReferences[replacement] = Object.assign(
+        {},
+        reference,
+        { title: replacement },
+      );
+  });
   return normalizeManifestShape(normalized);
 }
 function installedDictionaryByName(name) {

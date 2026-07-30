@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added JSON backup and restore for all profiles and global dictionary-import settings. Missing dictionary references retain their order and enabled state and are reconciled when matching dictionaries are installed later.
 - Added opt-in nested dictionary popups: scan definition text by Yomitan-style hover or Hoshi Reader/Chimahon-style click, keep parent entries visible, position each child independently of subtitle spacing, and cap the popup depth per profile.
 
 ### Fixed

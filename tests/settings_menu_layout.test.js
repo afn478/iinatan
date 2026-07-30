@@ -272,6 +272,18 @@ assert(
   "Settings manager should delete profiles",
 );
 assert(
+  /data-panel="backup"/.test(managerHtml) &&
+    /id="exportProfileSettings"/.test(managerHtml) &&
+    /id="restoreProfileSettings"/.test(managerHtml),
+  "Settings manager should expose profile settings backup and restore",
+);
+assert(
+  /References to dictionaries which are not installed are retained/.test(
+    managerHtml,
+  ),
+  "Backup UI should explain delayed dictionary reconciliation",
+);
+assert(
   /Delete/.test(managerHtml),
   "Dictionary manager rows should include a delete button",
 );
@@ -537,6 +549,11 @@ assert(
 assert(
   /dictionary-manager-update-global-settings/.test(managerBridgeSource),
   "Settings manager should handle global import settings",
+);
+assert(
+  /dictionary-manager-export-profile-settings/.test(managerBridgeSource) &&
+    /dictionary-manager-restore-profile-settings/.test(managerBridgeSource),
+  "Settings manager should handle profile settings backup and restore",
 );
 assert(
   /dictionary-manager-anki-refresh/.test(managerBridgeSource),

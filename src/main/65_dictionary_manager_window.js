@@ -108,7 +108,11 @@ function runDictionaryManagerAction(label, action) {
         );
         return;
       }
-      postDictionaryManagerStatus(actionLabel + " complete.", "info", false);
+      postDictionaryManagerStatus(
+        (result && result.message) || actionLabel + " complete.",
+        "info",
+        false,
+      );
     } catch (error) {
       const msg = actionLabel + " failed: " + compactError(error);
       debugError(
@@ -255,6 +259,18 @@ function registerDictionaryManagerHandlers() {
   });
   onMessage("dictionary-manager-import-zip", () => {
     runDictionaryManagerZipImport();
+  });
+  onMessage("dictionary-manager-export-profile-settings", () => {
+    runDictionaryManagerAction(
+      "Exporting settings backup",
+      exportProfileSettingsBackup,
+    );
+  });
+  onMessage("dictionary-manager-restore-profile-settings", () => {
+    runDictionaryManagerAction(
+      "Restoring settings backup",
+      restoreProfileSettingsBackup,
+    );
   });
   onMessage("dictionary-manager-switch-profile", (payload) => {
     const profileId = payload && payload.profileId;

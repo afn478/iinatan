@@ -385,6 +385,7 @@
       <button class="tab" type="button" data-tab="popup">Popup</button>
       <button class="tab" type="button" data-tab="dictionaries">Dictionaries</button>
       <button class="tab" type="button" data-tab="advanced">Advanced</button>
+      <button class="tab" type="button" data-tab="backup">Backup</button>
     </nav>
     <div id="status" class="status"></div>
 
@@ -669,6 +670,16 @@
         <label class="check-field"><input data-profile-pref="debugLogVerbose" type="checkbox"><span>Include detailed diagnostic logs</span></label>
       </div>
     </section>
+
+    <section class="panel" data-panel="backup">
+      <h2>Backup And Restore</h2>
+      <p>Export every profile, its dictionary order and enabled state, and global dictionary-import settings to JSON. Dictionary files are not included.</p>
+      <div class="toolbar">
+        <button id="exportProfileSettings" class="primary" type="button">Export Settings...</button>
+        <button id="restoreProfileSettings" type="button">Restore Settings...</button>
+      </div>
+      <p><small>Restoring replaces all profiles. References to dictionaries which are not installed are retained and applied when a matching dictionary is added later. Backups can contain custom URLs, Anki settings, templates, and CSS; store them privately and restore only files you trust.</small></p>
+    </section>
   </main>
   <div id="recommendedDialogBackdrop" class="dialog-backdrop" hidden>
     <section id="recommendedDialog" class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="recommendedDialogTitle">
@@ -714,6 +725,8 @@
       newProfile: document.getElementById('newProfile'),
       renameProfile: document.getElementById('renameProfile'),
       deleteProfile: document.getElementById('deleteProfile'),
+      exportProfileSettings: document.getElementById('exportProfileSettings'),
+      restoreProfileSettings: document.getElementById('restoreProfileSettings'),
       importZip: document.getElementById('importZip'),
       refresh: document.getElementById('refresh'),
       openRecommended: document.getElementById('openRecommended'),
@@ -790,7 +803,7 @@
     }
     function updateBusyState() {
       const disabled = !!state.busy;
-      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.addAudioSource, els.openRecommended, els.ankiRefresh].forEach(button => {
+      [els.importZip, els.refresh, els.newProfile, els.renameProfile, els.exportProfileSettings, els.restoreProfileSettings, els.addAudioSource, els.openRecommended, els.ankiRefresh].filter(Boolean).forEach(button => {
         button.disabled = disabled;
       });
       els.openRecommended.disabled = disabled || !state.recommendedDictionaries.length;
@@ -1543,6 +1556,8 @@
       control.addEventListener('change', saveGlobalSettings);
     });
     els.importZip.addEventListener('click', () => command('dictionary-manager-import-zip', {}, 'Opening ZIP picker...', { busy: false, clearAfterMs: 5000 }));
+    els.exportProfileSettings.addEventListener('click', () => command('dictionary-manager-export-profile-settings', {}, 'Choosing backup folder...'));
+    els.restoreProfileSettings.addEventListener('click', () => command('dictionary-manager-restore-profile-settings', {}, 'Choosing settings backup...'));
     els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');

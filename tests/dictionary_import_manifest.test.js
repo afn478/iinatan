@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, "..");
 const files = [
   "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
+  "src/main/22_profile_backup.js",
   "src/main/30_backend_import_worker_lookup.js",
 ];
 
@@ -222,6 +223,45 @@ assert(
 assert(
   manifest.profiles.default.preferences.ankiDuplicateCheck === true,
   "Anki duplicate checking should default on per profile",
+);
+
+storage["/data/manifest.json"] = JSON.stringify({
+  activeProfileId: "default",
+  dictionaries: {},
+  profiles: {
+    default: {
+      id: "default",
+      name: "Default",
+      dictionaryOrder: ["Versioned Dictionary 1"],
+      disabled: { "Versioned Dictionary 1": true },
+      preferences: {},
+    },
+  },
+  pendingDictionaryReferences: {
+    "Versioned Dictionary 1": {
+      title: "Versioned Dictionary 1",
+      downloadUrl: "https://example.test/versioned.zip",
+    },
+  },
+});
+storage["/data/dictionaries/Versioned Dictionary 2/index.json"] =
+  JSON.stringify({
+    title: "Versioned Dictionary 2",
+    downloadUrl: "https://example.test/versioned.zip",
+  });
+context.updateManifestAfterImport(
+  { ok: true, title: "Versioned Dictionary 2" },
+  "/tmp/latin.zip",
+);
+manifest = JSON.parse(storage["/data/manifest.json"]);
+assert(
+  manifest.profiles.default.dictionaryOrder[0] === "Versioned Dictionary 2" &&
+    manifest.profiles.default.disabled["Versioned Dictionary 2"] === true,
+  "dictionary import should apply pending restored order and enabled state",
+);
+assert(
+  !manifest.pendingDictionaryReferences["Versioned Dictionary 1"],
+  "dictionary import should clear a matched pending reference",
 );
 
 assert(

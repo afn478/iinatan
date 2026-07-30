@@ -272,6 +272,14 @@ function updateManifestAfterImport(importResult, zipPath) {
     pitchCount: numericImportField(importResult, "pitch_count", "pitchCount"),
     freqCount: numericImportField(importResult, "freq_count", "freqCount"),
   };
+  manifest = reconcilePendingDictionaryReferences(manifest, {
+    name: title,
+    title: meta.title || title,
+    revision: meta.revision || "",
+    indexUrl: meta.indexUrl || "",
+    downloadUrl: meta.downloadUrl || "",
+    language: language || "unknown",
+  });
   manifest = ensureDictionaryInActiveProfileOrder(manifest, title);
   writeManifest(manifest);
 }

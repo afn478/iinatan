@@ -9,6 +9,7 @@ const TESTS = [
   ["dictionary", "tests/import_validation.test.js"],
   ["dictionary", "tests/dictionary_pipeline.test.js"],
   ["settings", "tests/profile_settings.test.js"],
+  ["settings", "tests/profile_backup_restore.test.js"],
   ["overlay", "tests/experimental_native_subtitle_hit_layer.test.js"],
   ["overlay", "tests/native_overlay_lifecycle.test.js"],
   ["settings", "tests/dictionary_import_manifest.test.js"],
