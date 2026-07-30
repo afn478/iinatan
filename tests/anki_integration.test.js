@@ -27,12 +27,17 @@ const context = {
   Date,
   Math,
   setTimeout(callback, delay) {
-    if (fastTimers && Number(delay) < 50000) return setTimeout(callback, 0);
+    if (fastTimers && Number(delay) < 50000)
+      return { immediate: setImmediate(callback) };
     if (Number(delay) >= 50000) return { ignored: true };
     return setTimeout(callback, delay);
   },
   clearTimeout(timer) {
     if (timer && timer.ignored) return;
+    if (timer && timer.immediate) {
+      clearImmediate(timer.immediate);
+      return;
+    }
     clearTimeout(timer);
   },
   lastSubtitle: "私は猫です。",
