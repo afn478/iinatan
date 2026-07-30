@@ -267,7 +267,7 @@ function normalizeProfilePreferences(prefs) {
       : "off";
   out.nestedPopupMaxDepth = Math.max(
     1,
-    Math.min(5, Math.round(Number(out.nestedPopupMaxDepth) || 3)),
+    Math.min(99999, Math.round(Number(out.nestedPopupMaxDepth) || 3)),
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,

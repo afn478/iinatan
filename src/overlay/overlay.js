@@ -1308,7 +1308,10 @@
         : "off";
     state.config.nestedPopupMaxDepth = Math.max(
       1,
-      Math.min(5, Math.round(Number(state.config.nestedPopupMaxDepth) || 3)),
+      Math.min(
+        99999,
+        Math.round(Number(state.config.nestedPopupMaxDepth) || 3),
+      ),
     );
     state.config.audioSources = normalizeAudioSources(
       state.config.audioSources,

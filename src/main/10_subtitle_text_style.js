@@ -255,7 +255,7 @@ function overlayConfig() {
     nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
     nestedPopupMaxDepth: Math.max(
       1,
-      Math.min(5, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
+      Math.min(99999, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
     ),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     experimentalNativeSubtitleHitLayer: prefBool(

@@ -286,10 +286,13 @@ assert(
   "Closing the nested stack should remove child windows and source highlights",
 );
 
-overlay.applyConfig({ nestedPopupMode: "unexpected", nestedPopupMaxDepth: 99 });
+overlay.applyConfig({
+  nestedPopupMode: "unexpected",
+  nestedPopupMaxDepth: 100000,
+});
 assert(
   overlay.state.config.nestedPopupMode === "off" &&
-    overlay.state.config.nestedPopupMaxDepth === 5,
+    overlay.state.config.nestedPopupMaxDepth === 99999,
   "Invalid nested popup settings should normalize to off and a safe depth",
 );
 

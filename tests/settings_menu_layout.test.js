@@ -224,7 +224,7 @@ assert(
   "Settings manager should expose Yomitan-style hover and reader-style click modes",
 );
 assert(
-  /data-profile-pref="nestedPopupMaxDepth"/.test(managerHtml),
+  /data-profile-pref="nestedPopupMaxDepth"[^>]*max="99999"/.test(managerHtml),
   "Settings manager should expose the maximum child popup depth",
 );
 assert(

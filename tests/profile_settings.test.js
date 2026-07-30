@@ -152,11 +152,11 @@ prefs = settings.normalizeProfilePreferences({
 });
 const nestedPopupPrefs = settings.normalizeProfilePreferences({
   nestedPopupMode: "HOVER",
-  nestedPopupMaxDepth: 99,
+  nestedPopupMaxDepth: 100000,
 });
 assert(
   nestedPopupPrefs.nestedPopupMode === "hover" &&
-    nestedPopupPrefs.nestedPopupMaxDepth === 5,
+    nestedPopupPrefs.nestedPopupMaxDepth === 99999,
   "Nested popup mode and depth should normalize to supported profile values",
 );
 const invalidNestedPopupPrefs = settings.normalizeProfilePreferences({

@@ -407,7 +407,7 @@ function handleBridgeNestedLookup(payload) {
   );
   const depth = Math.max(
     1,
-    Math.min(5, Math.round(Number((payload && payload.depth) || 1) || 1)),
+    Math.min(99999, Math.round(Number((payload && payload.depth) || 1) || 1)),
   );
   postToOverlay("nested-lookup-ack", { requestId, lineId, depth });
   if (activeNestedLookupRequests[requestId]) return;
@@ -417,7 +417,7 @@ function handleBridgeNestedLookup(payload) {
   const maxDepth = Math.max(
     1,
     Math.min(
-      5,
+      99999,
       Math.round(
         Number(activeProfilePreferenceValue("nestedPopupMaxDepth", 3)) || 3,
       ),

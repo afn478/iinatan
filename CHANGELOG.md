@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.0.3 - 2026-07-30
+
+### Changed
+
+- Increased the configurable maximum nested-popup depth from 5 to 99,999.
+
 ### Fixed
 
 - Allowed clicks on a nested lookup's source word or empty parent-popup space to dismiss only that popup's descendants, while clicks on a different word still replace the direct child in both hover and click modes.
