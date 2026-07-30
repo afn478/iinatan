@@ -61,6 +61,12 @@ assert(
   /font-size: 16px/.test(context.__head.children[0].textContent),
   "Custom CSS should be applied",
 );
+assert(
+  /:is\(#popup, \.nested-popup\) \.gloss/.test(
+    context.__head.children[0].textContent,
+  ),
+  "Root-popup custom CSS should also style nested popup entries",
+);
 
 overlay.applyConfig({ popupTheme: "light" });
 assert(
@@ -1140,11 +1146,11 @@ assert(
   "Popup CSS should not define a separate inherit theme",
 );
 assert(
-  /#popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css),
+  /\.lookup-popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css),
   "Popup header should keep its spacing",
 );
 assert(
-  !/#popup \.head \{[^}]*border-bottom:/s.test(css),
+  !/\.lookup-popup \.head \{[^}]*border-bottom:/s.test(css),
   "Popup header should not draw a horizontal rule below the headword",
 );
 assert(
@@ -1154,13 +1160,13 @@ assert(
   "Popup readings and ruby headwords should share one inline stack",
 );
 assert(
-  /#popup \.term rt \{[^}]*color: var\(--popup-reading\);[^}]*font-size: 0\.53em;[^}]*\}/.test(
+  /\.lookup-popup \.term rt \{[^}]*color: var\(--popup-reading\);[^}]*font-size: 0\.53em;[^}]*\}/.test(
     css,
   ),
   "Primary Japanese furigana should use compact reading styling",
 );
 assert(
-  /#popup \.reading \{[^}]*display: block;[^}]*margin: 0 0 2px;[^}]*text-align: center;[^}]*\}/.test(
+  /\.lookup-popup \.reading \{[^}]*display: block;[^}]*margin: 0 0 2px;[^}]*text-align: center;[^}]*\}/.test(
     css,
   ),
   "Popup readings should no longer render inline beside the headword",

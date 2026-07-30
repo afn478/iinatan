@@ -208,7 +208,7 @@
     }
     .char.ready { text-decoration: underline rgba(150, 195, 255, 0.55) 0.055em; text-underline-offset: 0.11em; }
     .char.nonlookup { pointer-events: none; }
-    #popup {
+    .lookup-popup {
       position: absolute;
       z-index: 20;
       min-width: 250px;
@@ -229,7 +229,27 @@
       pointer-events: auto;
       user-select: text;
     }
-    #popup.hidden { display: none; }
+    .lookup-popup.hidden { display: none; }
+    #nested-popup-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      pointer-events: none;
+    }
+    .nested-popup {
+      pointer-events: auto;
+    }
+    .nested-popup-highlight {
+      position: fixed;
+      z-index: 29;
+      border-radius: 3px;
+      background: rgba(128, 173, 255, 0.28);
+      box-shadow: 0 0 0 1px rgba(128, 173, 255, 0.48);
+      pointer-events: none;
+    }
+    .lookup-popup[data-nested-enabled="true"] .body {
+      cursor: text;
+    }
     #popup-safety-zone,
     #popup-row-safety-zone {
       position: absolute;
@@ -239,21 +259,21 @@
     }
     #popup-safety-zone.hidden,
     #popup-row-safety-zone.hidden { display: none; }
-    #popup::-webkit-scrollbar { width: 10px; }
-    #popup::-webkit-scrollbar-track { background: var(--popup-scroll-track); border-radius: 999px; }
-    #popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
-    #popup::-webkit-scrollbar-thumb:hover { background: var(--popup-scroll-thumb-hover); }
-    #popup .head { padding: 14px 18px 12px; }
-    #popup .head-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
-    #popup .head-title { display: flex; align-items: flex-start; flex: 1 1 auto; min-width: 0; }
+    .lookup-popup::-webkit-scrollbar { width: 10px; }
+    .lookup-popup::-webkit-scrollbar-track { background: var(--popup-scroll-track); border-radius: 999px; }
+    .lookup-popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
+    .lookup-popup::-webkit-scrollbar-thumb:hover { background: var(--popup-scroll-thumb-hover); }
+    .lookup-popup .head { padding: 14px 18px 12px; }
+    .lookup-popup .head-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
+    .lookup-popup .head-title { display: flex; align-items: flex-start; flex: 1 1 auto; min-width: 0; }
     .headword-stack { display: inline-block; max-width: 100%; }
-    #popup .term { display: block; max-width: 100%; text-align: center; font-size: 30px; font-weight: 800; line-height: 1.15; }
-    #popup .term rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 650; line-height: 1.1; -webkit-user-select: none; }
-    #popup .reading { display: block; max-width: 100%; margin: 0 0 2px; color: var(--popup-reading); text-align: center; font-size: 16px; font-weight: 650; line-height: 1.15; }
-    #popup .lookup-source { margin-top: 4px; color: var(--popup-faint); font-size: 12px; font-weight: 650; line-height: 1.25; }
-    #popup .body { padding: 12px 18px 16px; font-size: 15px; line-height: 1.45; }
-    #popup .loading, #popup .error, #popup .empty { color: var(--popup-muted); font-weight: 650; white-space: normal; }
-    #popup .error { color: var(--popup-error); }
+    .lookup-popup .term { display: block; max-width: 100%; text-align: center; font-size: 30px; font-weight: 800; line-height: 1.15; }
+    .lookup-popup .term rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 650; line-height: 1.1; -webkit-user-select: none; }
+    .lookup-popup .reading { display: block; max-width: 100%; margin: 0 0 2px; color: var(--popup-reading); text-align: center; font-size: 16px; font-weight: 650; line-height: 1.15; }
+    .lookup-popup .lookup-source { margin-top: 4px; color: var(--popup-faint); font-size: 12px; font-weight: 650; line-height: 1.25; }
+    .lookup-popup .body { padding: 12px 18px 16px; font-size: 15px; line-height: 1.45; }
+    .lookup-popup .loading, .lookup-popup .error, .lookup-popup .empty { color: var(--popup-muted); font-weight: 650; white-space: normal; }
+    .lookup-popup .error { color: var(--popup-error); }
     .entry + .entry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--popup-divider); }
     .dict { color: var(--popup-muted); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }

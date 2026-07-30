@@ -252,6 +252,11 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
+    nestedPopupMaxDepth: Math.max(
+      1,
+      Math.min(5, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
+    ),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     experimentalNativeSubtitleHitLayer: prefBool(
       "experimentalNativeSubtitleHitLayer",

@@ -540,14 +540,15 @@ async function ankiStoreWordAudio(context, prefs) {
 async function ankiCaptureNeededMedia(needs, context, prefs) {
   const media = {};
   const jobs = [];
-  if (needs.screenshot) {
+  const allowCurrentMedia = !context || context.allowCurrentMedia !== false;
+  if (needs.screenshot && allowCurrentMedia) {
     jobs.push(
       ankiCaptureScreenshot(context, prefs).then((value) => {
         media.screenshot = value;
       }),
     );
   }
-  if (needs.sentenceAudio) {
+  if (needs.sentenceAudio && allowCurrentMedia) {
     jobs.push(
       ankiCaptureSentenceAudio(context, prefs).then((value) => {
         media.sentenceAudio = value;

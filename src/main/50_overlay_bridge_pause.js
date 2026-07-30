@@ -11,6 +11,9 @@ const OVERLAY_BRIDGE_HANDLERS = {
   lookup(payload) {
     handleBridgeLookup(payload);
   },
+  "nested-lookup"(payload) {
+    handleBridgeNestedLookup(payload);
+  },
   "audio-source"(payload) {
     handleBridgeAudioSource(payload);
   },
@@ -380,6 +383,101 @@ function handleBridgeLookup(payload) {
       hoverLookupActiveKey,
   );
   processHoverLookupQueue();
+}
+const activeNestedLookupRequests = Object.create(null);
+function handleBridgeNestedLookup(payload) {
+  const requestId =
+    payload && payload.requestId !== undefined
+      ? String(payload.requestId)
+      : String(++requestSerial);
+  const lineId = Number(
+    payload && payload.lineId !== undefined
+      ? payload.lineId
+      : currentSubtitleLineId,
+  );
+  const text = String((payload && payload.text) || "").slice(0, 4000);
+  const position = Math.max(
+    0,
+    Math.min(
+      charsOf(text).length,
+      Number(
+        payload && payload.position !== undefined ? payload.position : 0,
+      ) || 0,
+    ),
+  );
+  const depth = Math.max(
+    1,
+    Math.min(5, Math.round(Number((payload && payload.depth) || 1) || 1)),
+  );
+  postToOverlay("nested-lookup-ack", { requestId, lineId, depth });
+  if (activeNestedLookupRequests[requestId]) return;
+  const mode = String(
+    activeProfilePreferenceValue("nestedPopupMode", "off") || "off",
+  ).toLowerCase();
+  const maxDepth = Math.max(
+    1,
+    Math.min(
+      5,
+      Math.round(
+        Number(activeProfilePreferenceValue("nestedPopupMaxDepth", 3)) || 3,
+      ),
+    ),
+  );
+  if (
+    !enabled ||
+    lineId !== currentSubtitleLineId ||
+    depth > maxDepth ||
+    (mode !== "hover" && mode !== "click")
+  ) {
+    postToOverlay("nested-lookup-result", {
+      requestId,
+      lineId,
+      depth,
+      ok: false,
+      error:
+        mode === "off"
+          ? "Nested popup lookup is disabled."
+          : depth > maxDepth
+            ? "Nested popup depth exceeds the configured limit."
+            : "Subtitle line changed before nested lookup completed.",
+    });
+    return;
+  }
+  if (!text.trim()) {
+    postToOverlay("nested-lookup-result", {
+      requestId,
+      lineId,
+      depth,
+      ok: false,
+      error: "No popup text was available to look up.",
+    });
+    return;
+  }
+  activeNestedLookupRequests[requestId] = true;
+  (async () => {
+    try {
+      const result = await lookupAtPosition(text, position, requestId);
+      postToOverlay("nested-lookup-result", {
+        requestId,
+        lineId,
+        depth,
+        position,
+        ok: true,
+        result,
+      });
+    } catch (error) {
+      postToOverlay("nested-lookup-result", {
+        requestId,
+        lineId,
+        depth,
+        position,
+        ok: false,
+        error: compactError(error),
+      });
+    } finally {
+      delete activeNestedLookupRequests[requestId];
+    }
+  })();
 }
 function processHoverLookupQueue() {
   if (hoverLookupInFlight) return;

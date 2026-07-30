@@ -150,6 +150,24 @@ prefs = settings.normalizeProfilePreferences({
   experimentalNativeSubtitleValidation: "yes",
   unknownSetting: "ignored",
 });
+const nestedPopupPrefs = settings.normalizeProfilePreferences({
+  nestedPopupMode: "HOVER",
+  nestedPopupMaxDepth: 99,
+});
+assert(
+  nestedPopupPrefs.nestedPopupMode === "hover" &&
+    nestedPopupPrefs.nestedPopupMaxDepth === 5,
+  "Nested popup mode and depth should normalize to supported profile values",
+);
+const invalidNestedPopupPrefs = settings.normalizeProfilePreferences({
+  nestedPopupMode: "unknown",
+  nestedPopupMaxDepth: 0,
+});
+assert(
+  invalidNestedPopupPrefs.nestedPopupMode === "off" &&
+    invalidNestedPopupPrefs.nestedPopupMaxDepth === 3,
+  "Invalid nested popup settings should fall back to safe defaults",
+);
 
 assert(prefs.audioAutoPlay === true, "Boolean-like strings should normalize");
 assert(

@@ -213,6 +213,21 @@ assert(
   "Settings manager should expose per-profile popup color mode",
 );
 assert(
+  info.preferenceDefaults.nestedPopupMode === "off" &&
+    info.preferenceDefaults.nestedPopupMaxDepth === 3,
+  "Nested popup scanning should be opt-in with a bounded default depth",
+);
+assert(
+  /data-profile-pref="nestedPopupMode"/.test(managerHtml) &&
+    /Hover \(Yomitan style\)/.test(managerHtml) &&
+    /Click \(Hoshi Reader \/ Chimahon style\)/.test(managerHtml),
+  "Settings manager should expose Yomitan-style hover and reader-style click modes",
+);
+assert(
+  /data-profile-pref="nestedPopupMaxDepth"/.test(managerHtml),
+  "Settings manager should expose the maximum child popup depth",
+);
+assert(
   /data-profile-pref="flattenSubtitleLineBreaks"/.test(managerHtml),
   "Settings manager should expose opt-in subtitle line-break flattening",
 );

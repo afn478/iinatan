@@ -9,6 +9,7 @@
   let nativeSubtitleLocalFont = null;
   let nativeSubtitleLocalFontGeneration = 0;
   const popupEl = document.getElementById("popup");
+  const nestedPopupLayerEl = document.getElementById("nested-popup-layer");
   const popupSafetyZoneEl = document.getElementById("popup-safety-zone");
   const popupRowSafetyZoneEl = document.getElementById("popup-row-safety-zone");
   const statusEl = document.getElementById("status");
@@ -28,6 +29,8 @@
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
+      nestedPopupMode: "off",
+      nestedPopupMaxDepth: 3,
       flattenSubtitleLineBreaks: false,
       experimentalNativeSubtitleHitLayer: false,
       experimentalNativeSubtitleLookupHighlight: true,
@@ -84,6 +87,11 @@
     pendingAnkiStatusTimers: Object.create(null),
     pendingLookupTimers: Object.create(null),
     pendingLookupRequests: Object.create(null),
+    nestedPopups: [],
+    nestedLookupRequestSeq: 0,
+    pendingNestedLookupRequests: Object.create(null),
+    nestedHoverTimer: null,
+    nestedHoverKey: "",
     charByPos: Object.create(null),
     task: null,
     taskTimer: null,
@@ -1093,7 +1101,9 @@
         const host = document.head || document.documentElement;
         if (host && host.appendChild) host.appendChild(customPopupStyleEl);
       }
-      customPopupStyleEl.textContent = css.slice(0, 50000);
+      customPopupStyleEl.textContent = css
+        .slice(0, 50000)
+        .replace(/#popup(?![-_a-zA-Z0-9])/g, ":is(#popup, .nested-popup)");
       overlayDebug(
         "custom popup CSS applied bytes=" +
           String(customPopupStyleEl.textContent.length),
@@ -1289,6 +1299,17 @@
       !!state.config.experimentalNativeSubtitleLookupHighlight;
     state.config = Object.assign({}, state.config, config || {});
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    const nestedPopupMode = String(state.config.nestedPopupMode || "")
+      .trim()
+      .toLowerCase();
+    state.config.nestedPopupMode =
+      nestedPopupMode === "hover" || nestedPopupMode === "click"
+        ? nestedPopupMode
+        : "off";
+    state.config.nestedPopupMaxDepth = Math.max(
+      1,
+      Math.min(5, Math.round(Number(state.config.nestedPopupMaxDepth) || 3)),
+    );
     state.config.audioSources = normalizeAudioSources(
       state.config.audioSources,
     );
@@ -1387,6 +1408,7 @@
         String(state.config.subtitleShadowBlur),
       );
     applyCustomPopupCss(state.config.customPopupCss || "");
+    updateNestedPopupScanningState();
     if (state.config.overlayBridgePort) {
       state.bridgePort = Number(state.config.overlayBridgePort);
       ensureBridgeSocket();
@@ -1398,6 +1420,10 @@
         String(state.config.popupScale) +
         " popupTheme=" +
         String(state.config.popupTheme || "inherit") +
+        " nestedPopupMode=" +
+        String(state.config.nestedPopupMode || "off") +
+        " nestedPopupMaxDepth=" +
+        String(state.config.nestedPopupMaxDepth || 3) +
         " etymologyCollapseDefault=" +
         String(state.config.etymologyCollapseDefault || "collapsed") +
         " wiktionaryOverride=" +
@@ -3106,6 +3132,7 @@
     state.currentPos = null;
     state.activeMatchStart = null;
     state.activeMatchLength = 0;
+    clearNestedPopups(0);
     const experimentalMode =
       state.enabled && state.config.experimentalNativeSubtitleHitLayer;
     if (experimentalMode) {
@@ -3448,7 +3475,8 @@
   }
   function closestExternalLink(target) {
     let el = target;
-    while (el && el !== popupEl) {
+    const popup = popupContainerForNode(target);
+    while (el && el !== popup) {
       if (el.getAttribute && el.getAttribute("data-external-url")) return el;
       el = el.parentNode;
     }
@@ -3479,15 +3507,16 @@
         String(sent),
     );
   }
-  popupEl.addEventListener("mouseenter", cancelHidePopupTimer);
-  popupEl.addEventListener("mouseleave", scheduleHidePopup);
   popupSafetyZoneEl.addEventListener("mouseenter", cancelHidePopupTimer);
   popupSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
   popupRowSafetyZoneEl.addEventListener("mouseenter", cancelHidePopupTimer);
   popupRowSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
-  popupEl.addEventListener("click", onPopupClick, true);
-  function trapPopupWheel(ev) {
-    if (popupEl.classList.contains("hidden")) return;
+  function trapPopupWheel(ev, explicitPopup) {
+    const popup =
+      explicitPopup ||
+      popupContainerForNode(ev && ev.currentTarget) ||
+      popupContainerForNode(ev && ev.target);
+    if (!popup || popup.classList.contains("hidden")) return;
     ev.preventDefault();
     ev.stopPropagation();
     if (typeof ev.stopImmediatePropagation === "function")
@@ -3496,28 +3525,21 @@
     const dy = Number(ev.deltaY || 0);
     // Manually scroll so the gesture is consumed by the overlay instead of being
     // interpreted by IINA as seek/fast-forward.
-    if (Math.abs(dy) >= Math.abs(dx)) popupEl.scrollTop += dy;
-    else popupEl.scrollLeft += dx;
+    if (Math.abs(dy) >= Math.abs(dx)) popup.scrollTop += dy;
+    else popup.scrollLeft += dx;
   }
-  popupEl.addEventListener("wheel", trapPopupWheel, {
-    passive: false,
-    capture: true,
-  });
-  popupEl.addEventListener("mousewheel", trapPopupWheel, {
-    passive: false,
-    capture: true,
-  });
-  popupEl.addEventListener("DOMMouseScroll", trapPopupWheel, {
-    passive: false,
-    capture: true,
-  });
+  bindPopupContainerEvents(popupEl);
   document.addEventListener(
     "wheel",
     (ev) => {
-      if (!popupEl.classList.contains("hidden")) {
-        const path = ev.composedPath ? ev.composedPath() : [];
-        if (path.includes(popupEl)) trapPopupWheel(ev);
-      }
+      const path = ev.composedPath ? ev.composedPath() : [];
+      const popup = path.find(
+        (node) =>
+          node === popupEl ||
+          (node && node.classList && node.classList.contains("nested-popup")),
+      );
+      if (popup && !popup.classList.contains("hidden"))
+        trapPopupWheel(ev, popup);
     },
     { passive: false, capture: true },
   );
@@ -3811,6 +3833,7 @@
 
   function hidePopup() {
     hideAudioSourceMenu();
+    clearNestedPopups(0);
     setLookupPopupVisibility(false);
     popupEl.classList.add("hidden");
     popupSafetyZoneEl.classList.add("hidden");
@@ -3991,7 +4014,11 @@
   function popupContainsNode(node) {
     let current = node;
     while (current) {
-      if (current === popupEl) return true;
+      if (
+        current === popupEl ||
+        (current.classList && current.classList.contains("nested-popup"))
+      )
+        return true;
       current = current.parentNode || current.host || null;
     }
     return false;
@@ -4249,9 +4276,10 @@
         });
     }, 220);
   }
-  function bindPopupAnkiButtons() {
+  function bindPopupAnkiButtons(container) {
+    const popup = container || popupEl;
     try {
-      popupEl.querySelectorAll(".anki-button").forEach((button) => {
+      popup.querySelectorAll(".anki-button").forEach((button) => {
         if (button.dataset.ankiBound !== "true") {
           button.dataset.ankiBound = "true";
           button.addEventListener("pointerdown", () => {
@@ -4308,9 +4336,10 @@
       });
     } catch (_) {}
   }
-  function bindPopupAudioButtons() {
+  function bindPopupAudioButtons(container) {
+    const popup = container || popupEl;
     try {
-      popupEl.querySelectorAll(".audio-button").forEach((button) => {
+      popup.querySelectorAll(".audio-button").forEach((button) => {
         if (button.dataset.audioBound === "true") return;
         button.dataset.audioBound = "true";
         button.addEventListener("click", (event) => {
@@ -4363,6 +4392,7 @@
   }
   function showPopup(anchor, heading, bodyHtml) {
     hideAudioSourceMenu();
+    clearNestedPopups(0);
     state.currentAnchor = anchor || null;
     popupEl.innerHTML =
       '<div class="head">' +
@@ -4375,7 +4405,8 @@
     setLookupPopupVisibility(true);
     placePopup(anchor);
   }
-  function setPopupBody(
+  function setPopupBodyFor(
+    popup,
     bodyHtml,
     heading,
     reading,
@@ -4384,8 +4415,8 @@
     ankiData,
   ) {
     hideAudioSourceMenu();
-    const head = popupEl.querySelector(".head");
-    const body = popupEl.querySelector(".body");
+    const head = popup.querySelector(".head");
+    const body = popup.querySelector(".body");
     if (head && heading !== undefined) {
       head.innerHTML = renderPopupHead(
         heading || "",
@@ -4396,11 +4427,38 @@
       );
     }
     if (body) body.innerHTML = bodyHtml;
-    markPopupClickable();
-    bindPopupAudioButtons();
-    bindPopupAnkiButtons();
-    if (state.currentAnchor && !popupEl.classList.contains("hidden"))
+    markElementClickable(popup);
+    bindPopupAudioButtons(popup);
+    bindPopupAnkiButtons(popup);
+    updateNestedPopupScanningState();
+    if (
+      popup === popupEl &&
+      state.currentAnchor &&
+      !popupEl.classList.contains("hidden")
+    )
       placePopup(state.currentAnchor);
+    else if (popup !== popupEl) {
+      const item = nestedPopupItemForElement(popup);
+      if (item) placeNestedPopup(item);
+    }
+  }
+  function setPopupBody(
+    bodyHtml,
+    heading,
+    reading,
+    secondaryText,
+    audioData,
+    ankiData,
+  ) {
+    setPopupBodyFor(
+      popupEl,
+      bodyHtml,
+      heading,
+      reading,
+      secondaryText,
+      audioData,
+      ankiData,
+    );
   }
   function markPopupClickable() {
     markElementClickable(popupEl);
@@ -4533,6 +4591,711 @@
     popupSafetyZoneEl.style.width = safetyRight - safetyLeft + "px";
     popupSafetyZoneEl.style.height = safetyBottom - safetyTop + "px";
     popupSafetyZoneEl.classList.remove("hidden");
+  }
+
+  function popupDepth(popup) {
+    return Math.max(
+      0,
+      Number(
+        popup && popup.dataset && popup.dataset.popupDepth
+          ? popup.dataset.popupDepth
+          : 0,
+      ) || 0,
+    );
+  }
+  function allPopupContainers() {
+    return [popupEl].concat(
+      state.nestedPopups.map((item) => item.element).filter(Boolean),
+    );
+  }
+  function nestedPopupItemForElement(element) {
+    return state.nestedPopups.find((item) => item.element === element) || null;
+  }
+  function cancelPendingNestedLookup(requestId) {
+    const key = String(requestId || "");
+    const req = state.pendingNestedLookupRequests[key];
+    if (!req) return;
+    if (req.retryTimer) clearInterval(req.retryTimer);
+    if (req.timeoutTimer) clearTimeout(req.timeoutTimer);
+    delete state.pendingNestedLookupRequests[key];
+  }
+  function clearNestedPopups(keepDepth) {
+    const depth = Math.max(0, Number(keepDepth) || 0);
+    if (state.nestedHoverTimer) clearTimeout(state.nestedHoverTimer);
+    state.nestedHoverTimer = null;
+    state.nestedHoverKey = "";
+    const retained = [];
+    state.nestedPopups.forEach((item) => {
+      if (item.depth <= depth) {
+        retained.push(item);
+        return;
+      }
+      cancelPendingNestedLookup(item.requestId);
+      try {
+        const highlights =
+          Array.isArray(item.highlights) && item.highlights.length
+            ? item.highlights
+            : [item.highlight];
+        highlights.forEach((highlight) => {
+          if (highlight && typeof highlight.remove === "function")
+            highlight.remove();
+        });
+        if (item.element && typeof item.element.remove === "function")
+          item.element.remove();
+      } catch (_) {}
+    });
+    state.nestedPopups = retained;
+  }
+  function updateNestedPopupScanningState() {
+    const enabled =
+      state.config.nestedPopupMode === "hover" ||
+      state.config.nestedPopupMode === "click";
+    allPopupContainers().forEach((popup) => {
+      if (!popup || typeof popup.setAttribute !== "function") return;
+      popup.setAttribute("data-nested-enabled", enabled ? "true" : "false");
+      popup.setAttribute(
+        "data-nested-mode",
+        enabled ? state.config.nestedPopupMode : "off",
+      );
+    });
+    if (!enabled) clearNestedPopups(0);
+    else if (
+      state.nestedPopups.some(
+        (item) => item.depth > state.config.nestedPopupMaxDepth,
+      )
+    )
+      clearNestedPopups(state.config.nestedPopupMaxDepth);
+  }
+  function normalizedRect(rect) {
+    if (!rect) return null;
+    const left = Number(rect.left);
+    const top = Number(rect.top);
+    const right = Number(rect.right);
+    const bottom = Number(rect.bottom);
+    if (![left, top, right, bottom].every(Number.isFinite)) return null;
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: Math.max(1, Number(rect.width) || right - left),
+      height: Math.max(1, Number(rect.height) || bottom - top),
+    };
+  }
+  function rectIntersectionArea(a, b) {
+    if (!a || !b) return 0;
+    const width = Math.max(
+      0,
+      Math.min(a.right, b.right) - Math.max(a.left, b.left),
+    );
+    const height = Math.max(
+      0,
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top),
+    );
+    return width * height;
+  }
+  function combinedRect(rects) {
+    const normalized = (rects || []).map(normalizedRect).filter(Boolean);
+    if (!normalized.length) return null;
+    const left = Math.min(...normalized.map((rect) => rect.left));
+    const top = Math.min(...normalized.map((rect) => rect.top));
+    const right = Math.max(...normalized.map((rect) => rect.right));
+    const bottom = Math.max(...normalized.map((rect) => rect.bottom));
+    return normalizedRect({ left, top, right, bottom });
+  }
+  function placeNestedPopup(item) {
+    if (!item || !item.element || !item.anchorRect) return;
+    const element = item.element;
+    const anchor = item.anchorRect;
+    const margin = 12;
+    const gap = 10;
+    const scale = Math.max(
+      0.1,
+      Number(state.config.popupScale || 0.92) || 0.92,
+    );
+    const desiredVh = Math.max(
+      20,
+      Math.min(60, Number(state.config.popupMaxHeightVh || 34)),
+    );
+    const maxRenderedHeight = Math.max(
+      120,
+      Math.floor((window.innerHeight * desiredVh) / 100),
+    );
+    element.style.maxHeight =
+      String(Math.floor(maxRenderedHeight / scale)) + "px";
+    element.style.left = "0px";
+    element.style.top = "0px";
+    const measured = normalizedRect(element.getBoundingClientRect()) || {
+      width: Math.min(440, window.innerWidth - margin * 2),
+      height: Math.min(maxRenderedHeight, 260),
+    };
+    const width = Math.min(measured.width, window.innerWidth - margin * 2);
+    const height = Math.min(measured.height, maxRenderedHeight);
+    const sentence = item.sentenceRect || anchor;
+    const centeredLeft = anchor.left + anchor.width / 2 - width / 2;
+    const candidates = [
+      { left: centeredLeft, top: sentence.bottom + gap },
+      { left: centeredLeft, top: sentence.top - height - gap },
+    ];
+    const fits = (candidate) =>
+      candidate.left >= margin &&
+      candidate.top >= margin &&
+      candidate.left + width <= window.innerWidth - margin &&
+      candidate.top + height <= window.innerHeight - margin;
+    let position = candidates.find(fits);
+    if (!position) {
+      const clamped = candidates.map((candidate, index) => {
+        const left = Math.max(
+          margin,
+          Math.min(candidate.left, window.innerWidth - width - margin),
+        );
+        const top = Math.max(
+          margin,
+          Math.min(candidate.top, window.innerHeight - height - margin),
+        );
+        const rect = {
+          left,
+          top,
+          right: left + width,
+          bottom: top + height,
+        };
+        return {
+          left,
+          top,
+          index,
+          anchorOverlap: rectIntersectionArea(rect, anchor),
+        };
+      });
+      clamped.sort(
+        (a, b) => a.anchorOverlap - b.anchorOverlap || a.index - b.index,
+      );
+      position = clamped[0];
+    }
+    element.style.left = String(Math.round(position.left)) + "px";
+    element.style.top = String(Math.round(position.top)) + "px";
+    element.style.zIndex = String(30 + item.depth);
+  }
+  function nodeIsText(node) {
+    return !!node && (node.nodeType === 3 || node.tagName === "#text");
+  }
+  function nodeTagName(node) {
+    return String((node && node.tagName) || "").toLowerCase();
+  }
+  function nodeHasClass(node, name) {
+    return !!(
+      node &&
+      node.classList &&
+      typeof node.classList.contains === "function" &&
+      node.classList.contains(name)
+    );
+  }
+  function ancestorWithClass(node, name, stop) {
+    let current = nodeIsText(node) ? node.parentNode : node;
+    while (current && current !== stop) {
+      if (nodeHasClass(current, name)) return current;
+      current = current.parentNode;
+    }
+    return null;
+  }
+  function ancestorWithTag(node, tagName, stop) {
+    const expected = String(tagName || "").toLowerCase();
+    let current = nodeIsText(node) ? node.parentNode : node;
+    while (current && current !== stop) {
+      if (nodeTagName(current) === expected) return current;
+      current = current.parentNode;
+    }
+    return null;
+  }
+  function firstNestedLookupTextNode(root) {
+    if (!root) return null;
+    const tag = nodeTagName(root);
+    if (
+      tag === "rt" ||
+      tag === "rp" ||
+      tag === "button" ||
+      tag === "svg" ||
+      tag === "path"
+    )
+      return null;
+    if (nodeIsText(root) && String(root.textContent || "").trim()) return root;
+    const children = Array.from(root.childNodes || root.children || []);
+    for (let i = 0; i < children.length; i++) {
+      const found = firstNestedLookupTextNode(children[i]);
+      if (found) return found;
+    }
+    return null;
+  }
+  function nestedRubyBasePoint(node, popup) {
+    const rt = ancestorWithTag(node, "rt", popup);
+    if (!rt) return null;
+    const ruby = ancestorWithTag(rt.parentNode, "ruby", popup);
+    if (!ruby) return null;
+    const baseNode = firstNestedLookupTextNode(ruby);
+    return baseNode ? { node: baseNode, offset: 0 } : null;
+  }
+  function nestedLookupExcluded(node, popup) {
+    let current = nodeIsText(node) ? node.parentNode : node;
+    while (current && current !== popup) {
+      const tag = nodeTagName(current);
+      if (
+        tag === "a" ||
+        tag === "button" ||
+        tag === "summary" ||
+        tag === "rt" ||
+        tag === "svg" ||
+        tag === "path" ||
+        nodeHasClass(current, "scan-disable")
+      )
+        return true;
+      current = current.parentNode;
+    }
+    return false;
+  }
+  function collectNestedLookupText(root, targetNode, targetOffset) {
+    let text = "";
+    let charLength = 0;
+    let utf16Offset = null;
+    const segments = [];
+    const visit = (node) => {
+      if (!node) return;
+      const tag = nodeTagName(node);
+      if (
+        tag === "rt" ||
+        tag === "rp" ||
+        tag === "button" ||
+        tag === "svg" ||
+        tag === "path"
+      )
+        return;
+      if (nodeIsText(node)) {
+        const value = String(node.textContent || "");
+        if (node === targetNode)
+          utf16Offset =
+            text.length +
+            Math.max(0, Math.min(value.length, Number(targetOffset) || 0));
+        const valueLength = Array.from(value).length;
+        segments.push({
+          node,
+          text: value,
+          start: charLength,
+          end: charLength + valueLength,
+        });
+        text += value;
+        charLength += valueLength;
+        return;
+      }
+      Array.from(node.childNodes || node.children || []).forEach(visit);
+    };
+    visit(root);
+    if (utf16Offset === null) return null;
+    return {
+      text,
+      position: Array.from(text.slice(0, utf16Offset)).length,
+      segments,
+    };
+  }
+  function caretRangeForPopupEvent(event) {
+    if (event && event.lookupRange) return event.lookupRange;
+    const x = Number(event && event.clientX);
+    const y = Number(event && event.clientY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    try {
+      if (typeof document.caretRangeFromPoint === "function")
+        return document.caretRangeFromPoint(x, y);
+      if (typeof document.caretPositionFromPoint === "function") {
+        const caret = document.caretPositionFromPoint(x, y);
+        if (!caret) return null;
+        return {
+          startContainer: caret.offsetNode,
+          startOffset: caret.offset,
+        };
+      }
+    } catch (_) {}
+    return null;
+  }
+  function nestedLookupAnchorRect(range, node, offset) {
+    try {
+      const value = String((node && node.textContent) || "");
+      if (!value) return null;
+      const start = Math.max(0, Math.min(value.length, Number(offset) || 0));
+      const anchorStart =
+        start < value.length ? start : Math.max(0, value.length - 1);
+      const end = Math.min(
+        value.length,
+        anchorStart + (value.codePointAt(anchorStart) > 0xffff ? 2 : 1),
+      );
+      const anchorRange =
+        typeof document.createRange === "function"
+          ? document.createRange()
+          : range;
+      if (anchorRange && typeof anchorRange.setStart === "function") {
+        anchorRange.setStart(node, anchorStart);
+        anchorRange.setEnd(node, Math.max(anchorStart + 1, end));
+      }
+      const rects =
+        anchorRange && typeof anchorRange.getClientRects === "function"
+          ? anchorRange.getClientRects()
+          : [];
+      return normalizedRect(rects && rects[0]);
+    } catch (_) {
+      return null;
+    }
+  }
+  function nestedLookupSourceFromEvent(popup, event) {
+    if (!popup || state.config.nestedPopupMode === "off") return null;
+    const range = caretRangeForPopupEvent(event);
+    let node = range && (range.startContainer || range.offsetNode);
+    let offset =
+      range &&
+      (range.startOffset !== undefined ? range.startOffset : range.offset);
+    const rubyBase = nestedRubyBasePoint(node, popup);
+    if (rubyBase) {
+      node = rubyBase.node;
+      offset = rubyBase.offset;
+    }
+    if (
+      !node ||
+      !popupContainsNode(node) ||
+      !ancestorWithClass(node, "body", popup) ||
+      nestedLookupExcluded(node, popup)
+    )
+      return null;
+    const ruby = ancestorWithTag(node, "ruby", popup);
+    const boundary =
+      ruby && ruby.parentNode
+        ? ruby.parentNode
+        : nodeIsText(node)
+          ? node.parentNode
+          : node;
+    const source = collectNestedLookupText(boundary, node, offset);
+    if (!source || !source.text.trim()) return null;
+    let chars = Array.from(source.text);
+    let position = Math.max(
+      0,
+      Math.min(chars.length ? chars.length - 1 : 0, source.position),
+    );
+    if (!isLookupableChar(chars[position]) && position > 0) position -= 1;
+    if (!isLookupableChar(chars[position])) return null;
+    let lookupText = source.text;
+    let sourceCharOffset = 0;
+    if (chars.length > 2000) {
+      const sliceStart = Math.max(0, position - 256);
+      chars = chars.slice(sliceStart, sliceStart + 2000);
+      lookupText = chars.join("");
+      position -= sliceStart;
+      sourceCharOffset = sliceStart;
+    }
+    const anchorRect =
+      nestedLookupAnchorRect(range, node, offset) ||
+      normalizedRect(
+        event &&
+          event.target &&
+          typeof event.target.getBoundingClientRect === "function"
+          ? event.target.getBoundingClientRect()
+          : null,
+      );
+    if (!anchorRect) return null;
+    const sentenceRect = normalizedRect(
+      boundary && typeof boundary.getBoundingClientRect === "function"
+        ? boundary.getBoundingClientRect()
+        : null,
+    );
+    return {
+      text: lookupText,
+      position,
+      anchorRect,
+      sentenceRect: sentenceRect || anchorRect,
+      sourceCharOffset,
+      segments: source.segments,
+      key:
+        String(popupDepth(popup)) + ":" + String(position) + ":" + lookupText,
+    };
+  }
+  function nestedLookupPreview(source) {
+    const chars = Array.from(String((source && source.text) || ""));
+    const position = Math.max(
+      0,
+      Math.min(chars.length ? chars.length - 1 : 0, source.position || 0),
+    );
+    let start = position;
+    let end = position + 1;
+    while (start > 0 && isLookupableChar(chars[start - 1])) start--;
+    while (end < chars.length && isLookupableChar(chars[end])) end++;
+    const run = chars.slice(start, end).join("").trim();
+    return run || chars.slice(position, position + 1).join("");
+  }
+  function createNestedPopupHighlights(rects, depth) {
+    if (!nestedPopupLayerEl) return [];
+    return groupMatchRects(rects || []).map((rect) => {
+      const highlight = document.createElement("div");
+      highlight.className = "nested-popup-highlight";
+      highlight.setAttribute("aria-hidden", "true");
+      highlight.style.left = String(rect.left) + "px";
+      highlight.style.top = String(rect.top) + "px";
+      highlight.style.width =
+        String(Math.max(1, rect.right - rect.left)) + "px";
+      highlight.style.height =
+        String(Math.max(1, rect.bottom - rect.top)) + "px";
+      highlight.style.zIndex = String(29 + depth);
+      nestedPopupLayerEl.appendChild(highlight);
+      return highlight;
+    });
+  }
+  function nestedLookupRangeRects(source, start, end) {
+    const rects = [];
+    const sourceOffset = Math.max(
+      0,
+      Number((source && source.sourceCharOffset) || 0) || 0,
+    );
+    const rangeStart = sourceOffset + Math.max(0, Number(start) || 0);
+    const rangeEnd = sourceOffset + Math.max(rangeStart + 1, Number(end) || 0);
+    (source && Array.isArray(source.segments) ? source.segments : []).forEach(
+      (segment) => {
+        const overlapStart = Math.max(rangeStart, Number(segment.start) || 0);
+        const overlapEnd = Math.min(rangeEnd, Number(segment.end) || 0);
+        if (overlapEnd <= overlapStart || !segment.node) return;
+        const chars = Array.from(String(segment.text || ""));
+        const localStart = chars
+          .slice(0, overlapStart - segment.start)
+          .join("").length;
+        const localEnd = chars
+          .slice(0, overlapEnd - segment.start)
+          .join("").length;
+        try {
+          const range = document.createRange();
+          range.setStart(segment.node, localStart);
+          range.setEnd(segment.node, localEnd);
+          Array.from(range.getClientRects() || []).forEach((rect) => {
+            const normalized = normalizedRect(rect);
+            if (normalized) rects.push(normalized);
+          });
+        } catch (_) {}
+      },
+    );
+    return rects;
+  }
+  function nestedLookupResultRange(stored, fallbackPosition) {
+    const result = stored && stored.result ? stored.result : {};
+    const lookupStart = Number(result.lookupStart);
+    const lookupEnd = Number(result.lookupEnd);
+    if (
+      isWordLookupMode(activeLanguage()) &&
+      Number.isFinite(lookupStart) &&
+      Number.isFinite(lookupEnd) &&
+      lookupEnd > lookupStart
+    )
+      return { start: lookupStart, end: lookupEnd };
+    const matchedLength = charsCount(topMatchedText(stored));
+    const matchStart = Number(result.matchStart);
+    const start = Number.isFinite(matchStart)
+      ? Math.max(0, matchStart)
+      : Number.isFinite(lookupStart)
+        ? Math.max(0, lookupStart)
+        : Math.max(0, Number(fallbackPosition) || 0);
+    if (matchedLength > 0) return { start, end: start + matchedLength };
+    if (Number.isFinite(lookupEnd) && lookupEnd > start)
+      return { start, end: lookupEnd };
+    return { start, end: start + 1 };
+  }
+  function updateNestedPopupHighlight(item, stored, fallbackPosition) {
+    if (!item || !item.source) return;
+    const match = nestedLookupResultRange(stored, fallbackPosition);
+    const rects = nestedLookupRangeRects(item.source, match.start, match.end);
+    if (!rects.length) return;
+    const matchRect = combinedRect(rects);
+    if (matchRect) item.anchorRect = matchRect;
+    const oldHighlights =
+      Array.isArray(item.highlights) && item.highlights.length
+        ? item.highlights
+        : [item.highlight];
+    oldHighlights.forEach((highlight) => {
+      if (highlight && typeof highlight.remove === "function")
+        highlight.remove();
+    });
+    item.highlights = createNestedPopupHighlights(rects, item.depth);
+    item.highlight = item.highlights[0] || null;
+    placeNestedPopup(item);
+  }
+  function sendNestedLookupRequest(req) {
+    req.attempts += 1;
+    const sent = sendBridgeMessage({
+      type: "nested-lookup",
+      requestId: req.requestId,
+      popupSessionId: state.popupSessionId,
+      lineId: req.lineId,
+      text: req.text,
+      position: req.position,
+      depth: req.depth,
+      at: Date.now(),
+      attempt: req.attempts,
+    });
+    if (sent && req.retryTimer) {
+      clearInterval(req.retryTimer);
+      req.retryTimer = null;
+    }
+    return sent;
+  }
+  function requestNestedLookup(item, source) {
+    const requestId =
+      "nested-" +
+      state.popupSessionId +
+      "-" +
+      String(++state.nestedLookupRequestSeq);
+    const req = {
+      requestId,
+      popupId: item.id,
+      lineId: state.lineId,
+      text: source.text,
+      position: source.position,
+      depth: item.depth,
+      attempts: 0,
+      acked: false,
+      retryTimer: null,
+      timeoutTimer: null,
+    };
+    item.requestId = requestId;
+    state.pendingNestedLookupRequests[requestId] = req;
+    if (!sendNestedLookupRequest(req)) {
+      req.retryTimer = setInterval(() => {
+        if (req.acked || sendNestedLookupRequest(req) || req.attempts >= 6) {
+          if (req.retryTimer) clearInterval(req.retryTimer);
+          req.retryTimer = null;
+        }
+      }, LOOKUP_RETRY_INTERVAL_MS);
+    }
+    req.timeoutTimer = setTimeout(
+      () => {
+        cancelPendingNestedLookup(requestId);
+        const current = state.nestedPopups.find(
+          (candidate) => candidate.id === item.id,
+        );
+        if (current)
+          setPopupBodyFor(
+            current.element,
+            '<div class="error">Nested lookup timed out. Try the word again.</div>',
+          );
+      },
+      Math.max(5000, Number(state.config.hoverRequestTimeoutMs || 9000)),
+    );
+  }
+  function openNestedPopup(parentPopup, source) {
+    const parentDepth = popupDepth(parentPopup);
+    const depth = parentDepth + 1;
+    if (depth > state.config.nestedPopupMaxDepth) return false;
+    clearNestedPopups(parentDepth);
+    state.nestedHoverKey = source.key || "";
+    const element = document.createElement("div");
+    const id =
+      "nested-popup-" +
+      String(depth) +
+      "-" +
+      String(state.nestedLookupRequestSeq + 1);
+    element.className = "lookup-popup nested-popup";
+    element.dataset.popupId = id;
+    element.dataset.popupDepth = String(depth);
+    element.setAttribute("data-clickable", "true");
+    element.setAttribute("role", "dialog");
+    element.setAttribute("aria-label", "Nested dictionary lookup");
+    element.innerHTML =
+      '<div class="head">' +
+      renderPopupHead(nestedLookupPreview(source), "", "", null, null) +
+      '</div><div class="body"><div class="loading">Looking up…</div></div>';
+    const item = {
+      id,
+      depth,
+      element,
+      parentPopup,
+      anchorRect: source.anchorRect,
+      sentenceRect: source.sentenceRect || source.anchorRect,
+      source,
+      highlights: createNestedPopupHighlights([source.anchorRect], depth),
+      requestId: "",
+    };
+    item.highlight = item.highlights[0] || null;
+    state.nestedPopups.push(item);
+    (nestedPopupLayerEl || document.body).appendChild(element);
+    bindPopupContainerEvents(element);
+    markElementClickable(element);
+    updateNestedPopupScanningState();
+    placeNestedPopup(item);
+    requestNestedLookup(item, source);
+    return true;
+  }
+  function popupSelectionIsActive() {
+    try {
+      const selection =
+        typeof window.getSelection === "function"
+          ? window.getSelection()
+          : document.getSelection();
+      return !!(
+        selection &&
+        !selection.isCollapsed &&
+        normalizeWhitespace(selection.toString())
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+  function onNestedPopupClick(event) {
+    if (state.config.nestedPopupMode !== "click" || popupSelectionIsActive())
+      return;
+    const popup = popupContainerForNode(event && event.currentTarget);
+    const source = nestedLookupSourceFromEvent(popup, event);
+    if (!source) return;
+    openNestedPopup(popup, source);
+  }
+  function onPopupContainerClick(event) {
+    if (closestExternalLink(event && event.target)) {
+      onPopupClick(event);
+      return;
+    }
+    onNestedPopupClick(event);
+  }
+  function onNestedPopupMouseMove(event) {
+    if (state.config.nestedPopupMode !== "hover") return;
+    const popup = popupContainerForNode(event && event.currentTarget);
+    const source = nestedLookupSourceFromEvent(popup, event);
+    if (!source || source.key === state.nestedHoverKey) return;
+    state.nestedHoverKey = source.key;
+    if (state.nestedHoverTimer) clearTimeout(state.nestedHoverTimer);
+    state.nestedHoverTimer = setTimeout(() => {
+      state.nestedHoverTimer = null;
+      if (state.config.nestedPopupMode === "hover")
+        openNestedPopup(popup, source);
+    }, 180);
+  }
+  function popupContainerForNode(node) {
+    let current = node;
+    while (current) {
+      if (
+        current === popupEl ||
+        (current.classList && current.classList.contains("nested-popup"))
+      )
+        return current;
+      current = current.parentNode;
+    }
+    return null;
+  }
+  function bindPopupContainerEvents(popup) {
+    if (!popup || (popup.dataset && popup.dataset.popupEventsBound === "true"))
+      return;
+    if (popup.dataset) popup.dataset.popupEventsBound = "true";
+    popup.addEventListener("mouseenter", cancelHidePopupTimer);
+    popup.addEventListener("mouseleave", scheduleHidePopup);
+    popup.addEventListener("click", onPopupContainerClick, true);
+    popup.addEventListener("mousemove", onNestedPopupMouseMove);
+    popup.addEventListener("wheel", trapPopupWheel, {
+      passive: false,
+      capture: true,
+    });
+    popup.addEventListener("mousewheel", trapPopupWheel, {
+      passive: false,
+      capture: true,
+    });
+    popup.addEventListener("DOMMouseScroll", trapPopupWheel, {
+      passive: false,
+      capture: true,
+    });
   }
 
   function toArray(v) {
@@ -5857,7 +6620,7 @@
     if (!expression) return null;
     return { term: expression, reading: String(term.reading || "") };
   }
-  function buildAnkiCardContext(stored, entry, header) {
+  function buildAnkiCardContext(stored, entry, header, allowCurrentMedia) {
     if (!ankiButtonVisibleForPopup() || !entry) return null;
     const result = stored && stored.result ? stored.result : {};
     const expression =
@@ -5866,20 +6629,24 @@
       (header && header.reading) ||
       displayReadingForTerm(entry.term || {}, expression);
     const surface = lookupSurfaceForResult(result, entry);
+    const useCurrentMedia = allowCurrentMedia !== false;
     return {
       lineId: state.lineId,
       position:
         stored && stored.position !== undefined
           ? stored.position
           : state.currentPos,
-      sentence: state.text || "",
+      sentence: useCurrentMedia
+        ? state.text || ""
+        : String(result.text || "").trim(),
+      allowCurrentMedia: useCurrentMedia,
       expression,
       heading: expression,
       reading,
       surface,
       entry,
       result: {
-        text: result.text || state.text || "",
+        text: result.text || (useCurrentMedia ? state.text : "") || "",
         language:
           result.language ||
           (state.config && state.config.lookupLanguage) ||
@@ -5926,9 +6693,10 @@
       () => {},
     );
   }
-  function renderStoredLookup(stored) {
+  function renderStoredLookupInto(popup, stored, isRootPopup) {
     if (!stored || !stored.ok) {
-      setPopupBody(
+      setPopupBodyFor(
+        popup,
         '<div class="error">' +
           escapeHtml((stored && stored.error) || "Lookup failed") +
           "</div>",
@@ -5945,7 +6713,7 @@
         lang.wordMode === "korean-run"
           ? "word"
           : "character";
-      activateNoResultMatch(stored);
+      if (isRootPopup) activateNoResultMatch(stored);
       overlayDebug(
         "render no-result pos=" +
           String(state.currentPos) +
@@ -5956,7 +6724,8 @@
           " reason=" +
           String(result.noResultReason || "empty"),
       );
-      setPopupBody(
+      setPopupBodyFor(
+        popup,
         '<div class="empty">No dictionary entry found from this ' +
           label +
           ".</div>",
@@ -5967,9 +6736,13 @@
     const header = displayHeaderForResult(result, first);
     const headerAudio = audioDataForEntry(first);
     const headerAnki = registerAnkiCardContext(
-      buildAnkiCardContext(stored, first, header),
+      buildAnkiCardContext(stored, first, header, isRootPopup),
     );
-    if (state.currentPos !== null && state.currentPos !== undefined) {
+    if (
+      isRootPopup &&
+      state.currentPos !== null &&
+      state.currentPos !== undefined
+    ) {
       activateStoredMatch(stored, lookupPreviewForPosition(state.currentPos));
     }
     const maxEntries = Math.max(1, state.config.maxEntries || 3);
@@ -5988,7 +6761,7 @@
         if (!repeatsHeader) {
           const entryAudio = audioDataForEntry(entry);
           const entryAnki = registerAnkiCardContext(
-            buildAnkiCardContext(stored, entry, null),
+            buildAnkiCardContext(stored, entry, null, isRootPopup),
           );
           const entryAudioHtml = entryAudio
             ? renderAudioButtonHtml(entryAudio.term, entryAudio.reading)
@@ -6039,7 +6812,8 @@
           "</div>";
       html += "</div>";
     });
-    setPopupBody(
+    setPopupBodyFor(
+      popup,
       html,
       header.heading,
       header.reading,
@@ -6048,6 +6822,9 @@
       headerAnki,
     );
     maybeAutoPlayEntryAudio(stored, first);
+  }
+  function renderStoredLookup(stored) {
+    renderStoredLookupInto(popupEl, stored, true);
   }
 
   function updateCharReady(pos) {
@@ -6188,9 +6965,11 @@
     const pendingType = pending && pending.type ? String(pending.type) : "";
     clearPendingAnkiMessage(requestId);
     try {
-      popupEl.querySelectorAll(".anki-button").forEach((button) => {
-        if (button.dataset.ankiRequestId !== requestId) return;
-        setAnkiButtonState(button, payload || {});
+      allPopupContainers().forEach((popup) => {
+        popup.querySelectorAll(".anki-button").forEach((button) => {
+          if (button.dataset.ankiRequestId !== requestId) return;
+          setAnkiButtonState(button, payload || {});
+        });
       });
     } catch (_) {}
     if (
@@ -6308,6 +7087,14 @@
       req.retryTimer = null;
     }
   });
+  iina.onMessage("nested-lookup-ack", (payload) => {
+    const requestId = String((payload && payload.requestId) || "");
+    const req = state.pendingNestedLookupRequests[requestId];
+    if (!req) return;
+    req.acked = true;
+    if (req.retryTimer) clearInterval(req.retryTimer);
+    req.retryTimer = null;
+  });
   iina.onMessage("audio-source-result", (payload) => {
     const requestId =
       payload && payload.requestId !== undefined
@@ -6341,6 +7128,24 @@
     if (state.currentPos === pos && !popupEl.classList.contains("hidden"))
       renderStoredLookup(payload);
   });
+  iina.onMessage("nested-lookup-result", (payload) => {
+    const requestId = String((payload && payload.requestId) || "");
+    const req = state.pendingNestedLookupRequests[requestId];
+    if (!req) return;
+    cancelPendingNestedLookup(requestId);
+    if (Number(payload.lineId || 0) !== state.lineId) return;
+    const item = state.nestedPopups.find(
+      (candidate) =>
+        candidate.id === req.popupId && candidate.requestId === requestId,
+    );
+    if (!item) return;
+    const stored = Object.assign({}, payload, {
+      position:
+        payload.position === undefined ? req.position : payload.position,
+    });
+    updateNestedPopupHighlight(item, stored, req.position);
+    renderStoredLookupInto(item.element, stored, false);
+  });
   iina.onMessage("status", setStatus);
   iina.onMessage("task-status", setTaskStatus);
   iina.onMessage("anki-card-state", updateAnkiCardState);
@@ -6358,12 +7163,18 @@
     hideAudioSourceMenu();
   });
   document.addEventListener("keydown", (event) => {
-    if (event && event.key === "Escape") hideAudioSourceMenu();
+    if (!event || event.key !== "Escape") return;
+    hideAudioSourceMenu();
+    if (state.nestedPopups.length) {
+      const deepest = state.nestedPopups[state.nestedPopups.length - 1];
+      clearNestedPopups(Math.max(0, deepest.depth - 1));
+    }
   });
   window.addEventListener("resize", () => {
     hideAudioSourceMenu();
     if (state.currentAnchor && !popupEl.classList.contains("hidden"))
       placePopup(state.currentAnchor);
+    state.nestedPopups.forEach(placeNestedPopup);
   });
 
   // Keep the documented ready message, but v1.3.0 no longer depends on it.

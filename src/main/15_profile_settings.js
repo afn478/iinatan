@@ -41,6 +41,8 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  nestedPopupMode: "off",
+  nestedPopupMaxDepth: 3,
   flattenSubtitleLineBreaks: false,
   popupTheme: "inherit",
   subtitlePollMs: 120,
@@ -255,6 +257,17 @@ function normalizeProfilePreferences(prefs) {
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
+  );
+  const nestedPopupMode = String(out.nestedPopupMode || "")
+    .trim()
+    .toLowerCase();
+  out.nestedPopupMode =
+    nestedPopupMode === "hover" || nestedPopupMode === "click"
+      ? nestedPopupMode
+      : "off";
+  out.nestedPopupMaxDepth = Math.max(
+    1,
+    Math.min(5, Math.round(Number(out.nestedPopupMaxDepth) || 3)),
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,

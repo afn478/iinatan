@@ -5641,6 +5641,11 @@ function overlayConfig() {
     popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
+    nestedPopupMaxDepth: Math.max(
+      1,
+      Math.min(5, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
+    ),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
     experimentalNativeSubtitleHitLayer: prefBool(
       "experimentalNativeSubtitleHitLayer",
@@ -7982,6 +7987,8 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  nestedPopupMode: "off",
+  nestedPopupMaxDepth: 3,
   flattenSubtitleLineBreaks: false,
   popupTheme: "inherit",
   subtitlePollMs: 120,
@@ -8196,6 +8203,17 @@ function normalizeProfilePreferences(prefs) {
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
+  );
+  const nestedPopupMode = String(out.nestedPopupMode || "")
+    .trim()
+    .toLowerCase();
+  out.nestedPopupMode =
+    nestedPopupMode === "hover" || nestedPopupMode === "click"
+      ? nestedPopupMode
+      : "off";
+  out.nestedPopupMaxDepth = Math.max(
+    1,
+    Math.min(5, Math.round(Number(out.nestedPopupMaxDepth) || 3)),
   );
   out.audioSourcesJson = normalizeAudioSourcesJsonPreference(
     out.audioSourcesJson,
@@ -11309,6 +11327,9 @@ const OVERLAY_BRIDGE_HANDLERS = {
   lookup(payload) {
     handleBridgeLookup(payload);
   },
+  "nested-lookup"(payload) {
+    handleBridgeNestedLookup(payload);
+  },
   "audio-source"(payload) {
     handleBridgeAudioSource(payload);
   },
@@ -11678,6 +11699,101 @@ function handleBridgeLookup(payload) {
       hoverLookupActiveKey,
   );
   processHoverLookupQueue();
+}
+const activeNestedLookupRequests = Object.create(null);
+function handleBridgeNestedLookup(payload) {
+  const requestId =
+    payload && payload.requestId !== undefined
+      ? String(payload.requestId)
+      : String(++requestSerial);
+  const lineId = Number(
+    payload && payload.lineId !== undefined
+      ? payload.lineId
+      : currentSubtitleLineId,
+  );
+  const text = String((payload && payload.text) || "").slice(0, 4000);
+  const position = Math.max(
+    0,
+    Math.min(
+      charsOf(text).length,
+      Number(
+        payload && payload.position !== undefined ? payload.position : 0,
+      ) || 0,
+    ),
+  );
+  const depth = Math.max(
+    1,
+    Math.min(5, Math.round(Number((payload && payload.depth) || 1) || 1)),
+  );
+  postToOverlay("nested-lookup-ack", { requestId, lineId, depth });
+  if (activeNestedLookupRequests[requestId]) return;
+  const mode = String(
+    activeProfilePreferenceValue("nestedPopupMode", "off") || "off",
+  ).toLowerCase();
+  const maxDepth = Math.max(
+    1,
+    Math.min(
+      5,
+      Math.round(
+        Number(activeProfilePreferenceValue("nestedPopupMaxDepth", 3)) || 3,
+      ),
+    ),
+  );
+  if (
+    !enabled ||
+    lineId !== currentSubtitleLineId ||
+    depth > maxDepth ||
+    (mode !== "hover" && mode !== "click")
+  ) {
+    postToOverlay("nested-lookup-result", {
+      requestId,
+      lineId,
+      depth,
+      ok: false,
+      error:
+        mode === "off"
+          ? "Nested popup lookup is disabled."
+          : depth > maxDepth
+            ? "Nested popup depth exceeds the configured limit."
+            : "Subtitle line changed before nested lookup completed.",
+    });
+    return;
+  }
+  if (!text.trim()) {
+    postToOverlay("nested-lookup-result", {
+      requestId,
+      lineId,
+      depth,
+      ok: false,
+      error: "No popup text was available to look up.",
+    });
+    return;
+  }
+  activeNestedLookupRequests[requestId] = true;
+  (async () => {
+    try {
+      const result = await lookupAtPosition(text, position, requestId);
+      postToOverlay("nested-lookup-result", {
+        requestId,
+        lineId,
+        depth,
+        position,
+        ok: true,
+        result,
+      });
+    } catch (error) {
+      postToOverlay("nested-lookup-result", {
+        requestId,
+        lineId,
+        depth,
+        position,
+        ok: false,
+        error: compactError(error),
+      });
+    } finally {
+      delete activeNestedLookupRequests[requestId];
+    }
+  })();
 }
 function processHoverLookupQueue() {
   if (hoverLookupInFlight) return;
@@ -13320,6 +13436,7 @@ function ankiBuildCardContext(payload, host) {
       ? payload.context
       : {};
   const entry = raw.entry && typeof raw.entry === "object" ? raw.entry : {};
+  const allowCurrentMedia = raw.allowCurrentMedia !== false;
   const term = entry.term || {};
   const expression = ankiNormalizeWhitespace(
     raw.expression || raw.heading || ankiDisplayHeadword(entry),
@@ -13330,12 +13447,16 @@ function ankiBuildCardContext(payload, host) {
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
-      runtime.lastSubtitle ||
+      (allowCurrentMedia ? runtime.lastSubtitle : "") ||
       "",
   );
   const surface = ankiNormalizeWhitespace(
     raw.surface ||
-      ankiLookupSurface(raw, entry, runtime.lastSubtitle) ||
+      ankiLookupSurface(
+        raw,
+        entry,
+        allowCurrentMedia ? runtime.lastSubtitle : sentence,
+      ) ||
       expression,
   );
   const popupSelectionText = ankiNormalizeWhitespace(
@@ -13349,9 +13470,11 @@ function ankiBuildCardContext(payload, host) {
         : raw.result && raw.result.lookupStart,
   );
   const cloze = ankiClozeForSentence(sentence, surface || expression, position);
-  const title = ankiNormalizeWhitespace(runtime.documentTitle || "");
-  const sourcePath = String(runtime.sourcePath || "");
-  const timePos = Number(runtime.timePos || 0);
+  const title = allowCurrentMedia
+    ? ankiNormalizeWhitespace(runtime.documentTitle || "")
+    : "";
+  const sourcePath = allowCurrentMedia ? String(runtime.sourcePath || "") : "";
+  const timePos = allowCurrentMedia ? Number(runtime.timePos || 0) : 0;
   const selectedDictionary = ankiSelectedGlossaryDictionary(entry, raw);
   const glossaryFirst = ankiFirstGlossary(entry);
   const selectedGlossary =
@@ -13368,6 +13491,7 @@ function ankiBuildCardContext(payload, host) {
     word: expression,
     reading,
     sentence,
+    allowCurrentMedia,
     surface,
     popupSelectionText,
     position: Number.isFinite(position) ? position : 0,
@@ -13391,7 +13515,7 @@ function ankiBuildCardContext(payload, host) {
     phoneticTranscriptions: ankiPhoneticTranscriptions(term),
     documentTitle: title,
     sourcePath,
-    timestamp: ankiFormatTimestamp(timePos),
+    timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
     audioTerm: expression,
     audioReading: reading,
@@ -14312,14 +14436,15 @@ async function ankiStoreWordAudio(context, prefs) {
 async function ankiCaptureNeededMedia(needs, context, prefs) {
   const media = {};
   const jobs = [];
-  if (needs.screenshot) {
+  const allowCurrentMedia = !context || context.allowCurrentMedia !== false;
+  if (needs.screenshot && allowCurrentMedia) {
     jobs.push(
       ankiCaptureScreenshot(context, prefs).then((value) => {
         media.screenshot = value;
       }),
     );
   }
-  if (needs.sentenceAudio) {
+  if (needs.sentenceAudio && allowCurrentMedia) {
     jobs.push(
       ankiCaptureSentenceAudio(context, prefs).then((value) => {
         media.sentenceAudio = value;

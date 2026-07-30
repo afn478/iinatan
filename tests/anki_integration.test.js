@@ -164,6 +164,47 @@ async function waitForOverlayMessage(predicate) {
   return context.__overlayMessages.some(predicate);
 }
 
+async function testNestedCardSkipsCurrentMediaCapture() {
+  const previousScreenshot = context.ankiCaptureScreenshot;
+  const previousSentenceAudio = context.ankiCaptureSentenceAudio;
+  const previousWordAudio = context.ankiStoreWordAudio;
+  let screenshotCalls = 0;
+  let sentenceAudioCalls = 0;
+  let wordAudioCalls = 0;
+  context.ankiCaptureScreenshot = async () => {
+    screenshotCalls++;
+    return "frame.jpg";
+  };
+  context.ankiCaptureSentenceAudio = async () => {
+    sentenceAudioCalls++;
+    return "sentence.mp3";
+  };
+  context.ankiStoreWordAudio = async () => {
+    wordAudioCalls++;
+    return "word.mp3";
+  };
+  try {
+    const media = await context.ankiCaptureNeededMedia(
+      { screenshot: true, sentenceAudio: true, wordAudio: true },
+      { allowCurrentMedia: false, expression: "使う" },
+      {},
+    );
+    assert(
+      screenshotCalls === 0 &&
+        sentenceAudioCalls === 0 &&
+        wordAudioCalls === 1 &&
+        media.screenshot === undefined &&
+        media.sentenceAudio === undefined &&
+        media.wordAudio === "word.mp3",
+      "Nested Anki cards should skip current frames and sentence audio while retaining dictionary word audio",
+    );
+  } finally {
+    context.ankiCaptureScreenshot = previousScreenshot;
+    context.ankiCaptureSentenceAudio = previousSentenceAudio;
+    context.ankiStoreWordAudio = previousWordAudio;
+  }
+}
+
 async function testAnkiBridgeRecoversAfterConnectTimeout() {
   const previousExec = context.utils.exec;
   setActiveAnkiPrefs(
@@ -808,6 +849,26 @@ assert(
   wrapperContext.timestamp === "1:23",
   "Anki card context wrapper should format the mpv time position",
 );
+const nestedWrapperContext = context.ankiCardContextFromPayload({
+  context: {
+    allowCurrentMedia: false,
+    sentence: "毎日使っている。",
+    position: 2,
+    expression: "使う",
+    entry: {
+      matched: "使って",
+      term: { expression: "使う", glossaries: [{ glossary: "to use" }] },
+    },
+    result: { text: "毎日使っている。", lookupStart: 2, lookupEnd: 5 },
+  },
+});
+assert(
+  nestedWrapperContext.sentence === "毎日使っている。" &&
+    nestedWrapperContext.documentTitle === "" &&
+    nestedWrapperContext.sourcePath === "" &&
+    nestedWrapperContext.timestamp === "",
+  "Nested Anki contexts should keep popup text without inheriting current-media metadata",
+);
 
 const duplicateOptions = context.ankiDuplicateOptions({
   ankiDuplicateMode: "allow",
@@ -837,7 +898,8 @@ assert(
   "Duplicate queries should match Yomitan-style first-field lookups case-insensitively",
 );
 
-testAnkiBridgeRecoversAfterConnectTimeout()
+testNestedCardSkipsCurrentMediaCapture()
+  .then(testAnkiBridgeRecoversAfterConnectTimeout)
   .then(testAnkiBridgeActions)
   .then(testPassiveAnkiStatusCoalesces)
   .then(testStreamingSentenceAudioSources)

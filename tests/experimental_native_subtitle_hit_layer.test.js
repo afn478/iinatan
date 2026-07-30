@@ -5196,7 +5196,7 @@ function waitForLayout() {
   );
   assert(
     /#root\s*\{[^}]*z-index:\s*10;/s.test(overlayCssSource) &&
-      /#popup\s*\{[^}]*z-index:\s*20;/s.test(overlayCssSource) &&
+      /\.lookup-popup\s*\{[^}]*z-index:\s*20;/s.test(overlayCssSource) &&
       host.style["z-index"] === "2",
     "the popup stacking order remains above the body-level hit-layer host",
   );

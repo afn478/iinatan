@@ -1014,6 +1014,7 @@ function ankiBuildCardContext(payload, host) {
       ? payload.context
       : {};
   const entry = raw.entry && typeof raw.entry === "object" ? raw.entry : {};
+  const allowCurrentMedia = raw.allowCurrentMedia !== false;
   const term = entry.term || {};
   const expression = ankiNormalizeWhitespace(
     raw.expression || raw.heading || ankiDisplayHeadword(entry),
@@ -1024,12 +1025,16 @@ function ankiBuildCardContext(payload, host) {
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
-      runtime.lastSubtitle ||
+      (allowCurrentMedia ? runtime.lastSubtitle : "") ||
       "",
   );
   const surface = ankiNormalizeWhitespace(
     raw.surface ||
-      ankiLookupSurface(raw, entry, runtime.lastSubtitle) ||
+      ankiLookupSurface(
+        raw,
+        entry,
+        allowCurrentMedia ? runtime.lastSubtitle : sentence,
+      ) ||
       expression,
   );
   const popupSelectionText = ankiNormalizeWhitespace(
@@ -1043,9 +1048,11 @@ function ankiBuildCardContext(payload, host) {
         : raw.result && raw.result.lookupStart,
   );
   const cloze = ankiClozeForSentence(sentence, surface || expression, position);
-  const title = ankiNormalizeWhitespace(runtime.documentTitle || "");
-  const sourcePath = String(runtime.sourcePath || "");
-  const timePos = Number(runtime.timePos || 0);
+  const title = allowCurrentMedia
+    ? ankiNormalizeWhitespace(runtime.documentTitle || "")
+    : "";
+  const sourcePath = allowCurrentMedia ? String(runtime.sourcePath || "") : "";
+  const timePos = allowCurrentMedia ? Number(runtime.timePos || 0) : 0;
   const selectedDictionary = ankiSelectedGlossaryDictionary(entry, raw);
   const glossaryFirst = ankiFirstGlossary(entry);
   const selectedGlossary =
@@ -1062,6 +1069,7 @@ function ankiBuildCardContext(payload, host) {
     word: expression,
     reading,
     sentence,
+    allowCurrentMedia,
     surface,
     popupSelectionText,
     position: Number.isFinite(position) ? position : 0,
@@ -1085,7 +1093,7 @@ function ankiBuildCardContext(payload, host) {
     phoneticTranscriptions: ankiPhoneticTranscriptions(term),
     documentTitle: title,
     sourcePath,
-    timestamp: ankiFormatTimestamp(timePos),
+    timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
     audioTerm: expression,
     audioReading: reading,

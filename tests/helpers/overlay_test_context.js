@@ -86,6 +86,9 @@ class FakeElement {
   get firstChild() {
     return this.children[0] || null;
   }
+  get childNodes() {
+    return this.children;
+  }
   get textContent() {
     if (this.tagName === "#text") return this._textContent;
     return (
@@ -120,7 +123,11 @@ class FakeElement {
     return child;
   }
   _materializePopupShell() {
-    if (this.tagName !== "popup") return;
+    if (
+      this.tagName !== "popup" &&
+      !(this.classList && this.classList.contains("lookup-popup"))
+    )
+      return;
     const html = this._innerHTML;
     const headOpen = html.indexOf('<div class="head">');
     const bodyOpen = html.indexOf('<div class="body">');
@@ -212,7 +219,10 @@ class FakeElement {
         width: 400,
         height: 40,
       };
-    if (this.tagName === "popup")
+    if (
+      this.tagName === "popup" ||
+      (this.classList && this.classList.contains("lookup-popup"))
+    )
       return {
         left: 0,
         top: 0,
@@ -255,12 +265,15 @@ function makeOverlayContext(options) {
   const elements = {
     subtitle: new FakeElement("subtitle"),
     popup: new FakeElement("popup"),
+    "nested-popup-layer": new FakeElement("nested-popup-layer"),
     "popup-safety-zone": new FakeElement("popup-safety-zone"),
     "popup-row-safety-zone": new FakeElement("popup-row-safety-zone"),
     status: new FakeElement("status"),
     task: new FakeElement("task"),
   };
   elements.popup.classList.add("hidden");
+  elements.popup.classList.add("lookup-popup");
+  elements.popup.dataset.popupDepth = "0";
   elements["popup-safety-zone"].classList.add("hidden");
   elements["popup-safety-zone"].setAttribute("data-clickable", "true");
   elements["popup-row-safety-zone"].classList.add("hidden");
