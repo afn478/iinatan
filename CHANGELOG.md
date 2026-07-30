@@ -2,17 +2,19 @@
 
 ## Unreleased
 
+## 2.0.2 - 2026-07-30
+
 ### Added
 
 - Added JSON backup and restore for all profiles and global dictionary-import settings. Missing dictionary references retain their order and enabled state and are reconciled when matching dictionaries are installed later.
-- Added opt-in nested dictionary popups: scan definition text by Yomitan-style hover or Hoshi Reader/Chimahon-style click, keep parent entries visible, position each child independently of subtitle spacing, and cap the popup depth per profile.
+- Added optional nested dictionary popups. You can look up words inside a definition by hovering or clicking without closing the original entry. Each profile can limit how many popups open in a chain.
 
 ### Fixed
 
-- Made the AnkiConnect timeout integration test use deterministic accelerated timers so push validation no longer depends on Linux timer-clock advancement between immediate event-loop turns.
-- Positioned nested popups above or below their source sentence while keeping the complete dictionary-match highlight visible, redirected furigana hits to base text with adjacent okurigana, and prevented child Anki cards from inheriting the current video's title, path, timestamp, frame, or sentence audio.
-- Fixed experimental native-subtitle lookup becoming unavailable after switching language profiles by hot-updating the existing overlay instead of relying on an intermittent IINA WebView reload.
-- Made URL-backed media first-class across native ASS/SRT hit boxes and Anki sentence audio: resolved mpv stream and selected-audio URLs are preferred over webpage paths, current ASS events already decoded by newer mpv avoid remote video scans, mpv 0.38 renders embedded ASS from the cue already buffered by mpv before falling back to bounded HTTP reads, persisted startup retries cover source and track readiness, small cache excerpts cover mpv-only inputs when available, mounted/local paths retain their behavior, and URL-bearing worker IPC is user-private.
+- Fixed automated validation sometimes failing on Linux while checking AnkiConnect timeout recovery.
+- Improved nested popup placement, kept matched text fully highlighted, and made furigana select its base word. Anki cards created from nested popups no longer include unrelated details or media from the current video.
+- Fixed experimental native subtitle lookup stopping after you switched language profiles.
+- Improved streamed-video support for experimental subtitle lookup and Anki sentence audio, especially for online videos with ASS or SRT subtitles. Lookup now handles sources and subtitle tracks that load late, reuses subtitles already loaded by the player when possible, and keeps stream URLs private. Local files continue to work as before.
 
 ## 2.0.1 - 2026-07-29
 
