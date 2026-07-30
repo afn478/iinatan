@@ -12,6 +12,7 @@
 
 - Allowed clicks on a nested lookup's source word or empty parent-popup space to dismiss only that popup's descendants, while clicks on a different word still replace the direct child in both hover and click modes.
 - Restored the context-sensitive popup cursor so empty space uses the regular arrow while selectable text retains the text cursor.
+- Made release builds retry transient pinned-dependency download failures and switched FreeType to Savannah's working official mirror.
 
 ## 2.0.2 - 2026-07-30
 

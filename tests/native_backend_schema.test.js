@@ -131,6 +131,14 @@ const nativeBuildScript = fs.readFileSync(
   path.join(root, "scripts/build_native_backend.sh"),
   "utf8",
 );
+const nativeDependencyBuildScript = fs.readFileSync(
+  path.join(root, "scripts/build_native_geometry_dependencies.sh"),
+  "utf8",
+);
+const nativeDependencyLock = fs.readFileSync(
+  path.join(root, "native-dependencies.lock.json"),
+  "utf8",
+);
 assert(
   /find_library\(CORETEXT_FRAMEWORK CoreText REQUIRED\)/.test(
     nativeBuildScript,
@@ -152,6 +160,20 @@ assert(
 assert(
   /git submodule update --init --recursive/.test(buildScript),
   "Submodule validation should give the initialization command",
+);
+assert(
+  /--retry 5/.test(nativeDependencyBuildScript) &&
+    /--retry-max-time 120/.test(nativeDependencyBuildScript) &&
+    /-o "\$partial"[\s\S]*mv "\$partial" "\$archive"/.test(
+      nativeDependencyBuildScript,
+    ),
+  "Pinned native dependency downloads should retry transient failures and publish archives atomically",
+);
+assert(
+  /download-mirror\.savannah\.gnu\.org\/releases\/freetype/.test(
+    nativeDependencyLock,
+  ),
+  "The pinned FreeType archive should use Savannah's working download mirror",
 );
 
 const gitmodules = fs.readFileSync(path.join(root, ".gitmodules"), "utf8");

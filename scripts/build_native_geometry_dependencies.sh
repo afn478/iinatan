@@ -45,7 +45,7 @@ PY
 
 fetch() {
   local name="$1"
-  local url sha archive actual
+  local url sha archive partial actual
   url="$(python3 - "$LOCK" "$name" <<'PY'
 import json, sys
 lock = json.load(open(sys.argv[1]))
@@ -60,7 +60,20 @@ PY
 )"
   archive="$DOWNLOADS/${url##*/}"
   if [[ ! -f "$archive" ]]; then
-    curl --fail --location --proto '=https' --tlsv1.2 "$url" -o "$archive"
+    partial="$archive.part"
+    rm -f "$partial"
+    curl \
+      --fail \
+      --location \
+      --proto '=https' \
+      --tlsv1.2 \
+      --retry 5 \
+      --retry-delay 2 \
+      --retry-max-time 120 \
+      --connect-timeout 30 \
+      "$url" \
+      -o "$partial"
+    mv "$partial" "$archive"
   fi
   actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
   if [[ "$actual" != "$sha" ]]; then
