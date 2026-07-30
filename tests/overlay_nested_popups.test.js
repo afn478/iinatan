@@ -184,6 +184,101 @@ assert(
     overlay.state.nestedPopups.length === 2,
   "Nested popup creation should stop at the configured depth",
 );
+
+first.element.listeners.click({
+  currentTarget: first.element,
+  target: first.element.querySelector(".body"),
+  clientX: 40,
+  clientY: 40,
+});
+assert(
+  overlay.state.nestedPopups.length === 1 &&
+    overlay.state.nestedPopups[0] === first,
+  "Empty-space dismissal in a child should retain that child and every ancestor",
+);
+overlay.openNestedPopup(first.element, source);
+
+const childAction = context.document.createElement("button");
+first.element.querySelector(".body").appendChild(childAction);
+first.element.listeners.click({
+  currentTarget: first.element,
+  target: childAction,
+  clientX: 40,
+  clientY: 40,
+});
+assert(
+  overlay.state.nestedPopups.length === 2,
+  "Popup action controls should not be treated as empty dismissal space",
+);
+
+popup.listeners.click({
+  currentTarget: popup,
+  target: gloss,
+  lookupRange: {
+    startContainer: textNode,
+    startOffset: 3,
+  },
+});
+assert(
+  overlay.state.nestedPopups.length === 0,
+  "Clicking any part of the root popup word that opened its child should dismiss that child and every descendant",
+);
+
+overlay.openNestedPopup(popup, source);
+const originalChild = overlay.state.nestedPopups[0].element;
+popup.listeners.click({
+  currentTarget: popup,
+  target: gloss,
+  lookupRange: {
+    startContainer: textNode,
+    startOffset: 0,
+  },
+});
+assert(
+  overlay.state.nestedPopups.length === 1 &&
+    overlay.state.nestedPopups[0].element !== originalChild &&
+    overlay.state.nestedPopups[0].source.position === 0,
+  "Clicking a different word should replace the direct child instead of only dismissing it",
+);
+
+overlay.openNestedPopup(overlay.state.nestedPopups[0].element, source);
+popup.listeners.click({
+  currentTarget: popup,
+  target: body,
+  clientX: 40,
+  clientY: 40,
+});
+assert(
+  overlay.state.nestedPopups.length === 0,
+  "Clicking empty root-popup space should dismiss every descendant without dismissing the root",
+);
+
+overlay.applyConfig({ nestedPopupMode: "hover" });
+overlay.openNestedPopup(popup, source);
+popup.listeners.click({
+  currentTarget: popup,
+  target: gloss,
+  lookupRange: {
+    startContainer: textNode,
+    startOffset: 0,
+  },
+});
+assert(
+  overlay.state.nestedPopups.length === 1 &&
+    overlay.state.nestedPopups[0].source.position === 0,
+  "Clicking a different word should replace a hover-activated child as well",
+);
+popup.listeners.click({
+  currentTarget: popup,
+  target: body,
+  clientX: 40,
+  clientY: 40,
+});
+assert(
+  overlay.state.nestedPopups.length === 0,
+  "Empty-space dismissal should also work while hover activation is configured",
+);
+
 overlay.clearNestedPopups(0);
 assert(
   overlay.state.nestedPopups.length === 0 &&

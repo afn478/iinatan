@@ -253,9 +253,6 @@
       box-shadow: 0 0 0 1px rgba(128, 173, 255, 0.48);
       pointer-events: none;
     }
-    .lookup-popup[data-nested-enabled="true"] .body {
-      cursor: text;
-    }
     #popup-safety-zone,
     #popup-row-safety-zone {
       position: absolute;
@@ -6102,6 +6099,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       position,
       anchorRect,
       sentenceRect: sentenceRect || anchorRect,
+      root: boundary,
       sourceCharOffset,
       segments: source.segments,
       key:
@@ -6197,6 +6195,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   function updateNestedPopupHighlight(item, stored, fallbackPosition) {
     if (!item || !item.source) return;
     const match = nestedLookupResultRange(stored, fallbackPosition);
+    item.lookupRange = match;
     const rects = nestedLookupRangeRects(item.source, match.start, match.end);
     if (!rects.length) return;
     const matchRect = combinedRect(rects);
@@ -6305,6 +6304,10 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       anchorRect: source.anchorRect,
       sentenceRect: source.sentenceRect || source.anchorRect,
       source,
+      lookupRange: {
+        start: source.position,
+        end: source.position + 1,
+      },
       highlights: createNestedPopupHighlights([source.anchorRect], depth),
       requestId: "",
     };
@@ -6333,12 +6336,72 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       return false;
     }
   }
+  function nestedPopupClickIsInteractive(target, popup) {
+    let current = nodeIsText(target) ? target.parentNode : target;
+    while (current && current !== popup) {
+      const tag = nodeTagName(current);
+      if (
+        tag === "a" ||
+        tag === "button" ||
+        tag === "summary" ||
+        tag === "input" ||
+        tag === "select" ||
+        tag === "textarea"
+      )
+        return true;
+      current = current.parentNode;
+    }
+    return false;
+  }
+  function nestedPopupClickHitsSource(event, source) {
+    if (!source) return false;
+    if (event && event.lookupRange) return true;
+    const x = Number(event && event.clientX);
+    const y = Number(event && event.clientY);
+    const rect = source.anchorRect;
+    if (
+      !rect ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      ![rect.left, rect.top, rect.right, rect.bottom].every(Number.isFinite)
+    )
+      return false;
+    return (
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+    );
+  }
+  function nestedPopupSourceMatches(item, parentPopup, source) {
+    if (
+      !item ||
+      item.parentPopup !== parentPopup ||
+      !item.source ||
+      !source ||
+      item.source.root !== source.root ||
+      item.source.text !== source.text
+    )
+      return false;
+    const range = item.lookupRange || {
+      start: item.source.position,
+      end: item.source.position + 1,
+    };
+    return source.position >= range.start && source.position < range.end;
+  }
   function onNestedPopupClick(event) {
-    if (state.config.nestedPopupMode !== "click" || popupSelectionIsActive())
+    if (state.config.nestedPopupMode === "off" || popupSelectionIsActive())
       return;
     const popup = popupContainerForNode(event && event.currentTarget);
-    const source = nestedLookupSourceFromEvent(popup, event);
-    if (!source) return;
+    if (!popup || nestedPopupClickIsInteractive(event && event.target, popup))
+      return;
+    let source = nestedLookupSourceFromEvent(popup, event);
+    if (!nestedPopupClickHitsSource(event, source)) source = null;
+    const child = state.nestedPopups.find(
+      (item) =>
+        item.parentPopup === popup && item.depth === popupDepth(popup) + 1,
+    );
+    if (!source || nestedPopupSourceMatches(child, popup, source)) {
+      clearNestedPopups(popupDepth(popup));
+      return;
+    }
     openNestedPopup(popup, source);
   }
   function onPopupContainerClick(event) {

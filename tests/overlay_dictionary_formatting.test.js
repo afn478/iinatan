@@ -1138,6 +1138,12 @@ assert(
   "Popup safety-region heights should be calculated from rendered geometry",
 );
 assert(
+  !/\.lookup-popup\[data-nested-enabled="true"\] \.body \{[^}]*cursor: text;/s.test(
+    css,
+  ),
+  "Nested lookup should leave the cursor context-sensitive over popup text and empty space",
+);
+assert(
   /:root\.theme-light/.test(css),
   "Popup CSS should define a concrete light theme",
 );

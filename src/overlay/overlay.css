@@ -247,9 +247,6 @@
       box-shadow: 0 0 0 1px rgba(128, 173, 255, 0.48);
       pointer-events: none;
     }
-    .lookup-popup[data-nested-enabled="true"] .body {
-      cursor: text;
-    }
     #popup-safety-zone,
     #popup-row-safety-zone {
       position: absolute;
