@@ -488,8 +488,9 @@
     .attribution-row { margin-top: 8px; text-align: right; color: var(--popup-muted); font-size: 12px; overflow-wrap: anywhere; }
     .entry-meta-row { display: flex; flex-wrap: wrap; gap: 5px 6px; margin: 0 0 8px; max-width: 100%; overflow: visible; white-space: normal; scrollbar-width: none; }
     .entry-meta-row::-webkit-scrollbar { display: none; }
-    .freq-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: var(--popup-chip-text); background: var(--popup-frequency-bg); }
-    .freq-chip .meta-label { color: var(--popup-muted); }
+    .freq-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 220px; overflow: hidden; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: var(--popup-chip-text); background: var(--popup-frequency-bg); white-space: nowrap; }
+    .freq-chip .meta-label { flex: 0 0 auto; color: var(--popup-muted); }
+    .freq-values { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .pitch-group { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; color: var(--popup-chip-text); font-size: 11px; font-weight: 800; line-height: 1.45; }
     .pitch-source-chip { display: inline-flex; align-items: center; flex: 0 0 auto; border-radius: 7px; padding: 2px 7px; color: var(--popup-inverted); background: var(--popup-pitch-source-bg); }
     .pitch-patterns { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 8px; min-width: 0; max-width: 100%; padding: 1px 0 1px 2px; font-size: 15px; line-height: 1.35; }
@@ -544,6 +545,36 @@
       border-color: rgba(34, 197, 94, 0.58);
       box-shadow: 0 8px 18px rgba(21, 128, 61, 0.16);
     }
+    #bitmap-ocr-status {
+      position: absolute;
+      top: max(18px, env(safe-area-inset-top));
+      right: max(18px, env(safe-area-inset-right));
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--status-bg);
+      color: var(--status-text);
+      border: 1px solid var(--status-border);
+      box-shadow: var(--status-shadow);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #bitmap-ocr-status.hidden { display: none; }
+    #bitmap-ocr-status.pending::before {
+      content: "";
+      display: inline-block;
+      width: 0.72em;
+      height: 0.72em;
+      margin-right: 0.5em;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      vertical-align: -0.08em;
+      animation: bitmap-ocr-spin 0.8s linear infinite;
+    }
+    @keyframes bitmap-ocr-spin { to { transform: rotate(360deg); } }
   
     #task {
       position: absolute;
@@ -636,6 +667,7 @@
 <body>
   <div id="root">
     <div id="status" class="hidden"></div>
+    <div id="bitmap-ocr-status" class="hidden" role="status" aria-live="polite"></div>
     <div id="task" class="hidden" data-clickable="true"></div>
     <div id="subtitle" class="hidden"></div>
     <div id="popup" class="lookup-popup hidden" data-clickable="true" data-popup-depth="0"></div>
@@ -1107,6 +1139,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   const popupSafetyZoneEl = document.getElementById("popup-safety-zone");
   const popupRowSafetyZoneEl = document.getElementById("popup-row-safety-zone");
   const statusEl = document.getElementById("status");
+  const bitmapOcrStatusEl = document.getElementById("bitmap-ocr-status");
   const taskEl = document.getElementById("task");
 
   const state = {
@@ -1196,6 +1229,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     nativeLookupSpans: [],
     nativeLayout: null,
     nativeSurfaces: [],
+    bitmapOcrStatus: null,
     nativeDiagnosticKey: "",
     nativeAcceptedDiagnosticKey: "",
   };
@@ -4196,6 +4230,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     nativeLookupSpans,
     nativeLayout,
     nativeSurfaces,
+    bitmapOcrStatus,
   ) {
     state.text = state.config.flattenSubtitleLineBreaks
       ? flattenSubtitleText(text)
@@ -4213,6 +4248,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     state.nativeSurfaces = Array.isArray(nativeSurfaces)
       ? nativeSurfaces.slice()
       : [];
+    renderBitmapOcrStatus(bitmapOcrStatus);
     Object.keys(state.pendingLookupTimers || {}).forEach((k) =>
       clearTimeout(state.pendingLookupTimers[k]),
     );
@@ -7637,7 +7673,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           '"><span class="meta-label">' +
           escapeHtml(dict || "Frequency") +
           "</span>" +
-          (display ? " " + escapeHtml(display) : "") +
+          (display
+            ? '<span class="freq-values">' + escapeHtml(display) + "</span>"
+            : "") +
           "</span>",
       );
     });
@@ -8111,6 +8149,26 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       }, ttlMs);
     }
   }
+  function renderBitmapOcrStatus(payload) {
+    const status = payload && typeof payload === "object" ? payload : null;
+    state.bitmapOcrStatus = status;
+    if (!bitmapOcrStatusEl) return;
+    bitmapOcrStatusEl.className = "hidden";
+    bitmapOcrStatusEl.textContent = "";
+    bitmapOcrStatusEl.setAttribute("aria-label", "");
+    bitmapOcrStatusEl.setAttribute("title", "");
+    if (!state.enabled || !status || status.state !== "pending") return;
+    if (status.state === "pending") {
+      bitmapOcrStatusEl.textContent = "OCR";
+      bitmapOcrStatusEl.setAttribute(
+        "aria-label",
+        "Recognizing bitmap subtitle",
+      );
+      bitmapOcrStatusEl.setAttribute("title", "Recognizing bitmap subtitle");
+      bitmapOcrStatusEl.className = "pending";
+    }
+  }
+
   function updateAnkiCardState(payload) {
     const requestId = String((payload && payload.requestId) || "");
     if (!requestId) return;
@@ -8206,6 +8264,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         state.nativeLookupSpans,
         state.nativeLayout,
         state.nativeSurfaces,
+        state.bitmapOcrStatus,
       );
   });
   iina.onMessage("subtitle", (payload) => {
@@ -8222,6 +8281,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       payload && Array.isArray(payload.nativeSurfaces)
         ? payload.nativeSurfaces
         : [],
+      payload && payload.bitmapOcrStatus ? payload.bitmapOcrStatus : null,
     );
   });
   iina.onMessage("line-lookup-reset", (payload) => {

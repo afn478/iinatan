@@ -269,6 +269,7 @@ function makeOverlayContext(options) {
     "popup-safety-zone": new FakeElement("popup-safety-zone"),
     "popup-row-safety-zone": new FakeElement("popup-row-safety-zone"),
     status: new FakeElement("status"),
+    "bitmap-ocr-status": new FakeElement("bitmap-ocr-status"),
     task: new FakeElement("task"),
   };
   elements.popup.classList.add("hidden");

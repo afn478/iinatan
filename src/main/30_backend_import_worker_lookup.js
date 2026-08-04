@@ -1026,6 +1026,15 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
       ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v2")
   )
     throw new Error("ass-geometry-unavailable");
+  if (
+    payloadValue &&
+    payloadValue.type === "bitmap-subtitle-ocr" &&
+    (!ready ||
+      !ready.bitmapOcr ||
+      ready.bitmapOcr.protocol !== 1 ||
+      ready.bitmapOcr.available !== true)
+  )
+    throw new Error("bitmap-ocr-unavailable");
   const timeout = Math.max(
     1000,
     timeoutMs || prefNumber("backendTimeoutMs", 30000),

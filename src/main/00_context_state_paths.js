@@ -217,6 +217,21 @@ let nativeAssGeometryStats = {
   failures: 0,
   maxOutstanding: 0,
 };
+let nativeBitmapOcrCache = Object.create(null);
+let nativeBitmapOcrInFlight = Object.create(null);
+let nativeBitmapOcrFailures = Object.create(null);
+let nativeBitmapOcrIntents = Object.create(null);
+let nativeBitmapOcrGeneration = 0;
+let nativeBitmapOcrNoticeShown = false;
+let nativeBitmapOcrIntentAt = Number.NEGATIVE_INFINITY;
+let nativeBitmapOcrMouseIntentSerial = 0;
+let nativeBitmapOcrPauseIntentSerial = 0;
+let nativeBitmapOcrPauseObserved = false;
+let nativeBitmapOcrMouseLayoutAt = Number.NEGATIVE_INFINITY;
+let nativeBitmapOcrMouseActivitySeen = false;
+let nativeBitmapOcrMouseIntentSeen = false;
+let nativeBitmapOcrMouseActivityCounter = null;
+let nativeBitmapOcrWindowMain = true;
 let nativeExternalSrtCache = Object.create(null);
 let nativeExternalSrtInFlight = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
@@ -759,6 +774,9 @@ function workerStopPath() {
 }
 function workerReadyPath() {
   return pathJoin(workerStateDir(), "ready.json");
+}
+function workerMouseActivityPath() {
+  return pathJoin(workerStateDir(), "mouse.json");
 }
 function workerLogPath() {
   return pathJoin(workerRoot(), "worker.log");

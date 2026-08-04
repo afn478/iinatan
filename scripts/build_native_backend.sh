@@ -36,7 +36,7 @@ mkdir -p "$BIN_DIR" "$WRAPPER_DIR"
 
 cat > "$WRAPPER_DIR/CMakeLists.txt" <<CMAKEEOF
 cmake_minimum_required(VERSION 3.22.1)
-project(iinatan_backend LANGUAGES C CXX)
+project(iinatan_backend LANGUAGES C CXX OBJCXX)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "" FORCE)
 
 add_subdirectory("$SRC_DIR" hoshidicts-build)
@@ -46,18 +46,32 @@ add_executable(
   "$ROOT/src/native/worker_protocol.cpp"
   "$ROOT/src/native/media_demux.cpp"
   "$ROOT/src/native/ass_geometry.cpp"
+  "$ROOT/src/native/bitmap_subtitle.cpp"
+  "$ROOT/src/native/vision_ocr.mm"
 )
 target_include_directories(iina-hoshi-dicts PRIVATE "$ROOT/src/native")
 set_property(TARGET iina-hoshi-dicts PROPERTY CXX_STANDARD 23)
 set_property(TARGET iina-hoshi-dicts PROPERTY CXX_STANDARD_REQUIRED ON)
 find_library(CORETEXT_FRAMEWORK CoreText REQUIRED)
 find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+find_library(VISION_FRAMEWORK Vision REQUIRED)
+find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+find_library(IMAGEIO_FRAMEWORK ImageIO REQUIRED)
+set_source_files_properties(
+  "$ROOT/src/native/vision_ocr.mm"
+  PROPERTIES COMPILE_FLAGS "-fobjc-arc"
+)
 target_link_libraries(
   iina-hoshi-dicts
   PRIVATE
   hoshidicts
   "\${CORETEXT_FRAMEWORK}"
   "\${COREFOUNDATION_FRAMEWORK}"
+  "\${FOUNDATION_FRAMEWORK}"
+  "\${VISION_FRAMEWORK}"
+  "\${COREGRAPHICS_FRAMEWORK}"
+  "\${IMAGEIO_FRAMEWORK}"
 )
 CMAKEEOF
 
@@ -70,7 +84,6 @@ target_include_directories(
   "$GEOMETRY_STAGE/include"
   "$GEOMETRY_STAGE/include/freetype2"
 )
-find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 target_link_libraries(
   iina-hoshi-dicts
   PRIVATE
@@ -111,6 +124,22 @@ fi
 if [[ "$WITH_ASS_GEOMETRY" == "1" ]]; then
   if ! "$BIN_DIR/iina-hoshi-dicts" version | grep -q '"available":true'; then
     echo "ASS geometry capability was not enabled in the finished helper." >&2
+    exit 2
+  fi
+  if ! "$BIN_DIR/iina-hoshi-dicts" version | /usr/bin/python3 -c '
+import json, sys
+version = json.load(sys.stdin)
+value = version.get("bitmapOcr", {})
+required = {"pgs", "dvdsub", "dvbsub", "xsub"}
+if value.get("protocol") != 1 or value.get("available") is not True:
+    raise SystemExit(1)
+if value.get("screenshotDiff") is not True or not required.issubset(value.get("decoders", [])):
+    raise SystemExit(1)
+mouse = version.get("mouseIntent", {})
+if mouse.get("protocol") != 1 or mouse.get("source") != "coregraphics-counter":
+    raise SystemExit(1)
+'; then
+    echo "Bitmap subtitle OCR or mouse-intent capability was not enabled in the finished helper." >&2
     exit 2
   fi
   non_system="$(otool -L "$BIN_DIR/iina-hoshi-dicts" | tail -n +2 | awk '{print $1}' | grep -Ev '^(/usr/lib/|/System/Library/)' || true)"

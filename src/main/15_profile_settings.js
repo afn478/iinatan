@@ -9,6 +9,9 @@ const DEFAULT_ANKI_FIELD_TEMPLATES_JSON = "{}";
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
+  bitmapSubtitleOcrEnabled: true,
+  bitmapSubtitleOcrPrefetchEnabled: false,
+  bitmapSubtitleOcrScreenshotFallbackEnabled: false,
   experimentalNativeSubtitleHitLayer: false,
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
@@ -71,6 +74,9 @@ const PROFILE_PREFERENCE_RUNTIME_EFFECTS = {
   maxGlossesPerEntry: ["lookupCache"],
   flattenSubtitleLineBreaks: ["geometryCache"],
   experimentalNativeSubtitleHitLayer: ["geometryCache", "nativeVisibility"],
+  bitmapSubtitleOcrEnabled: ["geometryCache", "nativeVisibility"],
+  bitmapSubtitleOcrPrefetchEnabled: ["geometryCache"],
+  bitmapSubtitleOcrScreenshotFallbackEnabled: ["geometryCache"],
   experimentalNativeSubtitleTextOpacity: ["geometryCache"],
   experimentalNativeSubtitleValidation: ["geometryCache"],
   experimentalNativeSubtitleHitBoxes: ["hitLayer"],
@@ -240,6 +246,19 @@ function normalizeProfilePreferences(prefs) {
     out.experimentalNativeSubtitleHitLayer,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitLayer,
   );
+  out.bitmapSubtitleOcrEnabled = normalizeProfilePreferenceBoolValue(
+    out.bitmapSubtitleOcrEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrEnabled,
+  );
+  out.bitmapSubtitleOcrPrefetchEnabled = normalizeProfilePreferenceBoolValue(
+    out.bitmapSubtitleOcrPrefetchEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrPrefetchEnabled,
+  );
+  out.bitmapSubtitleOcrScreenshotFallbackEnabled =
+    normalizeProfilePreferenceBoolValue(
+      out.bitmapSubtitleOcrScreenshotFallbackEnabled,
+      PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrScreenshotFallbackEnabled,
+    );
   out.experimentalNativeSubtitleLookupHighlight =
     normalizeProfilePreferenceBoolValue(
       out.experimentalNativeSubtitleLookupHighlight,

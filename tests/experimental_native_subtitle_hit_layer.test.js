@@ -117,6 +117,22 @@ function loadMainNativeHelpers(properties) {
     nativeAssGeometryFailures: Object.create(null),
     nativeAssGeometryGeneration: 0,
     nativeAssGeometryActiveKey: "",
+    nativeBitmapOcrCache: Object.create(null),
+    nativeBitmapOcrInFlight: Object.create(null),
+    nativeBitmapOcrFailures: Object.create(null),
+    nativeBitmapOcrIntents: Object.create(null),
+    nativeBitmapOcrGeneration: 0,
+    nativeBitmapOcrNoticeShown: false,
+    nativeBitmapOcrIntentAt: Number.NEGATIVE_INFINITY,
+    nativeBitmapOcrMouseIntentSerial: 0,
+    nativeBitmapOcrPauseIntentSerial: 0,
+    nativeBitmapOcrPauseObserved: false,
+    nativeBitmapOcrMouseLayoutAt: Number.NEGATIVE_INFINITY,
+    nativeBitmapOcrMouseActivitySeen: false,
+    nativeBitmapOcrMouseIntentSeen: false,
+    nativeBitmapOcrMouseActivityCounter: null,
+    nativeBitmapOcrWindowMain: true,
+    activeWorkerReady: values.__workerReady || null,
     nativeExternalSrtCache: Object.create(null),
     nativeExternalSrtInFlight: Object.create(null),
     nativeSubtitleLayoutTrigger: "test",
@@ -131,7 +147,13 @@ function loadMainNativeHelpers(properties) {
     __testExecEvents: execEvents,
     __testGeometryRequests: geometryRequests,
     __testValues: values,
+    enabled: values.__enabled !== false,
     async ensureBundledBackendInstalled() {},
+    notify() {},
+    preferences: {
+      set() {},
+      sync() {},
+    },
     async runWorkerQueueRequestDirect(request) {
       geometryRequests.push(request);
       if (typeof values.__geometryResponse === "function")
@@ -153,6 +175,9 @@ function loadMainNativeHelpers(properties) {
     },
     dataRoot() {
       return "/test";
+    },
+    workerMouseActivityPath() {
+      return "/test/worker/state/mouse.json";
     },
     file: {
       write(filePath, contents) {
@@ -191,6 +216,9 @@ function loadMainNativeHelpers(properties) {
     debugLog(message) {
       fontMetricLogs.push(String(message || ""));
     },
+    debugVerbose(message) {
+      fontMetricLogs.push(String(message || ""));
+    },
     mpv: {
       command(name, args) {
         if (typeof values.__mpvCommand === "function")
@@ -211,6 +239,12 @@ function loadMainNativeHelpers(properties) {
           : typeof value === "string"
             ? value
             : JSON.stringify(value);
+      },
+      getFlag(name) {
+        return /^(yes|true|1|on)$/i.test(String(values[name]));
+      },
+      set(name, value) {
+        values[name] = value;
       },
     },
     mpvStringProp(names, fallback) {
@@ -319,6 +353,18 @@ globalThis.nativeHelpers = {
   advanceNativeSubtitleFontMetricGeneration,
   normalizeNativeTrackList,
   nativeSubtitleTrackEligibility,
+  nativeBitmapSelectedTrack,
+  bitmapSubtitleOcrMode,
+  nativeBitmapOcrLanguages,
+  nativeBitmapOcrCacheKey,
+  nativeBitmapOcrTrigger,
+  triggerNativeBitmapOcrFromMouseMovement,
+  handleNativeBitmapOcrMouseInput,
+  observeNativeBitmapOcrMouseActivity,
+  runNativeBitmapOcrRequest,
+  nativeBitmapSubtitleCueSnapshot,
+  advanceNativeBitmapOcrGeneration,
+  normalizeNativeBitmapOcrResponse,
   parseSimpleNativeAssCue,
   nativeAssDisplayText,
   nativeAssGeometryUnits,
@@ -373,6 +419,25 @@ function waitForLayout() {
 }
 
 (async () => {
+  const bitmapStatusOverlay = loadOverlayForTest(["renderBitmapOcrStatus"]);
+  bitmapStatusOverlay.context.__handlers.enabled({ enabled: true });
+  bitmapStatusOverlay.overlay.renderBitmapOcrStatus({ state: "pending" });
+  assertEqual(
+    bitmapStatusOverlay.context.__elements["bitmap-ocr-status"].textContent,
+    "OCR",
+    "pending bitmap OCR uses the compact activity label",
+  );
+  bitmapStatusOverlay.overlay.renderBitmapOcrStatus({
+    state: "failed",
+    fallbackEnabled: false,
+  });
+  assert(
+    bitmapStatusOverlay.context.__elements["bitmap-ocr-status"].textContent ===
+      "" &&
+      bitmapStatusOverlay.context.__elements["bitmap-ocr-status"].className ===
+        "hidden",
+    "the OCR activity indicator disappears after recognition finishes",
+  );
   const policyOverlay = loadOverlayForTest(["applyConfig", "isLookupableChar"]);
   [
     ["ja", "猫", JAPANESE_LOOKUP_CHARACTER_POLICY],
@@ -611,7 +676,431 @@ function waitForLayout() {
       2,
     ).reason,
     "bitmap-subtitle",
-    "bitmap subtitle codecs fail closed",
+    "bitmap subtitle codecs are identified for the OCR path",
+  );
+  const bitmapEnabled = loadMainNativeHelpers({
+    pause: true,
+    sid: 2,
+    "pref:bitmapSubtitleOcrEnabled": true,
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        "main-selection": 0,
+        codec: "hdmv_pgs_subtitle",
+        "ff-index": 4,
+      },
+    ],
+  });
+  assert(
+    bitmapEnabled.bitmapSubtitleOcrMode(),
+    "the independent default-enabled OCR path activates for a selected bitmap track",
+  );
+  assertEqual(
+    JSON.stringify(
+      Array.from(
+        bitmapEnabled.nativeBitmapOcrLanguages({
+          languages: ["en-US", "ja-JP"],
+        }),
+      ),
+    ),
+    JSON.stringify(["en-US"]),
+    "profile language compatibility is intersected with runtime Vision support",
+  );
+  const bitmapDisabled = loadMainNativeHelpers({
+    sid: 2,
+    "pref:bitmapSubtitleOcrEnabled": false,
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        codec: "hdmv_pgs_subtitle",
+      },
+    ],
+  });
+  assert(
+    !bitmapDisabled.bitmapSubtitleOcrMode(),
+    "an explicit bitmap OCR opt-out remains effective",
+  );
+  const prefetchedBitmap = loadMainNativeHelpers({
+    pause: false,
+    path: "/tmp/movie.mkv",
+    "stream-open-filename": "/tmp/movie.mkv",
+    sid: 2,
+    "time-pos": 10.05,
+    "sub-start": 10,
+    "sub-end": 12,
+    "pref:bitmapSubtitleOcrEnabled": true,
+    "pref:bitmapSubtitleOcrScreenshotFallbackEnabled": false,
+    "track-list": [
+      {
+        type: "sub",
+        id: 2,
+        selected: true,
+        "main-selection": 0,
+        codec: "hdmv_pgs_subtitle",
+        "ff-index": 4,
+      },
+    ],
+    "osd-dimensions": {
+      w: 1280,
+      h: 720,
+      ml: 0,
+      mr: 0,
+      mt: 0,
+      mb: 0,
+      par: 1,
+    },
+    "video-params": { w: 1920, h: 1080, par: 1, rotate: 0 },
+    __geometryResponse(request) {
+      return {
+        ok: true,
+        protocol: 1,
+        text: "Bonjour",
+        confidence: 0.98,
+        mode: "decoded-subtitle",
+        cueStartMs: 10000,
+        cueEndMs: 12000,
+        rendererWidth: request.renderer.width,
+        rendererHeight: request.renderer.height,
+        units: [
+          {
+            displayStartUtf16: 0,
+            displayEndUtf16: 7,
+            rects: [{ x: 500, y: 620, w: 280, h: 46 }],
+          },
+        ],
+      };
+    },
+  });
+  const bitmapTrack = prefetchedBitmap.nativeBitmapSelectedTrack("primary");
+  const pendingBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    { surface: "primary", lookupStart: 0 },
+  );
+  assertEqual(
+    pendingBitmap.reason,
+    "bitmap-ocr-awaiting-intent",
+    "bitmap OCR waits for user intent during ordinary playback by default",
+  );
+  assertEqual(
+    prefetchedBitmap.testGeometryRequests.length,
+    0,
+    "ordinary bitmap subtitle playback does not spend energy on OCR",
+  );
+  const nativeMouseFiles = {
+    "/test/worker/state/mouse.json": JSON.stringify({
+      protocol: 1,
+      counter: 10,
+    }),
+  };
+  const nativeMouse = loadMainNativeHelpers({
+    ...prefetchedBitmap.testValues,
+    __workerReady: { mouseIntent: { protocol: 1 } },
+    __privateFiles: nativeMouseFiles,
+  });
+  assert(
+    !nativeMouse.observeNativeBitmapOcrMouseActivity(),
+    "the native mouse counter establishes a baseline without triggering OCR",
+  );
+  nativeMouse.testPrivateFiles["/test/worker/state/mouse.json"] =
+    JSON.stringify({ protocol: 1, counter: 11 });
+  assert(
+    nativeMouse.observeNativeBitmapOcrMouseActivity(),
+    "a changed native mouse counter triggers bitmap OCR intent",
+  );
+  assert(
+    prefetchedBitmap.triggerNativeBitmapOcrFromMouseMovement(),
+    "the first mouse movement anywhere in the player requests OCR immediately",
+  );
+  const mouseTriggeredBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    {
+      surface: "primary",
+      lookupStart: 0,
+    },
+  );
+  assertEqual(
+    mouseTriggeredBitmap.reason,
+    "bitmap-ocr-pending",
+    "mouse intent starts bitmap OCR without depending on a subtitle region",
+  );
+  await waitForLayout();
+  const readyBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    { surface: "primary", lookupStart: 0 },
+  );
+  assertEqual(
+    readyBitmap.lookupText,
+    "Bonjour",
+    "the prefetched bitmap cue becomes lookupable before pausing",
+  );
+  prefetchedBitmap.testValues.pause = true;
+  prefetchedBitmap.testValues["time-pos"] = 11.2;
+  const pausedBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    { surface: "primary", lookupStart: 0 },
+  );
+  assertEqual(
+    pausedBitmap.lookupText,
+    "Bonjour",
+    "pause and playback-time changes reuse the stable per-cue OCR cache",
+  );
+  assertEqual(
+    prefetchedBitmap.testGeometryRequests.length,
+    1,
+    "one active bitmap cue launches only one direct OCR request",
+  );
+  const supersedingResponses = [];
+  const supersedingBitmap = loadMainNativeHelpers({
+    ...prefetchedBitmap.testValues,
+    pause: false,
+    "time-pos": 20.1,
+    "sub-start": 20,
+    "sub-end": 22,
+    __geometryResponse(request) {
+      return new Promise((resolve) =>
+        supersedingResponses.push({ request, resolve }),
+      );
+    },
+  });
+  const supersedingTrack =
+    supersedingBitmap.nativeBitmapSelectedTrack("primary");
+  supersedingBitmap.triggerNativeBitmapOcrFromMouseMovement();
+  supersedingBitmap.nativeBitmapSubtitleCueSnapshot(supersedingTrack, {
+    surface: "primary",
+    lookupStart: 0,
+  });
+  await waitForLayout();
+  supersedingBitmap.testValues["time-pos"] = 23.1;
+  supersedingBitmap.testValues["sub-start"] = 23;
+  supersedingBitmap.testValues["sub-end"] = 25;
+  supersedingBitmap.nativeBitmapSubtitleCueSnapshot(supersedingTrack, {
+    surface: "primary",
+    lookupStart: 0,
+  });
+  await waitForLayout();
+  assertEqual(
+    supersedingResponses.length,
+    2,
+    "a newer cue reaches the native coalescing executor without waiting for stale OCR",
+  );
+  supersedingResponses[0].resolve({
+    ok: false,
+    reason: "bitmap-ocr-superseded",
+  });
+  supersedingResponses[1].resolve({
+    ok: true,
+    protocol: 1,
+    text: "新しい字幕",
+    confidence: 0.9,
+    mode: "decoded-subtitle",
+    cueStartMs: 23000,
+    cueEndMs: 25000,
+    rendererWidth: supersedingResponses[1].request.renderer.width,
+    rendererHeight: supersedingResponses[1].request.renderer.height,
+    units: [
+      {
+        displayStartUtf16: 0,
+        displayEndUtf16: 5,
+        rects: [{ x: 400, y: 620, w: 300, h: 48 }],
+      },
+    ],
+  });
+  await waitForLayout();
+  assertEqual(
+    supersedingBitmap.nativeBitmapSubtitleCueSnapshot(supersedingTrack, {
+      surface: "primary",
+      lookupStart: 0,
+    }).lookupText,
+    "新しい字幕",
+    "a superseded result cannot replace the newer cue's recognized text",
+  );
+  prefetchedBitmap.advanceNativeBitmapOcrGeneration();
+  prefetchedBitmap.testValues.pause = true;
+  prefetchedBitmap.testValues["time-pos"] = 13.05;
+  prefetchedBitmap.testValues["sub-start"] = 13;
+  prefetchedBitmap.testValues["sub-end"] = 15;
+  const pauseTriggeredBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    {
+      surface: "primary",
+      lookupStart: 0,
+    },
+  );
+  assertEqual(
+    pauseTriggeredBitmap.reason,
+    "bitmap-ocr-pending",
+    "pausing immediately starts OCR for the current bitmap cue",
+  );
+  await waitForLayout();
+  prefetchedBitmap.advanceNativeBitmapOcrGeneration();
+  prefetchedBitmap.testValues.pause = false;
+  prefetchedBitmap.testValues["time-pos"] = 16.05;
+  prefetchedBitmap.testValues["sub-start"] = 16;
+  prefetchedBitmap.testValues["sub-end"] = 18;
+  prefetchedBitmap.testValues["pref:bitmapSubtitleOcrPrefetchEnabled"] = true;
+  const continuousBitmap = prefetchedBitmap.nativeBitmapSubtitleCueSnapshot(
+    bitmapTrack,
+    {
+      surface: "primary",
+      lookupStart: 0,
+    },
+  );
+  assertEqual(
+    continuousBitmap.reason,
+    "bitmap-ocr-pending",
+    "continuous bitmap OCR remains available as an explicit opt-in",
+  );
+  await waitForLayout();
+  const transientDirectFailure = loadMainNativeHelpers({
+    pause: false,
+    "pref:bitmapSubtitleOcrScreenshotFallbackEnabled": false,
+    __geometryResponse() {
+      return { ok: false, reason: "bitmap-cue-unavailable" };
+    },
+  });
+  const transientFailure =
+    await transientDirectFailure.runNativeBitmapOcrRequest(
+      {
+        type: "bitmap-subtitle-ocr",
+        protocol: 1,
+        source: { path: "/tmp/movie.mkv", ffIndex: 4, external: false },
+        renderer: {
+          width: 1280,
+          height: 720,
+          storageWidth: 1920,
+          storageHeight: 1080,
+        },
+      },
+      "primary",
+    );
+  assertEqual(
+    transientFailure.reason,
+    "bitmap-cue-unavailable",
+    "a disabled screenshot fallback does not turn a transient direct miss into a permanent fallback failure",
+  );
+  const supersededDirectRequest = loadMainNativeHelpers({
+    pause: true,
+    "pref:bitmapSubtitleOcrScreenshotFallbackEnabled": true,
+    __geometryResponse() {
+      return { ok: false, reason: "bitmap-ocr-superseded" };
+    },
+  });
+  const supersededResult =
+    await supersededDirectRequest.runNativeBitmapOcrRequest(
+      {
+        type: "bitmap-subtitle-ocr",
+        protocol: 1,
+        source: { path: "/tmp/movie.mkv", ffIndex: 4, external: false },
+        renderer: {
+          width: 1280,
+          height: 720,
+          storageWidth: 1920,
+          storageHeight: 1080,
+        },
+      },
+      "primary",
+    );
+  assertEqual(
+    supersededResult.reason,
+    "bitmap-ocr-superseded",
+    "superseded direct work does not fall through to screenshot capture",
+  );
+  assertEqual(
+    supersededDirectRequest.testExecEvents.length,
+    0,
+    "superseding a direct request does not invoke player-cache fallback work",
+  );
+  const unsettledDirectSource =
+    await transientDirectFailure.runNativeBitmapOcrRequest(
+      {
+        type: "bitmap-subtitle-ocr",
+        protocol: 1,
+        renderer: {
+          width: 1280,
+          height: 720,
+          storageWidth: 1920,
+          storageHeight: 1080,
+        },
+      },
+      "primary",
+    );
+  assertEqual(
+    unsettledDirectSource.reason,
+    "bitmap-direct-unavailable",
+    "an unsettled first-cue source remains retryable when screenshot fallback is disabled",
+  );
+  const boundedRetryClock = { now: 1000 };
+  let boundedRetryCalls = 0;
+  const boundedRetryBitmap = loadMainNativeHelpers({
+    ...prefetchedBitmap.testValues,
+    pause: false,
+    "time-pos": 10.05,
+    "sub-start": 10,
+    "sub-end": 12,
+    "pref:bitmapSubtitleOcrPrefetchEnabled": false,
+    __clock: boundedRetryClock,
+    __geometryResponse() {
+      boundedRetryCalls++;
+      return { ok: false, reason: "bitmap-cue-unavailable" };
+    },
+  });
+  const boundedRetryTrack =
+    boundedRetryBitmap.nativeBitmapSelectedTrack("primary");
+  boundedRetryBitmap.triggerNativeBitmapOcrFromMouseMovement();
+  assertEqual(
+    boundedRetryBitmap.nativeBitmapSubtitleCueSnapshot(boundedRetryTrack, {
+      surface: "primary",
+      lookupStart: 0,
+    }).reason,
+    "bitmap-ocr-pending",
+    "one mouse gesture starts a bounded OCR attempt batch",
+  );
+  await waitForLayout();
+  boundedRetryClock.now = 5000;
+  const exhaustedMouseIntent =
+    boundedRetryBitmap.nativeBitmapSubtitleCueSnapshot(boundedRetryTrack, {
+      surface: "primary",
+      lookupStart: 0,
+    });
+  assertEqual(
+    exhaustedMouseIntent,
+    {
+      reason: "bitmap-cue-unavailable",
+      failureReason: "bitmap-cue-unavailable",
+      retryScheduled: false,
+      surface: "primary",
+      trackId: 2,
+    },
+    "a native near-seek plus broad-seek miss does not schedule another JavaScript retry",
+  );
+  boundedRetryClock.now = 60000;
+  boundedRetryBitmap.nativeBitmapSubtitleCueSnapshot(boundedRetryTrack, {
+    surface: "primary",
+    lookupStart: 0,
+  });
+  assertEqual(
+    boundedRetryCalls,
+    1,
+    "an exhausted mouse intent does not restart itself while polling",
+  );
+  boundedRetryBitmap.testValues.pause = true;
+  assertEqual(
+    boundedRetryBitmap.nativeBitmapSubtitleCueSnapshot(boundedRetryTrack, {
+      surface: "primary",
+      lookupStart: 0,
+    }).reason,
+    "bitmap-ocr-pending",
+    "a later pause transition explicitly rearms the failed cue",
+  );
+  await waitForLayout();
+  assertEqual(
+    boundedRetryCalls,
+    2,
+    "a new pause intent can retry a cue after the previous native attempt finished",
   );
   const independentlySelectedTracks = [
     {
@@ -1241,6 +1730,7 @@ function waitForLayout() {
 
   const unsupportedPrimary = loadMainNativeHelpers({
     ...dualSrtProperties,
+    "pref:bitmapSubtitleOcrEnabled": false,
     "track-list": [
       {
         type: "sub",
@@ -1254,13 +1744,13 @@ function waitForLayout() {
   }).nativeSubtitleCombinedCueSnapshot();
   assertEqual(
     unsupportedPrimary.lookupText,
-    "Same 😀\nline\nSame 😀",
-    "an unsupported surface retains stable combined lookup offsets",
+    "Same 😀",
+    "a disabled bitmap surface cannot reuse stale text-subtitle properties",
   );
   assertEqual(
     unsupportedPrimary.surfaces[0].reason,
-    "bitmap-subtitle",
-    "the unsupported primary failure remains surface-local",
+    "bitmap-ocr-disabled",
+    "the disabled bitmap OCR failure remains surface-local",
   );
   assertEqual(
     unsupportedPrimary.surfaces[1].surface,
@@ -2401,6 +2891,25 @@ function waitForLayout() {
     path.join(root, "src/main/10_subtitle_text_style.js"),
     "utf8",
   );
+  const nativeSubtitleSource = fs.readFileSync(
+    path.join(root, "src/main/12_native_subtitle_hit_layer.js"),
+    "utf8",
+  );
+  assert(
+    /mpv\.command\("screenshot-to-file", \[videoPath, "video"\]\)/.test(
+      nativeSubtitleSource,
+    ) &&
+      /mpv\.command\("screenshot-to-file", \[\s*subtitlePath,\s*"subtitles",?\s*\]\)/.test(
+        nativeSubtitleSource,
+      ),
+    "bitmap OCR fallback uses screenshot-to-file flags supported by mpv 0.38",
+  );
+  assert(
+    !/screenshot-to-file[\s\S]{0,120}(?:video|subtitles)\+scaled/.test(
+      nativeSubtitleSource,
+    ),
+    "bitmap OCR fallback does not pass unsupported scaled combinations to screenshot-to-file",
+  );
   const lifecycleSource = fs.readFileSync(
     path.join(root, "src/main/60_overlay_lifecycle_toggle.js"),
     "utf8",
@@ -2746,6 +3255,9 @@ function waitForLayout() {
     experimentalNativeSubtitleMode() {
       return true;
     },
+    nativeSubtitleHitLayerMode() {
+      return true;
+    },
     nativeSubtitleCueSnapshot() {
       return {
         kind: "srt",
@@ -2882,6 +3394,9 @@ function waitForLayout() {
     overlayHitLayerReady: true,
     nativeGeometrySessionReady: true,
     experimentalNativeSubtitleMode() {
+      return experimentalBridgeMode;
+    },
+    nativeSubtitleHitLayerMode() {
       return experimentalBridgeMode;
     },
     selectedLanguageModule() {
@@ -4040,6 +4555,9 @@ function waitForLayout() {
         propertyChangeOrder.push("invalidate");
     },
     experimentalNativeSubtitleMode() {
+      return true;
+    },
+    nativeSubtitleHitLayerMode() {
       return true;
     },
     pollSubtitle() {

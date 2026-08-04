@@ -113,6 +113,18 @@ assert(
   "Subtitle line-break flattening should default to off",
 );
 assert(
+  prefs.bitmapSubtitleOcrEnabled === true,
+  "Bitmap subtitle OCR should default to enabled on compatible profiles",
+);
+assert(
+  prefs.bitmapSubtitleOcrPrefetchEnabled === false,
+  "Continuous bitmap OCR prefetch should default to off",
+);
+assert(
+  prefs.bitmapSubtitleOcrScreenshotFallbackEnabled === false,
+  "Bitmap screenshot OCR fallback should default to off",
+);
+assert(
   prefs.experimentalNativeSubtitleHitLayer === false &&
     prefs.experimentalNativeSubtitleLookupHighlight === true &&
     prefs.experimentalNativeSubtitleHitBoxes === false &&
@@ -144,6 +156,9 @@ prefs = settings.normalizeProfilePreferences({
   ankiSentenceAudioPaddingMs: 99999,
   flattenSubtitleLineBreaks: "yes",
   experimentalNativeSubtitleHitLayer: "yes",
+  bitmapSubtitleOcrEnabled: "no",
+  bitmapSubtitleOcrPrefetchEnabled: "yes",
+  bitmapSubtitleOcrScreenshotFallbackEnabled: "yes",
   experimentalNativeSubtitleLookupHighlight: "0",
   experimentalNativeSubtitleHitBoxes: "1",
   experimentalNativeSubtitleTextOpacity: 4,
@@ -185,6 +200,18 @@ assert(
     prefs.experimentalNativeSubtitleValidation === true &&
     prefs.experimentalNativeSubtitleLookupHighlight === false,
   "Experimental native subtitle booleans should normalize",
+);
+assert(
+  prefs.bitmapSubtitleOcrEnabled === false,
+  "Bitmap subtitle OCR should preserve an explicit opt-out",
+);
+assert(
+  prefs.bitmapSubtitleOcrPrefetchEnabled === true,
+  "Continuous bitmap OCR prefetch should preserve an explicit opt-in",
+);
+assert(
+  prefs.bitmapSubtitleOcrScreenshotFallbackEnabled === true,
+  "Bitmap screenshot fallback should preserve an explicit opt-in",
 );
 assert(
   prefs.experimentalNativeSubtitleTextOpacity === 1,

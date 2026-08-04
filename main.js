@@ -218,6 +218,21 @@ let nativeAssGeometryStats = {
   failures: 0,
   maxOutstanding: 0,
 };
+let nativeBitmapOcrCache = Object.create(null);
+let nativeBitmapOcrInFlight = Object.create(null);
+let nativeBitmapOcrFailures = Object.create(null);
+let nativeBitmapOcrIntents = Object.create(null);
+let nativeBitmapOcrGeneration = 0;
+let nativeBitmapOcrNoticeShown = false;
+let nativeBitmapOcrIntentAt = Number.NEGATIVE_INFINITY;
+let nativeBitmapOcrMouseIntentSerial = 0;
+let nativeBitmapOcrPauseIntentSerial = 0;
+let nativeBitmapOcrPauseObserved = false;
+let nativeBitmapOcrMouseLayoutAt = Number.NEGATIVE_INFINITY;
+let nativeBitmapOcrMouseActivitySeen = false;
+let nativeBitmapOcrMouseIntentSeen = false;
+let nativeBitmapOcrMouseActivityCounter = null;
+let nativeBitmapOcrWindowMain = true;
 let nativeExternalSrtCache = Object.create(null);
 let nativeExternalSrtInFlight = Object.create(null);
 let nativeSubtitlePrivateCueSerial = 0;
@@ -760,6 +775,9 @@ function workerStopPath() {
 }
 function workerReadyPath() {
   return pathJoin(workerStateDir(), "ready.json");
+}
+function workerMouseActivityPath() {
+  return pathJoin(workerStateDir(), "mouse.json");
 }
 function workerLogPath() {
   return pathJoin(workerRoot(), "worker.log");
@@ -5647,15 +5665,12 @@ function overlayConfig() {
       Math.min(99999, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
     ),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
-    experimentalNativeSubtitleHitLayer: prefBool(
-      "experimentalNativeSubtitleHitLayer",
-      false,
-    ),
+    experimentalNativeSubtitleHitLayer: nativeSubtitleHitLayerMode(),
     experimentalNativeSubtitleLookupHighlight:
-      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      nativeSubtitleHitLayerMode() &&
       prefBool("experimentalNativeSubtitleLookupHighlight", true),
     experimentalNativeSubtitleHitBoxes:
-      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      nativeSubtitleHitLayerMode() &&
       prefBool("experimentalNativeSubtitleHitBoxes", false),
     experimentalNativeSubtitleTextOpacity: prefBool(
       "experimentalNativeSubtitleHitLayer",
@@ -5754,6 +5769,12 @@ function cleanNativeDisplayText(text) {
 function experimentalNativeSubtitleMode() {
   return prefBool("experimentalNativeSubtitleHitLayer", false);
 }
+function nativeSubtitleHitLayerMode() {
+  return (
+    experimentalNativeSubtitleMode() ||
+    (typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode())
+  );
+}
 function resetExperimentalSubtitleLookupBinding() {
   experimentalSubtitleLookupBinding = null;
 }
@@ -5764,7 +5785,7 @@ function invalidateCurrentSubtitleLookupLine() {
 }
 function subtitleLookupInputForLine(lineId) {
   const binding = experimentalSubtitleLookupBinding;
-  if (experimentalNativeSubtitleMode()) {
+  if (nativeSubtitleHitLayerMode()) {
     if (binding && binding.lineId === Number(lineId)) return binding.input;
     return null;
   }
@@ -5780,7 +5801,7 @@ function publishSubtitle(text, nativeCue) {
   resetHoverLookupQueue();
   resetExperimentalSubtitleLookupBinding();
   if (
-    experimentalNativeSubtitleMode() &&
+    nativeSubtitleHitLayerMode() &&
     nativeCue &&
     !nativeCue.reason &&
     typeof nativeCue.lookupText === "string"
@@ -5812,7 +5833,8 @@ function publishSubtitle(text, nativeCue) {
     nativeLookupSpans: (nativeCue && nativeCue.lookupSpans) || [],
     nativeLayout: (nativeCue && nativeCue.layout) || null,
     nativeSurfaces: (nativeCue && nativeCue.surfaces) || [],
-    renderingMode: experimentalNativeSubtitleMode()
+    bitmapOcrStatus: (nativeCue && nativeCue.bitmapOcrStatus) || null,
+    renderingMode: nativeSubtitleHitLayerMode()
       ? "experimental-native-hit"
       : "legacy",
     config: overlayConfig(),
@@ -5874,11 +5896,18 @@ function syncNativeSubtitleVisibility() {
     const target = nativeSubtitleVisibilityTarget({
       enabled,
       experimental: experimentalNativeSubtitleMode(),
+      bitmapOcr:
+        typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode(),
       hideNative: prefBool("hideNativeSubtitles", true),
       backendReady: canHideNativeSubtitlesForCurrentLanguage(),
       original: nativeSubVisibilityBeforeEnable,
     });
-    if (target !== null && target !== undefined)
+    const current = mpv.getFlag("sub-visibility");
+    if (
+      target !== null &&
+      target !== undefined &&
+      Boolean(current) !== Boolean(target)
+    )
       mpv.set("sub-visibility", target);
   } catch (error) {
     console.warn(
@@ -5892,7 +5921,7 @@ function pollSubtitle() {
   syncNativeSubtitleVisibility();
   const sub = readCurrentSubtitle();
   lastSubtitle = sub;
-  if (!experimentalNativeSubtitleMode()) {
+  if (!nativeSubtitleHitLayerMode()) {
     const identity = "legacy:" + sub;
     if (identity === lastSubtitleCueIdentity) return;
     lastSubtitleCueIdentity = identity;
@@ -5934,6 +5963,7 @@ function pollSubtitle() {
     nativeCue = {
       reason: "unstable-osd-dimensions",
       trackId: nativeCue.trackId,
+      bitmapOcrStatus: nativeCue.bitmapOcrStatus || null,
     };
     if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
       scheduleExperimentalNativeLayoutRebuild();
@@ -6630,6 +6660,796 @@ function nativeSubtitleTrackEligibility(
   if (/(^|[^a-z])(ass|ssa)([^a-z]|$)/.test(primary.codec))
     return { kind: "ass", track: primary };
   return { reason: "unsupported-codec", track: primary };
+}
+
+const NATIVE_BITMAP_OCR_NOTICE_VERSION = 1;
+const NATIVE_BITMAP_OCR_MOUSE_INTENT_WINDOW_MS = 4000;
+const NATIVE_BITMAP_OCR_MOUSE_GESTURE_GAP_MS = 650;
+const NATIVE_BITMAP_OCR_MOUSE_LAYOUT_THROTTLE_MS = 200;
+const NATIVE_BITMAP_OCR_LANGUAGE_IDS = {
+  ja: ["ja-JP"],
+  en: ["en-US"],
+  de: ["de-DE"],
+  fr: ["fr-FR"],
+  ko: ["ko-KR"],
+  zh: ["zh-Hans", "zh-Hant"],
+};
+
+function nativeBitmapSelectedTrack(surfaceName) {
+  const eligibility = nativeSubtitleTrackEligibility(
+    nativeSubtitleJsonProperty("track-list", []),
+    mpvNumberProp(["sid", "options/sid"], 0),
+    mpvStringProp(["secondary-sid", "options/secondary-sid"], "no"),
+    surfaceName,
+  );
+  return eligibility && eligibility.reason === "bitmap-subtitle"
+    ? eligibility.track
+    : null;
+}
+
+function bitmapSubtitleOcrMode() {
+  return (
+    prefBool("bitmapSubtitleOcrEnabled", true) &&
+    !!(
+      nativeBitmapSelectedTrack("primary") ||
+      nativeBitmapSelectedTrack("secondary")
+    )
+  );
+}
+
+function triggerNativeBitmapOcrFromMouseMovement(source) {
+  if (!enabled || !bitmapSubtitleOcrMode()) return false;
+  if (!nativeBitmapOcrMouseIntentSeen) {
+    nativeBitmapOcrMouseIntentSeen = true;
+    debugLog(
+      "bitmap OCR mouse intent accepted source=" + String(source || "mpv"),
+    );
+  }
+  const now = Date.now();
+  if (
+    !Number.isFinite(nativeBitmapOcrIntentAt) ||
+    now - nativeBitmapOcrIntentAt > NATIVE_BITMAP_OCR_MOUSE_GESTURE_GAP_MS
+  )
+    nativeBitmapOcrMouseIntentSerial++;
+  nativeBitmapOcrIntentAt = now;
+  if (
+    now - nativeBitmapOcrMouseLayoutAt >=
+    NATIVE_BITMAP_OCR_MOUSE_LAYOUT_THROTTLE_MS
+  ) {
+    nativeBitmapOcrMouseLayoutAt = now;
+    if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+      scheduleExperimentalNativeLayoutRebuild();
+  }
+  debugVerbose("bitmap subtitle OCR requested by player mouse movement");
+  return true;
+}
+
+function handleNativeBitmapOcrMouseInput() {
+  if (!nativeBitmapOcrMouseActivitySeen) {
+    nativeBitmapOcrMouseActivitySeen = true;
+    debugLog(
+      "bitmap OCR native mouse activity active bitmapMode=" +
+        String(bitmapSubtitleOcrMode()),
+    );
+  }
+  return triggerNativeBitmapOcrFromMouseMovement("native");
+}
+
+function observeNativeBitmapOcrMouseActivity() {
+  if (!enabled || !nativeBitmapOcrWindowMain || !bitmapSubtitleOcrMode()) {
+    nativeBitmapOcrMouseActivityCounter = null;
+    return false;
+  }
+  let ready = null;
+  try {
+    ready = activeWorkerReady || readWorkerReady();
+  } catch (_) {}
+  if (
+    !ready ||
+    !ready.mouseIntent ||
+    ready.mouseIntent.protocol !== 1 ||
+    !file.exists(workerMouseActivityPath())
+  )
+    return false;
+  try {
+    const activity = JSON.parse(file.read(workerMouseActivityPath()));
+    const counter = Number(activity && activity.counter);
+    if (
+      !activity ||
+      activity.protocol !== 1 ||
+      !Number.isFinite(counter) ||
+      counter < 0
+    )
+      return false;
+    const previous = nativeBitmapOcrMouseActivityCounter;
+    nativeBitmapOcrMouseActivityCounter = counter;
+    if (previous === null || previous === counter) return false;
+    return handleNativeBitmapOcrMouseInput();
+  } catch (_) {
+    return false;
+  }
+}
+
+function observeNativeBitmapOcrPauseState() {
+  const paused = mpvBoolProp(["pause"], false);
+  if (paused !== nativeBitmapOcrPauseObserved) {
+    nativeBitmapOcrPauseObserved = paused;
+    if (paused) nativeBitmapOcrPauseIntentSerial++;
+  }
+  return paused;
+}
+
+function nativeBitmapOcrTrigger(pausedState) {
+  const paused =
+    typeof pausedState === "boolean"
+      ? pausedState
+      : observeNativeBitmapOcrPauseState();
+  if (prefBool("bitmapSubtitleOcrPrefetchEnabled", false)) return "prefetch";
+  if (paused) return "pause";
+  if (
+    Number.isFinite(nativeBitmapOcrIntentAt) &&
+    Date.now() - nativeBitmapOcrIntentAt <=
+      NATIVE_BITMAP_OCR_MOUSE_INTENT_WINDOW_MS
+  )
+    return "mouse";
+  return "";
+}
+
+function nativeBitmapOcrIntentToken(trigger) {
+  return [
+    String(trigger || "intent"),
+    "mouse=" + nativeBitmapOcrMouseIntentSerial,
+    "pause=" + nativeBitmapOcrPauseIntentSerial,
+    "prefetch=" +
+      String(prefBool("bitmapSubtitleOcrPrefetchEnabled", false) ? 1 : 0),
+  ].join(";");
+}
+
+function nativeBitmapOcrCapability() {
+  let ready = null;
+  try {
+    ready = activeWorkerReady || readWorkerReady();
+  } catch (_) {}
+  const capability = ready && ready.bitmapOcr;
+  return capability && capability.protocol === 1 ? capability : null;
+}
+
+function nativeBitmapOcrLanguages(capability) {
+  const language = selectedLanguageModule();
+  const requested = NATIVE_BITMAP_OCR_LANGUAGE_IDS[language.id] || [];
+  const supported =
+    capability && Array.isArray(capability.languages)
+      ? capability.languages.map(String)
+      : null;
+  return supported
+    ? requested.filter((value) => supported.indexOf(value) >= 0)
+    : requested.slice();
+}
+
+function nativeBitmapOcrRenderer() {
+  const osd = normalizeNativeOsdDimensions(
+    nativeSubtitleJsonProperty("osd-dimensions", null),
+  );
+  const video = normalizeNativeVideoDimensions(
+    nativeSubtitleJsonProperty("video-params", null),
+  );
+  if (!osd || !video) return null;
+  return {
+    osd,
+    video,
+    request: {
+      width: osd.w,
+      height: osd.h,
+      storageWidth: video.width,
+      storageHeight: video.height,
+      marginLeft: osd.ml,
+      marginRight: osd.mr,
+      marginTop: osd.mt,
+      marginBottom: osd.mb,
+    },
+  };
+}
+
+function nativeBitmapOcrSource(track) {
+  const selected = track || {};
+  const descriptor = selected.external
+    ? mediaSourceDescriptor(selected.externalFilename, "subtitle-track")
+    : currentMediaSourceSnapshot().primary;
+  const ffIndex =
+    Number.isInteger(selected.ffIndex) && selected.ffIndex >= 0
+      ? selected.ffIndex
+      : -1;
+  return {
+    descriptor,
+    request:
+      descriptor.nativeAssReadable && ffIndex >= 0
+        ? {
+            path: descriptor.locator,
+            ffIndex,
+            external: !!selected.external,
+          }
+        : null,
+  };
+}
+
+function nativeBitmapOcrDirectGeometrySupported(surfaceName) {
+  const options = nativeSubtitleOptionSnapshot(surfaceName);
+  if (Math.abs(Number(options.scale) - 1) > 0.0001) return false;
+  if (
+    Math.abs(
+      Number(options.position) - (surfaceName === "secondary" ? 0 : 100),
+    ) > 0.0001
+  )
+    return false;
+  if (
+    mpvBoolProp(
+      ["options/image-subs-video-resolution", "image-subs-video-resolution"],
+      false,
+    )
+  )
+    return false;
+  if (
+    mpvBoolProp(
+      ["options/stretch-image-subs-to-screen", "stretch-image-subs-to-screen"],
+      false,
+    )
+  )
+    return false;
+  return true;
+}
+
+function normalizeNativeBitmapOcrResponse(response, request) {
+  if (
+    !response ||
+    response.ok !== true ||
+    response.protocol !== 1 ||
+    typeof response.text !== "string" ||
+    !response.text ||
+    response.text.length > 64 * 1024 ||
+    !Array.isArray(response.units) ||
+    !response.units.length ||
+    response.units.length > 512 ||
+    response.rendererWidth !== request.renderer.width ||
+    response.rendererHeight !== request.renderer.height
+  )
+    return {
+      reason: (response && response.reason) || "invalid-bitmap-ocr-response",
+    };
+  const displayText = cleanNativeDisplayText(response.text);
+  const lookupText = normalizeExperimentalSubtitleText(displayText);
+  const mapping = nativeLookupMapping(displayText, lookupText, {
+    flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
+    languageId: selectedLanguageModule().id,
+  });
+  if (!mapping.ok) return { reason: mapping.reason };
+  const sourceUnits = [];
+  response.units.forEach((unit) => {
+    const start = Number(unit && unit.displayStartUtf16);
+    const end = Number(unit && unit.displayEndUtf16);
+    if (
+      !Number.isInteger(start) ||
+      !Number.isInteger(end) ||
+      start < 0 ||
+      end <= start ||
+      end > displayText.length ||
+      !Array.isArray(unit.rects) ||
+      !unit.rects.length ||
+      unit.rects.length > 8
+    )
+      return;
+    const rects = unit.rects
+      .map((rect) => ({
+        x: Number(rect && rect.x),
+        y: Number(rect && rect.y),
+        w: Number(rect && rect.w),
+        h: Number(rect && rect.h),
+      }))
+      .filter(
+        (rect) =>
+          [rect.x, rect.y, rect.w, rect.h].every(Number.isFinite) &&
+          rect.x >= 0 &&
+          rect.y >= 0 &&
+          rect.w > 0 &&
+          rect.h > 0 &&
+          rect.x + rect.w <= request.renderer.width + 0.5 &&
+          rect.y + rect.h <= request.renderer.height + 0.5,
+      );
+    if (rects.length) sourceUnits.push({ start, end, rects });
+  });
+  if (!sourceUnits.length) return { reason: "invalid-bitmap-ocr-response" };
+  const desired = nativeAssGeometryUnits(
+    mapping,
+    lookupText,
+    selectedLanguageModule(),
+  );
+  const units = [];
+  desired.forEach((unit) => {
+    const matches = sourceUnits.filter(
+      (source) =>
+        source.start < unit.displayEndUtf16 &&
+        source.end > unit.displayStartUtf16,
+    );
+    const rects = [];
+    matches.forEach((match) =>
+      match.rects.forEach((rect) => {
+        if (
+          !rects.some(
+            (existing) =>
+              Math.abs(existing.x - rect.x) < 0.01 &&
+              Math.abs(existing.y - rect.y) < 0.01 &&
+              Math.abs(existing.w - rect.w) < 0.01 &&
+              Math.abs(existing.h - rect.h) < 0.01,
+          )
+        )
+          rects.push(rect);
+      }),
+    );
+    if (rects.length) units.push({ position: unit.position, rects });
+  });
+  if (!units.length) return { reason: "text-index-map-failed" };
+  return {
+    ok: true,
+    displayText,
+    lookupText,
+    lookupSpans: mapping.lookupSpans,
+    units,
+    confidence: Number(response.confidence) || 0,
+    mode: String(response.mode || ""),
+    cueStartMs: Number(response.cueStartMs),
+    cueEndMs: Number(response.cueEndMs),
+  };
+}
+
+function nativeBitmapOcrCacheKey(request, track, surfaceName) {
+  return JSON.stringify({
+    generation: nativeBitmapOcrGeneration,
+    surface: surfaceName,
+    trackId: track && track.id,
+    language: request.languages,
+    source: request.source || null,
+    cueStartMs: request.cueStartMs,
+    cueEndMs: request.cueEndMs,
+    renderer: request.renderer,
+  });
+}
+
+function pruneNativeBitmapOcrCache() {
+  [
+    nativeBitmapOcrCache,
+    nativeBitmapOcrFailures,
+    nativeBitmapOcrIntents,
+  ].forEach((cache) => {
+    const keys = Object.keys(cache);
+    while (keys.length > 16) delete cache[keys.shift()];
+  });
+}
+
+async function prepareNativeBitmapCacheExcerpt(request) {
+  const source = request && request.source;
+  if (!source || source.external) return null;
+  const descriptor = mediaSourceDescriptor(source.path, "bitmap-ocr");
+  if (descriptor.kind === "local-file") return null;
+  await prepareNativeSubtitlePrivateCueDirectory();
+  nativeSubtitlePrivateCueSerial++;
+  const excerptPath =
+    nativeSubtitlePrivateCueDirectory() +
+    "/iinatan-bitmap-cache-" +
+    Date.now().toString(36) +
+    "-" +
+    nativeSubtitlePrivateCueSerial.toString(36) +
+    ".media";
+  const start = Math.max(0, Number(request.timeMs) / 1000 - 8);
+  const end = Math.max(start + 1, Number(request.timeMs) / 1000 + 2);
+  try {
+    mpv.command("dump-cache", [
+      String(start.toFixed(3)),
+      String(end.toFixed(3)),
+      excerptPath,
+    ]);
+    if (!file.exists(excerptPath)) {
+      safeDelete(excerptPath);
+      return null;
+    }
+    return {
+      path: excerptPath,
+      request: Object.assign({}, request, {
+        source: {
+          path: excerptPath,
+          ffIndex: source.ffIndex,
+          external: false,
+          autoBitmapStream: true,
+          cacheExcerpt: true,
+        },
+      }),
+    };
+  } catch (error) {
+    safeDelete(excerptPath);
+    debugVerbose(
+      "bitmap subtitle cache excerpt unavailable: " + compactError(error),
+    );
+    return null;
+  }
+}
+
+function nativeBitmapScreenshotFallbackAllowed(surfaceName) {
+  if (surfaceName === "secondary") return false;
+  const secondarySid = mpvStringProp(
+    ["secondary-sid", "options/secondary-sid"],
+    "no",
+  )
+    .trim()
+    .toLowerCase();
+  return (
+    (secondarySid === "" || secondarySid === "no") &&
+    mpvBoolProp(["pause"], false)
+  );
+}
+
+async function runNativeBitmapScreenshotRequest(request, surfaceName) {
+  if (!nativeBitmapScreenshotFallbackAllowed(surfaceName))
+    return { ok: false, reason: "screenshot-diff-ambiguous" };
+  await prepareNativeSubtitlePrivateCueDirectory();
+  nativeSubtitlePrivateCueSerial++;
+  const prefix =
+    nativeSubtitlePrivateCueDirectory() +
+    "/iinatan-bitmap-shot-" +
+    Date.now().toString(36) +
+    "-" +
+    nativeSubtitlePrivateCueSerial.toString(36);
+  const videoPath = prefix + "-video.png";
+  const subtitlePath = prefix + "-subtitles.png";
+  let previousCompression = null;
+  let previousSoftwareCapture = null;
+  try {
+    try {
+      previousCompression = mpv.getString("screenshot-png-compression");
+      previousSoftwareCapture = mpv.getFlag("screenshot-sw");
+      mpv.set("screenshot-png-compression", 0);
+      mpv.set("screenshot-sw", true);
+    } catch (_) {}
+    mpv.command("screenshot-to-file", [videoPath, "video"]);
+    mpv.command("screenshot-to-file", [subtitlePath, "subtitles"]);
+    if (!file.exists(videoPath) || !file.exists(subtitlePath))
+      return { ok: false, reason: "screenshot-capture-unavailable" };
+    return await runWorkerQueueRequestDirect(
+      {
+        type: "bitmap-subtitle-ocr",
+        protocol: 1,
+        mode: "screenshot-diff",
+        languages: request.languages,
+        renderer: request.renderer,
+        images: { video: videoPath, subtitles: subtitlePath },
+      },
+      selectedLanguageModule(),
+      Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
+    );
+  } catch (error) {
+    debugLog(
+      "bitmap subtitle OCR screenshot capture failed: " + compactError(error),
+    );
+    return { ok: false, reason: "screenshot-capture-unavailable" };
+  } finally {
+    try {
+      if (previousCompression !== null)
+        mpv.set("screenshot-png-compression", previousCompression);
+      if (previousSoftwareCapture !== null)
+        mpv.set("screenshot-sw", previousSoftwareCapture);
+    } catch (_) {}
+    safeDelete(videoPath);
+    safeDelete(subtitlePath);
+  }
+}
+
+async function runNativeBitmapOcrRequest(request, surfaceName) {
+  let directFailure = null;
+  if (request.source && nativeBitmapOcrDirectGeometrySupported(surfaceName)) {
+    try {
+      const response = await runWorkerQueueRequestDirect(
+        request,
+        selectedLanguageModule(),
+        Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
+      );
+      if (response && response.ok === true) return response;
+      directFailure = response;
+      debugLog(
+        "bitmap subtitle OCR direct source unavailable reason=" +
+          String((response && response.reason) || "unknown"),
+      );
+    } catch (error) {
+      directFailure = {
+        reason: String((error && error.message) || "bitmap-direct-failed"),
+      };
+    }
+  }
+  if (
+    directFailure &&
+    (directFailure.reason === "unsupported-recognition-language" ||
+      directFailure.reason === "bitmap-ocr-superseded")
+  )
+    return directFailure;
+  if (!prefBool("bitmapSubtitleOcrScreenshotFallbackEnabled", false))
+    return directFailure
+      ? {
+          ok: false,
+          reason: String(directFailure.reason || "bitmap-direct-failed"),
+        }
+      : { ok: false, reason: "bitmap-direct-unavailable" };
+  if (!mpvBoolProp(["pause"], false))
+    return { ok: false, reason: "screenshot-fallback-waits-for-pause" };
+  if (request.source && nativeBitmapOcrDirectGeometrySupported(surfaceName)) {
+    const excerpt = await prepareNativeBitmapCacheExcerpt(request);
+    if (excerpt) {
+      try {
+        const response = await runWorkerQueueRequestDirect(
+          excerpt.request,
+          selectedLanguageModule(),
+          Math.max(1000, prefNumber("backendTimeoutMs", 30000)),
+        );
+        if (response && response.ok === true) return response;
+        debugLog(
+          "bitmap subtitle OCR cache excerpt unavailable reason=" +
+            String((response && response.reason) || "unknown"),
+        );
+      } catch (_) {
+      } finally {
+        safeDelete(excerpt.path);
+      }
+    }
+  }
+  return runNativeBitmapScreenshotRequest(request, surfaceName);
+}
+
+function showNativeBitmapOcrNotice() {
+  if (nativeBitmapOcrNoticeShown) return;
+  nativeBitmapOcrNoticeShown = true;
+  if (
+    prefNumber("bitmapSubtitleOcrNoticeVersion", 0) >=
+    NATIVE_BITMAP_OCR_NOTICE_VERSION
+  )
+    return;
+  notify(
+    "Bitmap subtitle OCR is active. Recognition is on-device and may contain mistakes.",
+    "info",
+    7000,
+  );
+  try {
+    preferences.set(
+      "bitmapSubtitleOcrNoticeVersion",
+      NATIVE_BITMAP_OCR_NOTICE_VERSION,
+    );
+    if (preferences.sync) preferences.sync();
+  } catch (_) {}
+}
+
+const NATIVE_BITMAP_OCR_RETRY_DELAYS_MS = [750, 2500];
+
+function rememberNativeBitmapOcrFailure(key, reason) {
+  const rawReason = String(reason || "bitmap-ocr-failed");
+  const normalizedReason = /^[a-z0-9-]+$/.test(rawReason)
+    ? rawReason
+    : "bitmap-ocr-failed";
+  const deterministic =
+    normalizedReason === "unsupported-recognition-language" ||
+    normalizedReason === "bitmap-cue-unavailable" ||
+    normalizedReason === "media-seek-failed" ||
+    normalizedReason === "screenshot-fallback-disabled" ||
+    normalizedReason === "screenshot-fallback-waits-for-pause" ||
+    normalizedReason.indexOf("screenshot-") === 0;
+  const previous = nativeBitmapOcrFailures[key];
+  const attempts = Number((previous && previous.attempts) || 0) + 1;
+  const retryDelay = NATIVE_BITMAP_OCR_RETRY_DELAYS_MS[attempts - 1];
+  const retryScheduled = !deterministic && Number.isFinite(retryDelay);
+  nativeBitmapOcrFailures[key] = {
+    reason: normalizedReason,
+    attempts,
+    intentToken: String(
+      (nativeBitmapOcrIntents[key] && nativeBitmapOcrIntents[key].token) || "",
+    ),
+    retryAt: retryScheduled ? Date.now() + retryDelay : Number.MAX_SAFE_INTEGER,
+  };
+  debugLog(
+    "bitmap subtitle OCR request failed reason=" +
+      normalizedReason +
+      " attempt=" +
+      attempts +
+      " retryScheduled=" +
+      String(retryScheduled),
+  );
+}
+
+function nativeBitmapSubtitleCueSnapshot(track, surfaceOptions) {
+  const surface =
+    surfaceOptions && surfaceOptions.surface === "secondary"
+      ? "secondary"
+      : "primary";
+  if (!prefBool("bitmapSubtitleOcrEnabled", true))
+    return { reason: "bitmap-ocr-disabled", surface, trackId: track.id };
+  const paused = observeNativeBitmapOcrPauseState();
+  const renderer = nativeBitmapOcrRenderer();
+  if (!renderer)
+    return { reason: "missing-osd-dimensions", surface, trackId: track.id };
+  const capability = nativeBitmapOcrCapability();
+  const languages = nativeBitmapOcrLanguages(capability);
+  if (capability && (!capability.available || !languages.length))
+    return {
+      reason: "unsupported-recognition-language",
+      surface,
+      trackId: track.id,
+    };
+  if (!languages.length)
+    return {
+      reason: "unsupported-recognition-language",
+      surface,
+      trackId: track.id,
+    };
+  let playbackTimeMs = Math.round(
+    mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
+  );
+  const delayName =
+    surface === "secondary" ? "secondary-sub-delay" : "sub-delay";
+  const delayMs = Math.round(
+    mpvNumberProp(["options/" + delayName, delayName], 0) * 1000,
+  );
+  playbackTimeMs -= delayMs;
+  const timingPrefix = surface === "secondary" ? "secondary-" : "";
+  const cueStartMs = Math.round(
+    mpvNumberProp([timingPrefix + "sub-start"], NaN) * 1000,
+  );
+  const cueEndMs = Math.round(
+    mpvNumberProp([timingPrefix + "sub-end"], NaN) * 1000,
+  );
+  if (!Number.isFinite(playbackTimeMs) || playbackTimeMs < 0)
+    return { reason: "cue-timing-unavailable", surface, trackId: track.id };
+  if (
+    !Number.isFinite(cueStartMs) ||
+    !Number.isFinite(cueEndMs) ||
+    cueStartMs < 0 ||
+    cueEndMs <= cueStartMs ||
+    playbackTimeMs < cueStartMs - 100 ||
+    playbackTimeMs >= cueEndMs + 100
+  )
+    return { reason: "empty-subtitle", surface, trackId: track.id };
+  const timeMs = Math.min(
+    cueEndMs - 1,
+    cueStartMs + Math.min(500, Math.max(1, (cueEndMs - cueStartMs) / 2)),
+  );
+  const source = nativeBitmapOcrSource(track);
+  const request = {
+    type: "bitmap-subtitle-ocr",
+    protocol: 1,
+    mode: "decoded-subtitle",
+    languages,
+    timeMs,
+    cueStartMs,
+    cueEndMs,
+    renderer: renderer.request,
+    ...(source.request ? { source: source.request } : {}),
+  };
+  const key = nativeBitmapOcrCacheKey(request, track, surface);
+  const cached = nativeBitmapOcrCache[key];
+  if (cached) {
+    const offset = Number((surfaceOptions && surfaceOptions.lookupStart) || 0);
+    return {
+      kind: "bitmap-ocr",
+      surface,
+      trackId: track.id,
+      displayText: cached.displayText,
+      lookupText: cached.lookupText,
+      lookupSpans: cached.lookupSpans,
+      layout: {
+        osd: renderer.osd,
+        directRects: cached.units.map((unit) => ({
+          position: unit.position + offset,
+          rects: unit.rects,
+        })),
+        geometryProtocol: "bitmap-ocr-1",
+        recognitionConfidence: cached.confidence,
+        recognitionMode: cached.mode,
+        hidpiScale: mpvNumberProp(["display-hidpi-scale"], 0),
+      },
+    };
+  }
+  const trigger = nativeBitmapOcrTrigger(paused);
+  const incomingIntentToken = trigger
+    ? nativeBitmapOcrIntentToken(trigger)
+    : "";
+  let intent = nativeBitmapOcrIntents[key] || null;
+  let failed = nativeBitmapOcrFailures[key] || null;
+  if (incomingIntentToken) {
+    if (
+      failed &&
+      failed.retryAt === Number.MAX_SAFE_INTEGER &&
+      failed.intentToken !== incomingIntentToken
+    ) {
+      delete nativeBitmapOcrFailures[key];
+      failed = null;
+      intent = null;
+    }
+    if (!intent) {
+      intent = { token: incomingIntentToken, trigger };
+      nativeBitmapOcrIntents[key] = intent;
+    } else if (intent.token !== incomingIntentToken) {
+      intent.token = incomingIntentToken;
+      intent.trigger = trigger;
+      if (failed && failed.retryAt < Number.MAX_SAFE_INTEGER)
+        failed.intentToken = incomingIntentToken;
+    }
+  }
+  if (!intent)
+    return {
+      reason: "bitmap-ocr-awaiting-intent",
+      surface,
+      trackId: track.id,
+    };
+  if (
+    failed &&
+    failed.reason === "screenshot-fallback-waits-for-pause" &&
+    mpvBoolProp(["pause"], false)
+  )
+    delete nativeBitmapOcrFailures[key];
+  const activeFailure = nativeBitmapOcrFailures[key];
+  if (activeFailure && Date.now() < activeFailure.retryAt)
+    return {
+      reason:
+        activeFailure.retryAt < Number.MAX_SAFE_INTEGER
+          ? "bitmap-ocr-pending"
+          : activeFailure.reason,
+      failureReason: activeFailure.reason,
+      retryScheduled: activeFailure.retryAt < Number.MAX_SAFE_INTEGER,
+      surface,
+      trackId: track.id,
+    };
+  const generation = nativeBitmapOcrGeneration;
+  if (!nativeBitmapOcrInFlight[key]) {
+    const inFlight = Promise.resolve()
+      .then(() => runNativeBitmapOcrRequest(request, surface))
+      .then((response) => {
+        if (generation !== nativeBitmapOcrGeneration) return;
+        const normalized = normalizeNativeBitmapOcrResponse(response, request);
+        if (normalized.reason === "bitmap-ocr-superseded") {
+          delete nativeBitmapOcrFailures[key];
+          delete nativeBitmapOcrIntents[key];
+        } else if (normalized.ok) {
+          nativeBitmapOcrCache[key] = normalized;
+          delete nativeBitmapOcrFailures[key];
+          delete nativeBitmapOcrIntents[key];
+          showNativeBitmapOcrNotice();
+        } else {
+          rememberNativeBitmapOcrFailure(key, normalized.reason);
+        }
+        pruneNativeBitmapOcrCache();
+      })
+      .catch((error) => {
+        if (generation !== nativeBitmapOcrGeneration) return;
+        rememberNativeBitmapOcrFailure(key, "bitmap-ocr-failed");
+        debugWarn("bitmap subtitle OCR failed: " + compactError(error));
+      })
+      .finally(() => {
+        if (nativeBitmapOcrInFlight[key] === inFlight)
+          delete nativeBitmapOcrInFlight[key];
+        if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
+          scheduleExperimentalNativeLayoutRebuild();
+      });
+    nativeBitmapOcrInFlight[key] = inFlight;
+  }
+  return {
+    reason: "bitmap-ocr-pending",
+    retryScheduled: true,
+    surface,
+    trackId: track.id,
+  };
+}
+
+function advanceNativeBitmapOcrGeneration() {
+  nativeBitmapOcrGeneration++;
+  nativeBitmapOcrCache = Object.create(null);
+  nativeBitmapOcrFailures = Object.create(null);
+  nativeBitmapOcrIntents = Object.create(null);
+  nativeBitmapOcrIntentAt = Number.NEGATIVE_INFINITY;
+  nativeBitmapOcrMouseIntentSerial = 0;
+  nativeBitmapOcrPauseIntentSerial = 0;
+  nativeBitmapOcrPauseObserved = false;
+  nativeBitmapOcrMouseLayoutAt = Number.NEGATIVE_INFINITY;
 }
 
 function parseSimpleNativeAssCue(raw, assOverride) {
@@ -7453,6 +8273,11 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
     secondarySid,
     surface,
   );
+  if (eligibility.reason === "bitmap-subtitle")
+    return nativeBitmapSubtitleCueSnapshot(eligibility.track, {
+      surface,
+      lookupStart: Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+    });
   if (eligibility.reason) return { reason: eligibility.reason };
   let plain = "";
   let ass = "";
@@ -7769,7 +8594,7 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
 function nativeSubtitleVisibilityTarget(state) {
   const value = state || {};
   if (!value.enabled) return value.original;
-  if (value.experimental) return true;
+  if (value.experimental || value.bitmapOcr) return true;
   if (value.hideNative && value.backendReady) return false;
   return value.original;
 }
@@ -7799,6 +8624,7 @@ function currentSubtitleCueIdentity(snapshot) {
 }
 
 function nativeSubtitleCombinedCueSnapshot() {
+  observeNativeBitmapOcrMouseActivity();
   const definitions = [
     { surface: "primary", textProperty: "sub-text" },
     { surface: "secondary", textProperty: "secondary-sub-text" },
@@ -7814,32 +8640,38 @@ function nativeSubtitleCombinedCueSnapshot() {
       )
     )
       continue;
-    const lookupText = readExperimentalLookupSubtitleProperty(
-      definition.textProperty,
-    );
-    if (!lookupText) continue;
+    const bitmapTrack = nativeBitmapSelectedTrack(definition.surface);
+    let lookupText = bitmapTrack
+      ? ""
+      : readExperimentalLookupSubtitleProperty(definition.textProperty);
+    if (!lookupText && !bitmapTrack) continue;
     definition.lookupStart = nextLookupStart;
-    nextLookupStart += Array.from(lookupText).length + 1;
     const snapshot = nativeSubtitleCueSnapshot(lookupText, definition);
     if (!snapshot || snapshot.reason) {
       surfaces.push({
+        kind: bitmapTrack ? "bitmap-ocr" : (snapshot && snapshot.kind) || "",
         surface: definition.surface,
         lookupText,
         lookupStart: definition.lookupStart,
         lookupLength: Array.from(lookupText).length,
-        displayText: cleanNativeDisplayText(
-          mpvStringProp([definition.textProperty], ""),
-        ),
+        displayText: bitmapTrack
+          ? ""
+          : cleanNativeDisplayText(
+              mpvStringProp([definition.textProperty], ""),
+            ),
         lookupSpans: [],
         reason: (snapshot && snapshot.reason) || "unsupported-codec",
         retryScheduled: snapshot && snapshot.retryScheduled === true,
       });
+      if (lookupText) nextLookupStart += Array.from(lookupText).length + 1;
       continue;
     }
+    lookupText = String(snapshot.lookupText || lookupText || "");
     snapshot.lookupText = lookupText;
     snapshot.lookupStart = definition.lookupStart;
     snapshot.lookupLength = Array.from(lookupText).length;
     surfaces.push(snapshot);
+    nextLookupStart += Array.from(lookupText).length + 1;
   }
   if (!surfaces.length)
     return {
@@ -7857,12 +8689,57 @@ function nativeSubtitleCombinedCueSnapshot() {
   const successful = surfaces.filter(
     (surface) => !surface.reason && surface.layout,
   );
+  const bitmapSurfaces = surfaces.filter(
+    (surface) =>
+      surface.kind === "bitmap-ocr" &&
+      surface.reason !== "empty-subtitle" &&
+      surface.reason !== "bitmap-ocr-disabled",
+  );
+  let bitmapOcrStatus = null;
+  if (bitmapSurfaces.length) {
+    const pending = bitmapSurfaces.find(
+      (surface) => surface.reason === "bitmap-ocr-pending",
+    );
+    const waiting = bitmapSurfaces.find(
+      (surface) => surface.reason === "screenshot-fallback-waits-for-pause",
+    );
+    const idle = bitmapSurfaces.find(
+      (surface) => surface.reason === "bitmap-ocr-awaiting-intent",
+    );
+    const ready = bitmapSurfaces.find(
+      (surface) => !surface.reason && surface.layout,
+    );
+    const failed = bitmapSurfaces.find((surface) => surface.reason);
+    bitmapOcrStatus = {
+      state: pending
+        ? "pending"
+        : waiting
+          ? "waiting-for-pause"
+          : idle
+            ? "idle"
+            : ready
+              ? "ready"
+              : "failed",
+      reason: String((pending || waiting || failed || {}).reason || ""),
+      fallbackEnabled: prefBool(
+        "bitmapSubtitleOcrScreenshotFallbackEnabled",
+        false,
+      ),
+    };
+  }
   return {
     kind: "multi-surface",
     trackId: successful[0] && successful[0].trackId,
-    lookupText: surfaces.map((surface) => surface.lookupText).join("\n"),
-    displayText: surfaces.map((surface) => surface.displayText).join("\n"),
+    lookupText: surfaces
+      .map((surface) => surface.lookupText)
+      .filter(Boolean)
+      .join("\n"),
+    displayText: surfaces
+      .map((surface) => surface.displayText)
+      .filter(Boolean)
+      .join("\n"),
     surfaces,
+    bitmapOcrStatus,
     lookupSpans: [],
     layout: null,
     reason: successful.length
@@ -7955,6 +8832,9 @@ const DEFAULT_ANKI_FIELD_TEMPLATES_JSON = "{}";
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
+  bitmapSubtitleOcrEnabled: true,
+  bitmapSubtitleOcrPrefetchEnabled: false,
+  bitmapSubtitleOcrScreenshotFallbackEnabled: false,
   experimentalNativeSubtitleHitLayer: false,
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
@@ -8017,6 +8897,9 @@ const PROFILE_PREFERENCE_RUNTIME_EFFECTS = {
   maxGlossesPerEntry: ["lookupCache"],
   flattenSubtitleLineBreaks: ["geometryCache"],
   experimentalNativeSubtitleHitLayer: ["geometryCache", "nativeVisibility"],
+  bitmapSubtitleOcrEnabled: ["geometryCache", "nativeVisibility"],
+  bitmapSubtitleOcrPrefetchEnabled: ["geometryCache"],
+  bitmapSubtitleOcrScreenshotFallbackEnabled: ["geometryCache"],
   experimentalNativeSubtitleTextOpacity: ["geometryCache"],
   experimentalNativeSubtitleValidation: ["geometryCache"],
   experimentalNativeSubtitleHitBoxes: ["hitLayer"],
@@ -8186,6 +9069,19 @@ function normalizeProfilePreferences(prefs) {
     out.experimentalNativeSubtitleHitLayer,
     PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleHitLayer,
   );
+  out.bitmapSubtitleOcrEnabled = normalizeProfilePreferenceBoolValue(
+    out.bitmapSubtitleOcrEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrEnabled,
+  );
+  out.bitmapSubtitleOcrPrefetchEnabled = normalizeProfilePreferenceBoolValue(
+    out.bitmapSubtitleOcrPrefetchEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrPrefetchEnabled,
+  );
+  out.bitmapSubtitleOcrScreenshotFallbackEnabled =
+    normalizeProfilePreferenceBoolValue(
+      out.bitmapSubtitleOcrScreenshotFallbackEnabled,
+      PROFILE_PREFERENCE_DEFAULTS.bitmapSubtitleOcrScreenshotFallbackEnabled,
+    );
   out.experimentalNativeSubtitleLookupHighlight =
     normalizeProfilePreferenceBoolValue(
       out.experimentalNativeSubtitleLookupHighlight,
@@ -11035,6 +11931,15 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
       ready.assGeometry.patch !== "libass-0.17.2-iinatan-unit-ids-v2")
   )
     throw new Error("ass-geometry-unavailable");
+  if (
+    payloadValue &&
+    payloadValue.type === "bitmap-subtitle-ocr" &&
+    (!ready ||
+      !ready.bitmapOcr ||
+      ready.bitmapOcr.protocol !== 1 ||
+      ready.bitmapOcr.available !== true)
+  )
+    throw new Error("bitmap-ocr-unavailable");
   const timeout = Math.max(
     1000,
     timeoutMs || prefNumber("backendTimeoutMs", 30000),
@@ -15333,7 +16238,9 @@ function updateOverlayRuntimeState(reason) {
     return;
   }
   const subtitleText = mpvStringProp(["sub-text", "secondary-sub-text"], "");
-  if (!subtitleText) {
+  const bitmapSubtitleReady =
+    typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode();
+  if (!subtitleText && !bitmapSubtitleReady) {
     setOverlayRuntimeState("waiting-for-subtitle-track", reason);
     return;
   }
@@ -15526,6 +16433,8 @@ function prepareRuntimeAfterProfileChange(runtimePlan) {
     invalidateCurrentSubtitleLookupLine();
     if (typeof advanceNativeAssGeometryGeneration === "function")
       advanceNativeAssGeometryGeneration();
+    if (typeof advanceNativeBitmapOcrGeneration === "function")
+      advanceNativeBitmapOcrGeneration();
     lastSubtitle = null;
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
@@ -15827,6 +16736,9 @@ function dictionaryManagerState() {
   const lookupLanguage = String(
     profilePreferences.lookupLanguage || pref("lookupLanguage", "ja"),
   );
+  const workerReady =
+    activeWorkerReady ||
+    (typeof readWorkerReady === "function" ? readWorkerReady() : null);
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -15853,6 +16765,7 @@ function dictionaryManagerState() {
     globalSettings: readGlobalSettingsSnapshot(),
     globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
     lookupLanguage,
+    bitmapOcr: (workerReady && workerReady.bitmapOcr) || null,
     anki:
       typeof dictionaryManagerAnkiState === "function"
         ? dictionaryManagerAnkiState(profilePreferences)
@@ -16459,10 +17372,16 @@ event.on("iina.window-loaded", () => {
     trigger: "persisted-startup",
   });
 });
+event.on("iina.window-main.changed", (status) => {
+  nativeBitmapOcrWindowMain = !!status;
+  nativeBitmapOcrMouseActivityCounter = null;
+});
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
+  if (typeof advanceNativeBitmapOcrGeneration === "function")
+    advanceNativeBitmapOcrGeneration();
   nativeExternalSrtCache = Object.create(null);
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
@@ -16483,6 +17402,8 @@ event.on("mpv.end-file", () => {
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
+  if (typeof advanceNativeBitmapOcrGeneration === "function")
+    advanceNativeBitmapOcrGeneration();
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -16517,7 +17438,7 @@ event.on("iina.window-will-close", () => {
   flushDebugLogBuffer();
 });
 function invalidateExperimentalNativeLayout(reason) {
-  if (!experimentalNativeSubtitleMode()) return;
+  if (!nativeSubtitleHitLayerMode()) return;
   nativeSubtitleLayoutTrigger = String(reason || "stale-layout");
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
@@ -16530,7 +17451,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
   if (nativeSubtitlePropertyRebuildTimer !== null) return;
   nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
     nativeSubtitlePropertyRebuildTimer = null;
-    if (enabled && experimentalNativeSubtitleMode()) pollSubtitle();
+    if (enabled && nativeSubtitleHitLayerMode()) pollSubtitle();
   }, 0);
 }
 [
@@ -16623,6 +17544,13 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "options/embeddedfonts",
   "embeddedfonts",
   "display-hidpi-scale",
+  "pause",
+  "options/sub-delay",
+  "sub-delay",
+  "options/stretch-image-subs-to-screen",
+  "stretch-image-subs-to-screen",
+  "options/image-subs-video-resolution",
+  "image-subs-video-resolution",
 ].forEach((property) => {
   try {
     event.on("mpv." + property + ".changed", () => {
@@ -16663,6 +17591,20 @@ function scheduleExperimentalNativeLayoutRebuild() {
       )
         if (typeof advanceNativeAssGeometryGeneration === "function")
           advanceNativeAssGeometryGeneration();
+      if (
+        property === "path" ||
+        property === "stream-open-filename" ||
+        property === "sid" ||
+        property === "secondary-sid" ||
+        property === "track-list" ||
+        property === "osd-dimensions" ||
+        property === "video-params" ||
+        property.indexOf("sub-delay") >= 0 ||
+        property.indexOf("image-subs") >= 0 ||
+        property.indexOf("stretch-image-subs") >= 0
+      )
+        if (typeof advanceNativeBitmapOcrGeneration === "function")
+          advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
       if (enabled) updateOverlayRuntimeState("property-change:" + property);
@@ -16683,6 +17625,8 @@ function scheduleExperimentalNativeLayoutRebuild() {
     event.on(registration[0], () => {
       if (registration[1] === "subtitle-track-change")
         nativeExternalSrtCache = Object.create(null);
+      if (typeof advanceNativeBitmapOcrGeneration === "function")
+        advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout(registration[1]);
       if (enabled) pollSubtitle();
       if (enabled) updateOverlayRuntimeState(registration[1]);

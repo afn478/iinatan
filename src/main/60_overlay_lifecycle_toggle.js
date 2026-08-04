@@ -45,7 +45,9 @@ function updateOverlayRuntimeState(reason) {
     return;
   }
   const subtitleText = mpvStringProp(["sub-text", "secondary-sub-text"], "");
-  if (!subtitleText) {
+  const bitmapSubtitleReady =
+    typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode();
+  if (!subtitleText && !bitmapSubtitleReady) {
     setOverlayRuntimeState("waiting-for-subtitle-track", reason);
     return;
   }
@@ -238,6 +240,8 @@ function prepareRuntimeAfterProfileChange(runtimePlan) {
     invalidateCurrentSubtitleLookupLine();
     if (typeof advanceNativeAssGeometryGeneration === "function")
       advanceNativeAssGeometryGeneration();
+    if (typeof advanceNativeBitmapOcrGeneration === "function")
+      advanceNativeBitmapOcrGeneration();
     lastSubtitle = null;
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";

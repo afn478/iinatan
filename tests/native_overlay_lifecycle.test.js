@@ -294,6 +294,9 @@ async function testPersistedStartupReadinessOrdering() {
     experimentalNativeSubtitleMode() {
       return true;
     },
+    nativeSubtitleHitLayerMode() {
+      return true;
+    },
     event: {
       on(name, callback) {
         eventHandlers[name] = callback;

@@ -1079,7 +1079,8 @@ assert(
   "Frequency chip should include dictionary and value",
 );
 assert(
-  /JPDBv2/.test(metadataHtml) && /184, 13390/.test(metadataHtml),
+  /JPDBv2/.test(metadataHtml) &&
+    /class="freq-values">184, 13390<\/span>/.test(metadataHtml),
   "Multiple frequency values should stay compact",
 );
 assert(
@@ -1248,6 +1249,12 @@ assert(
 assert(
   /\.pitch-source-chip \{[^}]*padding: 2px 7px;[^}]*\}/.test(css),
   "Pitch source chip sizing should remain compact",
+);
+assert(
+  /\.freq-values \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;[^}]*\}/.test(
+    css,
+  ),
+  "Long frequency lists should remain on one ellipsized line",
 );
 
 console.log("overlay dictionary formatting tests passed");

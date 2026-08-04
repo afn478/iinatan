@@ -8,6 +8,7 @@ DOWNLOADS="${IINATAN_NATIVE_ARCHIVE_DIR:-$WORK/downloads}"
 SOURCES="$WORK/sources"
 STAGE="$WORK/stage"
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+FFMPEG_FEATURE_SET="bitmap-subtitles-v1"
 
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
   echo "The pinned ASS geometry stack currently supports macOS arm64 only." >&2
@@ -23,6 +24,8 @@ LOCK_SHA="$(shasum -a 256 "$LOCK" | awk '{print $1}')"
 if [[ "${IINATAN_REBUILD_NATIVE_DEPS:-0}" != "1" ]] &&
   [[ -f "$STAGE/.dependency-lock-sha256" ]] &&
   [[ "$(cat "$STAGE/.dependency-lock-sha256")" == "$LOCK_SHA" ]] &&
+  [[ -f "$STAGE/.ffmpeg-feature-set" ]] &&
+  [[ "$(cat "$STAGE/.ffmpeg-feature-set")" == "$FFMPEG_FEATURE_SET" ]] &&
   [[ -f "$STAGE/lib/libass.a" && -f "$STAGE/lib/libavformat.a" ]]; then
   echo "Pinned native ASS geometry dependencies are current at $STAGE"
   exit 0
@@ -218,7 +221,8 @@ export LDFLAGS="-L$STAGE/lib -Wl,-dead_strip"
     --enable-avformat \
     --enable-protocol=file,http,https,tcp,tls \
     --enable-securetransport \
-    --enable-demuxer=matroska,ass \
+    --enable-demuxer=matroska,ass,sup,vobsub,mpegps,mpegts,avi \
+    --enable-decoder=pgssub,dvdsub,dvbsub,xsub \
     --enable-zlib \
     --extra-cflags="-I$STAGE/include" \
     --extra-ldflags="-L$STAGE/lib" \
@@ -244,4 +248,5 @@ for archive in \
 done
 
 echo "$LOCK_SHA" > "$STAGE/.dependency-lock-sha256"
+echo "$FFMPEG_FEATURE_SET" > "$STAGE/.ffmpeg-feature-set"
 echo "Pinned native ASS geometry dependencies built at $STAGE"

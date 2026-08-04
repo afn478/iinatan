@@ -28,6 +28,9 @@ function dictionaryManagerState() {
   const lookupLanguage = String(
     profilePreferences.lookupLanguage || pref("lookupLanguage", "ja"),
   );
+  const workerReady =
+    activeWorkerReady ||
+    (typeof readWorkerReady === "function" ? readWorkerReady() : null);
   return {
     version: VERSION,
     dictionaries: dicts.map((dict, index) => ({
@@ -54,6 +57,7 @@ function dictionaryManagerState() {
     globalSettings: readGlobalSettingsSnapshot(),
     globalSettingDefaults: Object.assign({}, GLOBAL_SETTINGS_DEFAULTS),
     lookupLanguage,
+    bitmapOcr: (workerReady && workerReady.bitmapOcr) || null,
     anki:
       typeof dictionaryManagerAnkiState === "function"
         ? dictionaryManagerAnkiState(profilePreferences)

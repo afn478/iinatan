@@ -11,10 +11,16 @@ event.on("iina.window-loaded", () => {
     trigger: "persisted-startup",
   });
 });
+event.on("iina.window-main.changed", (status) => {
+  nativeBitmapOcrWindowMain = !!status;
+  nativeBitmapOcrMouseActivityCounter = null;
+});
 event.on("mpv.file-loaded", () => {
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
+  if (typeof advanceNativeBitmapOcrGeneration === "function")
+    advanceNativeBitmapOcrGeneration();
   nativeExternalSrtCache = Object.create(null);
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
@@ -35,6 +41,8 @@ event.on("mpv.end-file", () => {
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
+  if (typeof advanceNativeBitmapOcrGeneration === "function")
+    advanceNativeBitmapOcrGeneration();
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -69,7 +77,7 @@ event.on("iina.window-will-close", () => {
   flushDebugLogBuffer();
 });
 function invalidateExperimentalNativeLayout(reason) {
-  if (!experimentalNativeSubtitleMode()) return;
+  if (!nativeSubtitleHitLayerMode()) return;
   nativeSubtitleLayoutTrigger = String(reason || "stale-layout");
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
@@ -82,7 +90,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
   if (nativeSubtitlePropertyRebuildTimer !== null) return;
   nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
     nativeSubtitlePropertyRebuildTimer = null;
-    if (enabled && experimentalNativeSubtitleMode()) pollSubtitle();
+    if (enabled && nativeSubtitleHitLayerMode()) pollSubtitle();
   }, 0);
 }
 [
@@ -175,6 +183,13 @@ function scheduleExperimentalNativeLayoutRebuild() {
   "options/embeddedfonts",
   "embeddedfonts",
   "display-hidpi-scale",
+  "pause",
+  "options/sub-delay",
+  "sub-delay",
+  "options/stretch-image-subs-to-screen",
+  "stretch-image-subs-to-screen",
+  "options/image-subs-video-resolution",
+  "image-subs-video-resolution",
 ].forEach((property) => {
   try {
     event.on("mpv." + property + ".changed", () => {
@@ -215,6 +230,20 @@ function scheduleExperimentalNativeLayoutRebuild() {
       )
         if (typeof advanceNativeAssGeometryGeneration === "function")
           advanceNativeAssGeometryGeneration();
+      if (
+        property === "path" ||
+        property === "stream-open-filename" ||
+        property === "sid" ||
+        property === "secondary-sid" ||
+        property === "track-list" ||
+        property === "osd-dimensions" ||
+        property === "video-params" ||
+        property.indexOf("sub-delay") >= 0 ||
+        property.indexOf("image-subs") >= 0 ||
+        property.indexOf("stretch-image-subs") >= 0
+      )
+        if (typeof advanceNativeBitmapOcrGeneration === "function")
+          advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
       if (enabled) updateOverlayRuntimeState("property-change:" + property);
@@ -235,6 +264,8 @@ function scheduleExperimentalNativeLayoutRebuild() {
     event.on(registration[0], () => {
       if (registration[1] === "subtitle-track-change")
         nativeExternalSrtCache = Object.create(null);
+      if (typeof advanceNativeBitmapOcrGeneration === "function")
+        advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout(registration[1]);
       if (enabled) pollSubtitle();
       if (enabled) updateOverlayRuntimeState(registration[1]);

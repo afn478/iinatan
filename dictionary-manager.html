@@ -628,10 +628,20 @@
 
     <section class="panel" data-panel="advanced">
       <h2>Advanced</h2>
+      <h3>Bitmap Subtitle OCR</h3>
+      <div class="form-grid single">
+        <label class="check-field"><input id="bitmapSubtitleOcrEnabled" data-profile-pref="bitmapSubtitleOcrEnabled" type="checkbox"><span>Recognize bitmap subtitles for dictionary lookup</span></label>
+        <small>Activates automatically when this Mac's Apple Vision framework supports the profile language. By default, pausing or moving the mouse over the player recognizes the current bitmap subtitle. Recognition happens on-device and no subtitle images or recognized text are uploaded. OCR can be wrong for stylized, low-resolution, or obstructed subtitles, which can also cause an incorrect dictionary lookup.</small>
+        <small id="bitmapSubtitleOcrStatus">Compatibility is checked during playback.</small>
+        <label class="check-field"><input id="bitmapSubtitleOcrPrefetchEnabled" data-profile-pref="bitmapSubtitleOcrPrefetchEnabled" type="checkbox"><span>Continuously recognize bitmap subtitles during playback</span></label>
+        <small><strong>Energy warning:</strong> this recognizes every active bitmap cue in the background, including subtitles you never inspect. Leave it off to recognize only after pausing or moving the mouse over the player.</small>
+        <label class="check-field"><input id="bitmapSubtitleOcrScreenshotFallbackEnabled" data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled" type="checkbox"><span>Use screenshot OCR when direct extraction fails</span></label>
+        <small><strong>Performance warning:</strong> this fallback captures and compares full video frames. It can briefly reduce IINA responsiveness, especially with 4K or HDR video, and may recognize unrelated on-screen text. Leave it off unless direct bitmap extraction does not work for a particular source.</small>
+      </div>
       <h3>Experimental Native Subtitle Lookup Layer</h3>
       <div class="form-grid single">
         <label class="check-field"><input id="experimentalNativeSubtitleHitLayer" data-profile-pref="experimentalNativeSubtitleHitLayer" type="checkbox"><span>Use native subtitles with an invisible lookup layer</span></label>
-        <small>Experimental. Intended for SRT and simple dialogue-style ASS. Complex ASS, signs that cannot be distinguished from dialogue, and bitmap subtitles are unsupported.</small>
+        <small>Experimental. Intended for SRT and simple dialogue-style ASS. Complex ASS and signs that cannot be distinguished from dialogue are unsupported; bitmap subtitles use the separate OCR setting above.</small>
         <label class="check-field"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span>Highlight looked-up text</span></label>
         <small>Turn this off to keep the native lookup layer invisible except for the dictionary popup.</small>
         <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup hit boxes</span></label>
@@ -1266,9 +1276,25 @@
       syncAudioSourcesFromProfile();
       syncAnkiFieldTemplatesFromProfile();
       syncExperimentalNativeSubtitleControls();
+      const bitmapStatus = document.getElementById('bitmapSubtitleOcrStatus');
+      if (bitmapStatus) {
+        const capability = state.bitmapOcr && typeof state.bitmapOcr === 'object' ? state.bitmapOcr : null;
+        const locales = { ja: ['ja-JP'], en: ['en-US'], de: ['de-DE'], fr: ['fr-FR'], ko: ['ko-KR'], zh: ['zh-Hans', 'zh-Hant'] };
+        const requested = locales[String(profileValue('lookupLanguage') || '')] || [];
+        const supported = capability && Array.isArray(capability.languages) ? capability.languages.map(String) : [];
+        const compatible = requested.some(locale => supported.includes(locale));
+        bitmapStatus.textContent = capability && capability.available
+          ? compatible
+            ? 'Compatible: Apple Vision revision ' + String(capability.revision || '') + ' supports this profile language.'
+            : 'Unavailable for this profile language on the current Apple Vision revision.'
+          : 'Compatibility is checked when the native lookup worker starts during playback.';
+      }
       state.rendering = false;
     }
     function syncExperimentalNativeSubtitleControls() {
+      const bitmapOcr = document.getElementById('bitmapSubtitleOcrEnabled');
+      const bitmapPrefetch = document.getElementById('bitmapSubtitleOcrPrefetchEnabled');
+      const bitmapFallback = document.getElementById('bitmapSubtitleOcrScreenshotFallbackEnabled');
       const master = document.getElementById('experimentalNativeSubtitleHitLayer');
       const highlight = document.getElementById('experimentalNativeSubtitleLookupHighlight');
       const boxes = document.getElementById('experimentalNativeSubtitleHitBoxes');
@@ -1276,6 +1302,8 @@
       const validation = document.getElementById('experimentalNativeSubtitleValidation');
       const hideNative = document.getElementById('hideNativeSubtitles');
       const active = !!(master && master.checked);
+      if (bitmapPrefetch) bitmapPrefetch.disabled = state.busy || !(bitmapOcr && bitmapOcr.checked);
+      if (bitmapFallback) bitmapFallback.disabled = state.busy || !(bitmapOcr && bitmapOcr.checked);
       if (highlight) highlight.disabled = state.busy || !active;
       if (boxes) boxes.disabled = state.busy || !active;
       if (opacity) opacity.disabled = state.busy || !active;

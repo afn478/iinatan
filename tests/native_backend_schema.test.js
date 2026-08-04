@@ -13,6 +13,14 @@ const nativeSource = fs.readFileSync(
   path.join(root, "src/native/iina_hoshi.cpp"),
   "utf8",
 );
+const bitmapSubtitleSource = fs.readFileSync(
+  path.join(root, "src/native/bitmap_subtitle.cpp"),
+  "utf8",
+);
+const visionOcrSource = fs.readFileSync(
+  path.join(root, "src/native/vision_ocr.mm"),
+  "utf8",
+);
 assert(
   /append_term_metadata_json/.test(nativeSource),
   "Native bridge should serialize term metadata",
@@ -60,9 +68,68 @@ assert(
   "Native worker should back off directory scans while its queue is idle",
 );
 assert(
-  /WRAPPER_VERSION = "1\.9\.0"/.test(nativeSource) &&
+  /WRAPPER_VERSION = "1\.11\.0"/.test(nativeSource) &&
     /command == "font-metrics"/.test(nativeSource),
-  "Native wrapper 1.9 should preserve the read-only font-metrics command",
+  "Native wrapper 1.11 should preserve the read-only font-metrics command",
+);
+assert(
+  /CGEventSourceCounterForEventType/.test(nativeSource) &&
+    /mouse\.json/.test(nativeSource) &&
+    /mouseIntent/.test(nativeSource),
+  "Native worker should publish bounded CoreGraphics mouse-activity counters",
+);
+assert(
+  /bitmap-subtitle-ocr/.test(nativeSource) &&
+    /bitmapOcr/.test(nativeSource) &&
+    /OcrService/.test(nativeSource),
+  "Native wrapper 1.10 should expose bitmap subtitle OCR and its capability",
+);
+assert(
+  /av_seek_frame\(\s*session\.format\.value, -1, global_timestamp/.test(
+    bitmapSubtitleSource,
+  ) && /stream_timestamp/.test(bitmapSubtitleSource),
+  "Bitmap subtitle decoding should seek on the container timeline before falling back to a sparse subtitle stream",
+);
+assert(
+  /struct DecoderSession/.test(bitmapSubtitleSource) &&
+    /static std::unique_ptr<DecoderSession> cached_session/.test(
+      bitmapSubtitleSource,
+    ) &&
+    /same_source\(\*cached_session, source\)/.test(bitmapSubtitleSource),
+  "Bitmap OCR should reuse one matching media demux and decoder session across cues",
+);
+assert(
+  /kNearPrerollMs = 1500/.test(bitmapSubtitleSource) &&
+    /kBroadPrerollMs = 12000/.test(bitmapSubtitleSource) &&
+    /metrics\.strategy = "forward"/.test(bitmapSubtitleSource) &&
+    /cached_frame_at/.test(bitmapSubtitleSource),
+  "Bitmap OCR should cache cues and prefer bounded forward or near-cue decoding before broad fallback",
+);
+assert(
+  /candidate\.canvas_width = canvas_width/.test(bitmapSubtitleSource) &&
+    /candidate\.origin_x = left/.test(bitmapSubtitleSource) &&
+    /frame\.origin_x \+ unit\.x/.test(visionOcrSource),
+  "Cropped bitmap frames should retain their authored canvas coordinates",
+);
+assert(
+  /class AlphaPrefix/.test(visionOcrSource) &&
+    /minimumTextHeight = 1\.0 \/ 32\.0/.test(visionOcrSource) &&
+    /CGDataProviderCreateWithData/.test(visionOcrSource),
+  "Vision OCR should reuse tight alpha bounds, ignore implausibly tiny text, and avoid copying its CGImage bytes",
+);
+assert(
+  /class BitmapOcrExecutor/.test(nativeSource) &&
+    /bitmap-ocr-superseded/.test(nativeSource) &&
+    /bitmap_ocr_executor\.enqueue/.test(nativeSource),
+  "Bitmap OCR should run on a superseding serial executor outside the lookup loop",
+);
+assert(
+  /renderer\.margin_left/.test(visionOcrSource) &&
+    /renderer\.margin_top/.test(visionOcrSource) &&
+    /renderer\.width - renderer\.margin_left - renderer\.margin_right/.test(
+      visionOcrSource,
+    ),
+  "Screenshot OCR boxes should map into the displayed video viewport",
 );
 assert(
   /CTFontCreateWithName/.test(nativeSource) &&
@@ -130,6 +197,11 @@ const buildScript = fs.readFileSync(
 const nativeBuildScript = fs.readFileSync(
   path.join(root, "scripts/build_native_backend.sh"),
   "utf8",
+);
+assert(
+  /incompatible mouse intent capability/.test(buildScript) &&
+    /coregraphics-counter/.test(nativeBuildScript),
+  "Release validation should reject a helper without native mouse intent",
 );
 const nativeDependencyBuildScript = fs.readFileSync(
   path.join(root, "scripts/build_native_geometry_dependencies.sh"),

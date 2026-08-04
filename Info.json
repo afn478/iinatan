@@ -15,6 +15,10 @@
   "preferenceDefaults": {
     "enabledByDefault": true,
     "hideNativeSubtitles": true,
+    "bitmapSubtitleOcrEnabled": true,
+    "bitmapSubtitleOcrPrefetchEnabled": false,
+    "bitmapSubtitleOcrScreenshotFallbackEnabled": false,
+    "bitmapSubtitleOcrNoticeVersion": 0,
     "experimentalNativeSubtitleHitLayer": false,
     "experimentalNativeSubtitleLookupHighlight": true,
     "experimentalNativeSubtitleHitBoxes": false,

@@ -258,15 +258,12 @@ function overlayConfig() {
       Math.min(99999, Math.round(prefNumber("nestedPopupMaxDepth", 3))),
     ),
     flattenSubtitleLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
-    experimentalNativeSubtitleHitLayer: prefBool(
-      "experimentalNativeSubtitleHitLayer",
-      false,
-    ),
+    experimentalNativeSubtitleHitLayer: nativeSubtitleHitLayerMode(),
     experimentalNativeSubtitleLookupHighlight:
-      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      nativeSubtitleHitLayerMode() &&
       prefBool("experimentalNativeSubtitleLookupHighlight", true),
     experimentalNativeSubtitleHitBoxes:
-      prefBool("experimentalNativeSubtitleHitLayer", false) &&
+      nativeSubtitleHitLayerMode() &&
       prefBool("experimentalNativeSubtitleHitBoxes", false),
     experimentalNativeSubtitleTextOpacity: prefBool(
       "experimentalNativeSubtitleHitLayer",
@@ -365,6 +362,12 @@ function cleanNativeDisplayText(text) {
 function experimentalNativeSubtitleMode() {
   return prefBool("experimentalNativeSubtitleHitLayer", false);
 }
+function nativeSubtitleHitLayerMode() {
+  return (
+    experimentalNativeSubtitleMode() ||
+    (typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode())
+  );
+}
 function resetExperimentalSubtitleLookupBinding() {
   experimentalSubtitleLookupBinding = null;
 }
@@ -375,7 +378,7 @@ function invalidateCurrentSubtitleLookupLine() {
 }
 function subtitleLookupInputForLine(lineId) {
   const binding = experimentalSubtitleLookupBinding;
-  if (experimentalNativeSubtitleMode()) {
+  if (nativeSubtitleHitLayerMode()) {
     if (binding && binding.lineId === Number(lineId)) return binding.input;
     return null;
   }
@@ -391,7 +394,7 @@ function publishSubtitle(text, nativeCue) {
   resetHoverLookupQueue();
   resetExperimentalSubtitleLookupBinding();
   if (
-    experimentalNativeSubtitleMode() &&
+    nativeSubtitleHitLayerMode() &&
     nativeCue &&
     !nativeCue.reason &&
     typeof nativeCue.lookupText === "string"
@@ -423,7 +426,8 @@ function publishSubtitle(text, nativeCue) {
     nativeLookupSpans: (nativeCue && nativeCue.lookupSpans) || [],
     nativeLayout: (nativeCue && nativeCue.layout) || null,
     nativeSurfaces: (nativeCue && nativeCue.surfaces) || [],
-    renderingMode: experimentalNativeSubtitleMode()
+    bitmapOcrStatus: (nativeCue && nativeCue.bitmapOcrStatus) || null,
+    renderingMode: nativeSubtitleHitLayerMode()
       ? "experimental-native-hit"
       : "legacy",
     config: overlayConfig(),
@@ -485,11 +489,18 @@ function syncNativeSubtitleVisibility() {
     const target = nativeSubtitleVisibilityTarget({
       enabled,
       experimental: experimentalNativeSubtitleMode(),
+      bitmapOcr:
+        typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode(),
       hideNative: prefBool("hideNativeSubtitles", true),
       backendReady: canHideNativeSubtitlesForCurrentLanguage(),
       original: nativeSubVisibilityBeforeEnable,
     });
-    if (target !== null && target !== undefined)
+    const current = mpv.getFlag("sub-visibility");
+    if (
+      target !== null &&
+      target !== undefined &&
+      Boolean(current) !== Boolean(target)
+    )
       mpv.set("sub-visibility", target);
   } catch (error) {
     console.warn(
@@ -503,7 +514,7 @@ function pollSubtitle() {
   syncNativeSubtitleVisibility();
   const sub = readCurrentSubtitle();
   lastSubtitle = sub;
-  if (!experimentalNativeSubtitleMode()) {
+  if (!nativeSubtitleHitLayerMode()) {
     const identity = "legacy:" + sub;
     if (identity === lastSubtitleCueIdentity) return;
     lastSubtitleCueIdentity = identity;
@@ -545,6 +556,7 @@ function pollSubtitle() {
     nativeCue = {
       reason: "unstable-osd-dimensions",
       trackId: nativeCue.trackId,
+      bitmapOcrStatus: nativeCue.bitmapOcrStatus || null,
     };
     if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
       scheduleExperimentalNativeLayoutRebuild();

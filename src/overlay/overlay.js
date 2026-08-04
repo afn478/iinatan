@@ -13,6 +13,7 @@
   const popupSafetyZoneEl = document.getElementById("popup-safety-zone");
   const popupRowSafetyZoneEl = document.getElementById("popup-row-safety-zone");
   const statusEl = document.getElementById("status");
+  const bitmapOcrStatusEl = document.getElementById("bitmap-ocr-status");
   const taskEl = document.getElementById("task");
 
   const state = {
@@ -102,6 +103,7 @@
     nativeLookupSpans: [],
     nativeLayout: null,
     nativeSurfaces: [],
+    bitmapOcrStatus: null,
     nativeDiagnosticKey: "",
     nativeAcceptedDiagnosticKey: "",
   };
@@ -3102,6 +3104,7 @@
     nativeLookupSpans,
     nativeLayout,
     nativeSurfaces,
+    bitmapOcrStatus,
   ) {
     state.text = state.config.flattenSubtitleLineBreaks
       ? flattenSubtitleText(text)
@@ -3119,6 +3122,7 @@
     state.nativeSurfaces = Array.isArray(nativeSurfaces)
       ? nativeSurfaces.slice()
       : [];
+    renderBitmapOcrStatus(bitmapOcrStatus);
     Object.keys(state.pendingLookupTimers || {}).forEach((k) =>
       clearTimeout(state.pendingLookupTimers[k]),
     );
@@ -6543,7 +6547,9 @@
           '"><span class="meta-label">' +
           escapeHtml(dict || "Frequency") +
           "</span>" +
-          (display ? " " + escapeHtml(display) : "") +
+          (display
+            ? '<span class="freq-values">' + escapeHtml(display) + "</span>"
+            : "") +
           "</span>",
       );
     });
@@ -7017,6 +7023,26 @@
       }, ttlMs);
     }
   }
+  function renderBitmapOcrStatus(payload) {
+    const status = payload && typeof payload === "object" ? payload : null;
+    state.bitmapOcrStatus = status;
+    if (!bitmapOcrStatusEl) return;
+    bitmapOcrStatusEl.className = "hidden";
+    bitmapOcrStatusEl.textContent = "";
+    bitmapOcrStatusEl.setAttribute("aria-label", "");
+    bitmapOcrStatusEl.setAttribute("title", "");
+    if (!state.enabled || !status || status.state !== "pending") return;
+    if (status.state === "pending") {
+      bitmapOcrStatusEl.textContent = "OCR";
+      bitmapOcrStatusEl.setAttribute(
+        "aria-label",
+        "Recognizing bitmap subtitle",
+      );
+      bitmapOcrStatusEl.setAttribute("title", "Recognizing bitmap subtitle");
+      bitmapOcrStatusEl.className = "pending";
+    }
+  }
+
   function updateAnkiCardState(payload) {
     const requestId = String((payload && payload.requestId) || "");
     if (!requestId) return;
@@ -7112,6 +7138,7 @@
         state.nativeLookupSpans,
         state.nativeLayout,
         state.nativeSurfaces,
+        state.bitmapOcrStatus,
       );
   });
   iina.onMessage("subtitle", (payload) => {
@@ -7128,6 +7155,7 @@
       payload && Array.isArray(payload.nativeSurfaces)
         ? payload.nativeSurfaces
         : [],
+      payload && payload.bitmapOcrStatus ? payload.bitmapOcrStatus : null,
     );
   });
   iina.onMessage("line-lookup-reset", (payload) => {

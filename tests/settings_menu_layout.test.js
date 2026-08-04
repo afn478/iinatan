@@ -232,6 +232,16 @@ assert(
   "Settings manager should expose opt-in subtitle line-break flattening",
 );
 assert(
+  /data-profile-pref="bitmapSubtitleOcrPrefetchEnabled"/.test(managerHtml),
+  "Settings should expose continuous bitmap OCR prefetch as a profile opt-in",
+);
+assert(
+  /data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled"/.test(
+    managerHtml,
+  ) && /Performance warning:/.test(managerHtml),
+  "Settings manager should expose the default-off screenshot OCR fallback with a warning",
+);
+assert(
   /Gap above selected subtitle row/.test(managerHtml),
   "Settings manager should describe popup spacing relative to the selected row",
 );

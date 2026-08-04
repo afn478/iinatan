@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cctype>
 #include <cmath>
 #include <cerrno>
@@ -11,6 +13,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <sstream>
 #include <signal.h>
 #include <string>
@@ -19,6 +23,7 @@
 #include <vector>
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <utf8.h>
 
@@ -27,11 +32,12 @@
 #include "hoshidicts/lookup.hpp"
 #include "hoshidicts/query.hpp"
 #include "ass_geometry.hpp"
+#include "vision_ocr.hpp"
 #include "worker_protocol.hpp"
 
 // This is the native command/protocol implementation version, not the plugin
 // release version. Plugin release metadata is owned by Info.json.
-static constexpr const char* WRAPPER_VERSION = "1.9.0";
+static constexpr const char* WRAPPER_VERSION = "1.11.0";
 static constexpr int FONT_METRIC_RESOLVER_VERSION = 2;
 static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v2";
 namespace fs = std::filesystem;
@@ -780,6 +786,106 @@ static WorkerConfig read_worker_config(const fs::path& config_path) {
   }
   return cfg;
 }
+
+class BitmapOcrExecutor {
+ public:
+  explicit BitmapOcrExecutor(fs::path responses)
+      : responses_(std::move(responses)), thread_([this] { run(); }) {}
+
+  ~BitmapOcrExecutor() {
+    {
+      std::lock_guard lock(mutex_);
+      stopping_ = true;
+      ++generation_;
+    }
+    condition_.notify_one();
+    if (thread_.joinable()) thread_.join();
+  }
+
+  iinatan::protocol::Json capability() const {
+    return service_.capability();
+  }
+
+  void enqueue(
+      std::string request_id, iinatan::protocol::Json request) {
+    std::optional<Task> superseded;
+    {
+      std::lock_guard lock(mutex_);
+      if (pending_) superseded = std::move(pending_);
+      pending_ = Task{std::move(request_id), std::move(request)};
+      ++generation_;
+    }
+    if (superseded) publish_superseded(superseded->request_id);
+    condition_.notify_one();
+  }
+
+ private:
+  struct Task {
+    std::string request_id;
+    iinatan::protocol::Json request;
+  };
+
+  void publish_superseded(const std::string& request_id) const {
+    const std::string out =
+        iinatan::protocol::Json(iinatan::protocol::Json::Object{
+            {"ok", false},
+            {"protocol", iinatan::bitmap::kBitmapOcrProtocol},
+            {"requestId", request_id},
+            {"reason", "bitmap-ocr-superseded"},
+        })
+            .dump() +
+        "\n";
+    write_file_atomic(responses_ / (request_id + ".json"), out);
+    std::cerr << "bitmap OCR superseded " << request_id << "\n";
+  }
+
+  void run() {
+    while (true) {
+      Task task;
+      uint64_t task_generation = 0;
+      {
+        std::unique_lock lock(mutex_);
+        condition_.wait(lock, [this] {
+          return stopping_.load() || pending_.has_value();
+        });
+        if (stopping_.load() && !pending_) return;
+        task = std::move(*pending_);
+        pending_.reset();
+        task_generation = generation_.load();
+      }
+      try {
+        const std::string out = service_.handle(
+                                    task.request,
+                                    [this, task_generation] {
+                                      return stopping_.load() ||
+                                          generation_.load() != task_generation;
+                                    })
+                                    .dump() +
+            "\n";
+        if (out.size() > 1024 * 1024)
+          throw std::runtime_error("bitmap OCR response exceeds 1 MiB");
+        write_file_atomic(
+            responses_ / (task.request_id + ".json"), out);
+        std::cerr << "bitmap OCR response " << task.request_id
+                  << " bytes=" << out.size() << "\n";
+      } catch (const std::exception& error) {
+        write_file_atomic(
+            responses_ / (task.request_id + ".json"),
+            error_json(error.what()));
+      }
+    }
+  }
+
+  fs::path responses_;
+  iinatan::bitmap::OcrService service_;
+  mutable std::mutex mutex_;
+  std::condition_variable condition_;
+  std::optional<Task> pending_;
+  std::atomic<uint64_t> generation_{0};
+  std::atomic<bool> stopping_{false};
+  std::thread thread_;
+};
+
 static void cmd_worker(int argc, char** argv) {
   if (argc < 3) { print_error("usage: worker <worker_dir> [--sleep-ms n] [--owner-pid pid]"); std::exit(2); }
   fs::path root = argv[2];
@@ -793,9 +899,12 @@ static void cmd_worker(int argc, char** argv) {
   fs::path queue = root / "queue";
   fs::path responses = root / "responses";
   fs::path state = root / "state";
+  fs::path mouse_activity = state / "mouse.json";
   fs::path stop = root / "stop";
   fs::path config_path = root / "config.tsv";
   fs::create_directories(queue); fs::create_directories(responses); fs::create_directories(state);
+  std::error_code state_ec;
+  fs::remove(mouse_activity, state_ec);
   WorkerConfig cfg = read_worker_config(config_path);
   if (cfg.dicts.empty()) throw std::runtime_error("worker config has no dictionaries");
   DictionaryQuery dict_query;
@@ -803,13 +912,14 @@ static void cmd_worker(int argc, char** argv) {
   Deinflector deinflector;
   Lookup lookup(dict_query, deinflector);
   iinatan::ass::GeometryService geometry_service;
+  BitmapOcrExecutor bitmap_ocr_executor(responses);
   write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + ",\"assGeometry\":{\"protocol\":1,\"available\":" +
 #ifdef IINATAN_ASS_GEOMETRY
       "true"
 #else
       "false"
 #endif
-      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true}}\n");
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
   const int active_sleep_ms = std::max(1, sleep_ms);
   const int idle_sleep_ms = std::max(active_sleep_ms, 16);
   int current_sleep_ms = active_sleep_ms;
@@ -818,6 +928,9 @@ static void cmd_worker(int argc, char** argv) {
             << "; idle_sleep_ms=" << idle_sleep_ms
             << "; owner_pid=" << owner_pid << "\n";
   auto next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  auto next_mouse_check = std::chrono::steady_clock::now();
+  uint32_t mouse_counter = CGEventSourceCounterForEventType(
+      kCGEventSourceStateCombinedSessionState, kCGEventMouseMoved);
   while (!fs::exists(stop)) {
     if (owner_pid > 0 && std::chrono::steady_clock::now() >= next_owner_check) {
       if (!process_exists(owner_pid)) {
@@ -825,6 +938,19 @@ static void cmd_worker(int argc, char** argv) {
         break;
       }
       next_owner_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
+    if (std::chrono::steady_clock::now() >= next_mouse_check) {
+      const uint32_t next_mouse_counter = CGEventSourceCounterForEventType(
+          kCGEventSourceStateCombinedSessionState, kCGEventMouseMoved);
+      if (next_mouse_counter != mouse_counter) {
+        mouse_counter = next_mouse_counter;
+        write_file_atomic(
+            mouse_activity,
+            std::string("{\"protocol\":1,\"counter\":") +
+                std::to_string(mouse_counter) + "}\n");
+      }
+      next_mouse_check =
+          std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
     }
     std::vector<fs::path> requests;
     std::error_code ec;
@@ -862,6 +988,13 @@ static void cmd_worker(int argc, char** argv) {
           write_file_atomic(resp, out);
           std::cerr << "ass geometry response " << request_id
                     << " bytes=" << out.size() << "\n";
+          fs::remove(req, ec);
+          fs::remove(committed_body, ec);
+          continue;
+        }
+        if (iinatan::bitmap::is_ocr_request(parsed_request)) {
+          bitmap_ocr_executor.enqueue(
+              request_id, std::move(parsed_request));
           fs::remove(req, ec);
           fs::remove(committed_body, ec);
           continue;
@@ -1211,6 +1344,7 @@ static void cmd_font_metrics(int argc, char** argv) {
 }
 
 static void cmd_version() {
+  iinatan::bitmap::OcrService bitmap_ocr_service;
   std::cout << "{\"ok\":true,\"name\":\"iina-hoshi-dicts\",\"backend\":\"Manhhao/hoshidicts\",\"wrapperVersion\":" << json_quote(WRAPPER_VERSION) << ",\"worker\":true,\"serve\":false,\"fontMetrics\":true,\"fontMetricResolverVersion\":" << FONT_METRIC_RESOLVER_VERSION << ",\"assGeometry\":{\"protocol\":" << iinatan::ass::kAssGeometryProtocol << ",\"available\":"
 #ifdef IINATAN_ASS_GEOMETRY
             << "true"
@@ -1221,7 +1355,9 @@ static void cmd_version() {
             << ",\"observedPlain\":true"
             << ",\"ffmpeg\":" << json_quote(iinatan::ass::ffmpeg_geometry_version())
             << ",\"libass\":" << json_quote(iinatan::ass::libass_geometry_version())
-            << ",\"architecture\":\"arm64\"},\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
+            << ",\"architecture\":\"arm64\"},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"bitmapOcr\":"
+            << bitmap_ocr_service.capability().dump()
+            << ",\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }
 static void cmd_ass_geometry(int argc, char** argv) {
   if (argc < 3) {
@@ -1239,9 +1375,23 @@ static void cmd_ass_geometry(int argc, char** argv) {
         << "\n";
   }
 }
+static void cmd_bitmap_ocr(int argc, char** argv) {
+  if (argc < 3) {
+    print_error("usage: bitmap-subtitle-ocr <request_json_path> [...]");
+    std::exit(2);
+  }
+  iinatan::bitmap::OcrService service;
+  for (int index = 2; index < argc; ++index) {
+    const std::string body = read_file(argv[index]);
+    const iinatan::protocol::Json root = iinatan::protocol::Json::parse(body);
+    if (!iinatan::bitmap::is_ocr_request(root))
+      throw std::runtime_error("request type must be bitmap-subtitle-ocr");
+    std::cout << service.handle(root).dump() << "\n";
+  }
+}
 int main(int argc, char** argv) {
   try {
-    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, ass-geometry, version"); return 2; }
+    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, ass-geometry, bitmap-subtitle-ocr, version"); return 2; }
     std::string command = argv[1];
     if (command == "import") cmd_import(argc, argv);
     else if (command == "lookup") cmd_lookup(argc, argv);
@@ -1249,6 +1399,7 @@ int main(int argc, char** argv) {
     else if (command == "client") cmd_client(argc, argv);
     else if (command == "font-metrics") cmd_font_metrics(argc, argv);
     else if (command == "ass-geometry") cmd_ass_geometry(argc, argv);
+    else if (command == "bitmap-subtitle-ocr") cmd_bitmap_ocr(argc, argv);
     else if (command == "version") cmd_version();
     else { print_error("unknown command: " + command); return 2; }
     return 0;

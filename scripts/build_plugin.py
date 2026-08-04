@@ -309,6 +309,26 @@ def validate_native_backend() -> None:
             "Native backend has an incompatible ASS geometry capability: "
             + ", ".join(bad)
         )
+    bitmap_ocr = version.get("bitmapOcr", {})
+    required_bitmap_decoders = {"pgs", "dvdsub", "dvbsub", "xsub"}
+    if (
+        bitmap_ocr.get("protocol") != 1
+        or bitmap_ocr.get("available") is not True
+        or bitmap_ocr.get("screenshotDiff") is not True
+        or not {"en-US", "ja-JP", "ko-KR", "zh-Hans"}.issubset(
+            set(bitmap_ocr.get("languages", []))
+        )
+        or not required_bitmap_decoders.issubset(
+            set(bitmap_ocr.get("decoders", []))
+        )
+    ):
+        raise SystemExit("Native backend has an incompatible bitmap OCR capability")
+    mouse_intent = version.get("mouseIntent", {})
+    if (
+        mouse_intent.get("protocol") != 1
+        or mouse_intent.get("source") != "coregraphics-counter"
+    ):
+        raise SystemExit("Native backend has an incompatible mouse intent capability")
     dependencies = subprocess.run(
         ["otool", "-L", str(backend)],
         check=True,
@@ -337,6 +357,8 @@ def validate_native_backend() -> None:
         required = {
             "iinatan-native-source/src/native/ass_geometry.cpp",
             "iinatan-native-source/src/native/media_demux.cpp",
+            "iinatan-native-source/src/native/bitmap_subtitle.cpp",
+            "iinatan-native-source/src/native/vision_ocr.mm",
             "iinatan-native-source/scripts/build_native_backend.sh",
             "iinatan-native-source/scripts/build_native_geometry_dependencies.sh",
             "iinatan-native-source/native-dependencies.lock.json",

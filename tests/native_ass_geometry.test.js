@@ -58,6 +58,21 @@ assert.strictEqual(
   version.assGeometry.patch,
   "libass-0.17.2-iinatan-unit-ids-v2",
 );
+assert.strictEqual(version.bitmapOcr.available, true);
+assert.strictEqual(version.bitmapOcr.protocol, 1);
+assert.strictEqual(version.bitmapOcr.screenshotDiff, true);
+assert.ok(version.bitmapOcr.languages.includes("ja-JP"));
+assert.ok(version.bitmapOcr.languages.includes("ko-KR"));
+assert.deepStrictEqual(version.bitmapOcr.decoders.slice().sort(), [
+  "dvbsub",
+  "dvdsub",
+  "pgs",
+  "xsub",
+]);
+assert.deepStrictEqual(version.mouseIntent, {
+  protocol: 1,
+  source: "coregraphics-counter",
+});
 
 const cases = [
   {
