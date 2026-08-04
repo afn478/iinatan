@@ -15,8 +15,11 @@ IINATAN_NATIVE_ARCHIVE_DIR="$PWD/upstream" \
 ```
 
 The result is `bin/iina-hoshi-dicts`. The build enforces an arm64 macOS 11.0
-deployment target, verifies the helper capability, and rejects non-system
-dynamic library dependencies. To relink modified application or LGPL
+deployment target, links only system Apple frameworks for CoreText and Vision,
+verifies the ASS geometry and bitmap-subtitle OCR capabilities, and rejects
+non-system dynamic library dependencies. The pinned static FFmpeg build enables
+only the demuxers and decoders needed for ASS plus PGS, DVD/VobSub, DVB, and
+XSUB subtitle handling. To relink modified application or LGPL
 dependency sources, edit the included sources or replace a verified upstream
 archive and update `native-dependencies.lock.json`, then rerun the same command.
 

@@ -93,10 +93,24 @@ Common settings include:
 - Advanced import and lookup options
 - Profiles for separate setups
 
+Bitmap subtitles such as Blu-ray PGS can be recognized for lookup with the
+Apple Vision framework built into macOS. The code ships in the existing native
+helper, recognition stays on-device, and the setting is enabled by default only
+when Vision supports the active profile language. Direct subtitle decoding
+preserves authored placement; streamed or protected sources can use the pixels
+already rendered by mpv through a separately warned, default-off screenshot
+fallback. By default, pausing or briefly moving the mouse anywhere over the
+player recognizes the current bitmap cue; successful results remain cached for
+the usual hover-to-pause lookup flow. Continuously recognizing every cue during
+playback is available as a separately warned, default-off profile option, while
+consecutive streamed cues reuse the active native media session instead of
+reopening the movie. OCR can still misrecognize stylized or low-resolution text,
+so Settings shows a permanent accuracy warning and an explicit opt-out.
+
 The experimental native-subtitle layer supports ordinary ASS/SSA dialogue in
 Japanese, English, French, German, Chinese, and Korean without replacing mpv's
 visible subtitle rendering. Its invisible hit boxes come from the packaged
-native helper. Complex override-tagged or ambiguous cues are intentionally
+native helper. Complex override-tagged or ambiguous text cues are intentionally
 skipped; SubRip and the existing force/strip ASS compatibility modes keep their
 previous behavior. Full original-versus-instrumented ASS alpha validation is
 available as an expensive Advanced diagnostic and is disabled during normal
