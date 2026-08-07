@@ -6,24 +6,16 @@
 
 ### Added
 
-- Added default-enabled, profile-scoped bitmap subtitle lookup using the bundled native helper and on-device Apple Vision OCR. PGS, DVD/VobSub, DVB, and XSUB cues use direct bounded decoding with authored placement when possible; a separately warned screenshot-difference fallback ships in the same binary but is opt-in and disabled by default.
-- Added runtime macOS/language compatibility reporting, a persistent OCR accuracy/privacy warning, and a one-time on-screen notice when bitmap OCR first succeeds.
-- Added a compact top-right `OCR` activity indicator while recognition prepares the invisible lookup layer.
+- Added word lookup for image-based subtitles such as PGS, VobSub, DVB, and XSUB. Recognition runs on your Mac, with a privacy and accuracy notice shown before first use.
+- Added clearer compatibility and recognition status messages, including a small OCR activity indicator while image subtitles are being read.
 
-### Changed
+### Improved
 
-- Extended the pinned static FFmpeg helper build and corresponding-source validation with narrowly enabled bitmap subtitle decoders and common subtitle containers.
-- Made streamed PGS lookup seek on the container timeline instead of sparse subtitle packets, and corrected the mpv 0.38 screenshot fallback and letterbox-coordinate mapping.
-- Made pause or debounced mouse movement anywhere over the player trigger direct bitmap OCR by default, while continuous playback prefetch is now a separately warned profile opt-in. Stable results remain cached across pause/resume and playback-time polling, the active media demux/decoder session is retained across streamed cues, and the existing hover-driven automatic pause/resume behavior remains available once hit boxes are ready.
-- Reduced bitmap OCR latency by seeking around mpv's exact cue timing, decoding nearby streamed cues forward, caching decoded subtitle frames, composing only the authored bitmap region, and retaining full-canvas coordinates for accurate hover boxes.
+- Image-subtitle lookup is faster and more reliable with paused and streaming video, while keeping subtitle positioning accurate and playback responsive.
 
 ### Fixed
 
-- Kept long multi-rank frequency chips such as JPDB on one compact ellipsized line instead of letting them grow into awkward two-line blocks.
-- Prevented bitmap OCR from stalling IINA during normal playback by moving direct extraction ahead of player-cache work, disabling screenshot capture by default, bounding opted-in fallback to one paused attempt per cue, using faster temporary screenshot settings, and avoiding unchanged subtitle-visibility writes every poll.
-- Made the first mouse movement trigger bitmap OCR through a throttled CoreGraphics activity counter in the bundled helper. This covers pointer movement after IINA's WebView owns the player surface without relying on mpv input sections or the non-notifying mouse-position property. Transient direct-decoder misses remain retryable when screenshot fallback is disabled so the first requested cue does not become permanently stuck.
-- Coalesced mouse and pause OCR triggers into one per-cue intent and stopped persistent streamed-cue misses after one native adaptive extraction attempt instead of rescheduling them in JavaScript. A new mouse gesture or pause transition can explicitly rearm a failed cue.
-- Moved OCR onto a superseding serial executor inside the native worker so slow media reads no longer delay dictionary or geometry requests. Native extraction now performs its near-cue and broad fallback attempts once per intent, cancels stale work, and logs privacy-safe stage timings without media URLs or recognized text.
+- Long frequency labels, including JPDB rankings, now stay compact and readable instead of wrapping awkwardly.
 
 ## 2.0.3 - 2026-07-30
 
