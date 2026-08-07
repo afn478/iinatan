@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.1.0 - 2026-08-08
+
 ### Added
 
 - Added default-enabled, profile-scoped bitmap subtitle lookup using the bundled native helper and on-device Apple Vision OCR. PGS, DVD/VobSub, DVB, and XSUB cues use direct bounded decoding with authored placement when possible; a separately warned screenshot-difference fallback ships in the same binary but is opt-in and disabled by default.
