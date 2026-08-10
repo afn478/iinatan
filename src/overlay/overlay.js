@@ -33,7 +33,7 @@
       nestedPopupMode: "off",
       nestedPopupMaxDepth: 3,
       flattenSubtitleLineBreaks: false,
-      experimentalNativeSubtitleHitLayer: false,
+      experimentalNativeSubtitleHitLayer: true,
       experimentalNativeSubtitleLookupHighlight: true,
       experimentalNativeSubtitleHitBoxes: false,
       experimentalNativeSubtitleTextOpacity: 0,

@@ -30,6 +30,7 @@ overlay.applyConfig({
   etymologyCollapseDefault: "collapsed",
   wiktionaryEtymologyCollapseOverride: "collapsed",
   customPopupCss: "#popup .gloss { font-size: 16px; }",
+  experimentalNativeSubtitleHitLayer: false,
 });
 overlay.state.enabled = true;
 overlay.renderSubtitle("猫\n\n犬", 1);

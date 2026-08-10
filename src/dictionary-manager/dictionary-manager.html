@@ -180,6 +180,72 @@
       font-weight: 600;
     }
     .check-field span { min-width: 0; }
+    .setting-heading, .setting-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .setting-heading {
+      margin: 18px 0 8px;
+    }
+    .setting-heading h3 {
+      min-width: 0;
+      margin: 0;
+    }
+    .setting-row .check-field { min-width: 0; }
+    .field .setting-row { margin-bottom: 5px; }
+    .field .setting-row label { margin-bottom: 0; }
+    .help-tip {
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .help-tip summary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: var(--control);
+      color: var(--muted);
+      cursor: help;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      list-style: none;
+      user-select: none;
+    }
+    .help-tip summary::-webkit-details-marker { display: none; }
+    .help-tip summary:hover, .help-tip summary:focus {
+      border-color: rgba(10, 132, 255, 0.48);
+      color: var(--text);
+      outline: none;
+    }
+    .help-tip[open] summary {
+      border-color: rgba(10, 132, 255, 0.48);
+      background: rgba(10, 132, 255, 0.14);
+      color: var(--text);
+    }
+    .help-popover {
+      position: absolute;
+      z-index: 20;
+      top: 24px;
+      left: 0;
+      width: min(360px, calc(100vw - 64px));
+      padding: 8px 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--bg);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0;
+      line-height: 1.4;
+      text-transform: none;
+    }
     .field small, .meta, .hint {
       display: block;
       margin-top: 3px;
@@ -427,6 +493,10 @@
 
     <section class="panel" data-panel="anki">
       <h2>Anki Export</h2>
+      <div class="form-grid single">
+        <label class="check-field"><input data-profile-pref="ankiEnabled" type="checkbox"><span>Show Anki add button in popups</span></label>
+      </div>
+
       <h3>Note</h3>
       <div class="form-grid">
         <div class="field">
@@ -451,7 +521,6 @@
           <label for="ankiConnectTimeoutSeconds">AnkiConnect response timeout (s)</label>
           <input id="ankiConnectTimeoutSeconds" data-profile-pref="ankiConnectTimeoutSeconds" type="number" min="1" max="30" step="1">
         </div>
-        <label class="check-field"><input data-profile-pref="ankiEnabled" type="checkbox"><span>Show Anki add button in popups</span></label>
       </div>
 
       <h3>Fields</h3>
@@ -629,24 +698,99 @@
       <h2>Advanced</h2>
       <h3>Bitmap Subtitle OCR</h3>
       <div class="form-grid single">
-        <label class="check-field"><input id="bitmapSubtitleOcrEnabled" data-profile-pref="bitmapSubtitleOcrEnabled" type="checkbox"><span>Recognize bitmap subtitles for dictionary lookup</span></label>
-        <small>Activates automatically when this Mac's Apple Vision framework supports the profile language. By default, pausing or moving the mouse over the player recognizes the current bitmap subtitle. Recognition happens on-device and no subtitle images or recognized text are uploaded. OCR can be wrong for stylized, low-resolution, or obstructed subtitles, which can also cause an incorrect dictionary lookup.</small>
-        <small id="bitmapSubtitleOcrStatus">Compatibility is checked during playback.</small>
-        <label class="check-field"><input id="bitmapSubtitleOcrPrefetchEnabled" data-profile-pref="bitmapSubtitleOcrPrefetchEnabled" type="checkbox"><span>Continuously recognize bitmap subtitles during playback</span></label>
-        <small><strong>Energy warning:</strong> this recognizes every active bitmap cue in the background, including subtitles you never inspect. Leave it off to recognize only after pausing or moving the mouse over the player.</small>
-        <label class="check-field"><input id="bitmapSubtitleOcrScreenshotFallbackEnabled" data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled" type="checkbox"><span>Use screenshot OCR when direct extraction fails</span></label>
-        <small><strong>Performance warning:</strong> this fallback captures and compares full video frames. It can briefly reduce IINA responsiveness, especially with 4K or HDR video, and may recognize unrelated on-screen text. Leave it off unless direct bitmap extraction does not work for a particular source.</small>
+        <div>
+          <div class="setting-row">
+            <label class="check-field"><input id="bitmapSubtitleOcrEnabled" data-profile-pref="bitmapSubtitleOcrEnabled" type="checkbox"><span>Recognize bitmap subtitles for dictionary lookup</span></label>
+            <details class="help-tip">
+              <summary aria-label="More about bitmap subtitle recognition">?</summary>
+              <div class="help-popover">Activates automatically when this Mac's Apple Vision framework supports the profile language. By default, pausing or moving the mouse over the player recognizes the current bitmap subtitle. Recognition happens on-device and no subtitle images or recognized text are uploaded. OCR can be wrong for stylized, low-resolution, or obstructed subtitles, which can also cause an incorrect dictionary lookup.</div>
+            </details>
+          </div>
+          <small class="hint">Runs on-device when supported; stylized or obstructed text may be less accurate.</small>
+          <small id="bitmapSubtitleOcrStatus" class="hint">Compatibility is checked during playback.</small>
+        </div>
+        <div>
+          <div class="setting-row">
+            <label class="check-field"><input id="bitmapSubtitleOcrPrefetchEnabled" data-profile-pref="bitmapSubtitleOcrPrefetchEnabled" type="checkbox"><span>Continuously recognize bitmap subtitles during playback</span></label>
+            <details class="help-tip">
+              <summary aria-label="More about continuous bitmap subtitle recognition">?</summary>
+              <div class="help-popover">Recognizes every active bitmap cue in the background, including subtitles you never inspect. Leave it off to recognize only after pausing or moving the mouse over the player.</div>
+            </details>
+          </div>
+          <small class="hint"><strong>Warning:</strong> uses more energy.</small>
+        </div>
+        <div>
+          <div class="setting-row">
+            <label class="check-field"><input id="bitmapSubtitleOcrScreenshotFallbackEnabled" data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled" type="checkbox"><span>Use screenshot OCR when direct extraction fails</span></label>
+            <details class="help-tip">
+              <summary aria-label="More about screenshot OCR">?</summary>
+              <div class="help-popover">Captures and compares full video frames. This can briefly reduce IINA responsiveness, especially with 4K or HDR video, and may recognize unrelated on-screen text. Leave it off unless direct bitmap extraction does not work for a particular source.</div>
+            </details>
+          </div>
+          <small class="hint"><strong>Warning:</strong> degrades performance.</small>
+        </div>
       </div>
-      <h3>Experimental Native Subtitle Lookup Layer</h3>
-      <div class="form-grid single">
-        <label class="check-field"><input id="experimentalNativeSubtitleHitLayer" data-profile-pref="experimentalNativeSubtitleHitLayer" type="checkbox"><span>Use native subtitles with an invisible lookup layer</span></label>
-        <small>Experimental. Intended for SRT and simple dialogue-style ASS. Complex ASS and signs that cannot be distinguished from dialogue are unsupported; bitmap subtitles use the separate OCR setting above.</small>
-        <label class="check-field"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span>Highlight looked-up text</span></label>
-        <small>Turn this off to keep the native lookup layer invisible except for the dictionary popup.</small>
-        <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup hit boxes</span></label>
-        <div class="field"><label for="experimentalNativeSubtitleTextOpacity">Copied-text debug opacity</label><input id="experimentalNativeSubtitleTextOpacity" data-profile-pref="experimentalNativeSubtitleTextOpacity" type="number" min="0" max="1" step="0.05"><small>Diagnostic only; a nonzero value intentionally reveals the copied text over native subtitles.</small></div>
-        <label class="check-field"><input id="experimentalNativeSubtitleValidation" data-profile-pref="experimentalNativeSubtitleValidation" type="checkbox"><span>Validate native ASS instrumentation</span></label>
-        <small>Diagnostic only. Double-renders ASS cues and compares full alpha planes; leave off for normal playback.</small>
+      <div class="native-subtitle-settings">
+        <div class="setting-heading">
+          <h3>Native Subtitle Lookup</h3>
+          <details class="help-tip">
+            <summary aria-label="More about native subtitle lookup">?</summary>
+            <div class="help-popover">By default, IINA continues to draw text subtitles while iinatan adds word lookup without changing their appearance. This works best with SRT and dialogue-style ASS subtitles. Complex positioned or animated ASS signs may not support lookup. Bitmap subtitles use the OCR options above.</div>
+          </details>
+        </div>
+        <div class="form-grid single">
+          <div>
+            <div class="setting-row">
+              <label class="check-field"><input id="legacySubtitleMode" data-profile-pref="experimentalNativeSubtitleHitLayer" data-profile-pref-invert="true" type="checkbox"><span>Use legacy subtitle mode</span></label>
+              <details class="help-tip">
+                <summary aria-label="More about legacy subtitle mode">?</summary>
+                <div class="help-popover">Legacy mode uses iinatan's older interactive subtitle display. It can help when native subtitle lookup is unavailable or does not line up correctly, but it may preserve authored styling and positioning less accurately.</div>
+              </details>
+            </div>
+            <small class="hint">Use the older subtitle display only if native lookup does not work well for a video.</small>
+          </div>
+          <div>
+            <div class="setting-row">
+              <label class="check-field"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span>Highlight looked-up text</span></label>
+              <details class="help-tip">
+                <summary aria-label="More about lookup highlighting">?</summary>
+                <div class="help-popover">Adds a temporary highlight behind the text matched by the current dictionary popup. Turning this off does not disable lookup.</div>
+              </details>
+            </div>
+            <small class="hint">Marks the text matched by the current dictionary result.</small>
+          </div>
+          <div>
+            <div class="setting-row">
+              <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup areas</span></label>
+              <details class="help-tip">
+                <summary aria-label="More about lookup areas">?</summary>
+                <div class="help-popover">Outlines the areas that respond to hovering and clicking. Turn this on temporarily if lookup triggers beside or between subtitle characters.</div>
+              </details>
+            </div>
+            <small class="hint">Shows where hovering or clicking will trigger a lookup.</small>
+          </div>
+          <div class="field">
+            <div class="setting-row">
+              <label for="experimentalNativeSubtitleTextOpacity">Lookup alignment preview</label>
+              <details class="help-tip">
+                <summary aria-label="More about the lookup alignment preview">?</summary>
+                <div class="help-popover">iinatan keeps an invisible text copy aligned with the subtitle to place lookup areas. Raise this from 0 only when checking alignment; 1 makes the copy fully visible.</div>
+              </details>
+            </div>
+            <input id="experimentalNativeSubtitleTextOpacity" data-profile-pref="experimentalNativeSubtitleTextOpacity" type="number" min="0" max="1" step="0.05">
+            <small class="hint">0 hides the preview; higher values make alignment easier to inspect.</small>
+          </div>
+          <div>
+            <div class="setting-row">
+              <label class="check-field"><input id="experimentalNativeSubtitleValidation" data-profile-pref="experimentalNativeSubtitleValidation" type="checkbox"><span>Run extra subtitle checks</span></label>
+              <details class="help-tip">
+                <summary aria-label="More about extra subtitle checks">?</summary>
+                <div class="help-popover">Performs additional checks on styled subtitle placement. This adds processing and diagnostic work, so enable it only while troubleshooting.</div>
+              </details>
+            </div>
+            <small class="hint">Troubleshooting only; leave off during normal playback.</small>
+          </div>
+        </div>
       </div>
       <h3>Timeouts</h3>
       <div class="form-grid">
@@ -826,7 +970,7 @@
       Array.from(document.querySelectorAll('[data-busy-control]')).forEach(control => {
         control.disabled = disabled || control.dataset.positionDisabled === 'true';
       });
-      syncExperimentalNativeSubtitleControls();
+      syncNativeSubtitleControls();
       Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
         row.draggable = !disabled;
       });
@@ -1202,13 +1346,17 @@
     }
     function setControlValue(control, value) {
       if (control.type === 'checkbox') {
-        control.checked = !!value;
+        const checked = !!value;
+        control.checked = control.dataset.profilePrefInvert === 'true' ? !checked : checked;
       } else {
         control.value = value === undefined || value === null ? '' : String(value);
       }
     }
     function readControlValue(control, fallback) {
-      if (control.type === 'checkbox') return !!control.checked;
+      if (control.type === 'checkbox') {
+        const checked = !!control.checked;
+        return control.dataset.profilePrefInvert === 'true' ? !checked : checked;
+      }
       if (control.type === 'number') {
         const value = Number(control.value);
         return Number.isFinite(value) ? value : fallback;
@@ -1274,7 +1422,7 @@
       });
       syncAudioSourcesFromProfile();
       syncAnkiFieldTemplatesFromProfile();
-      syncExperimentalNativeSubtitleControls();
+      syncNativeSubtitleControls();
       const bitmapStatus = document.getElementById('bitmapSubtitleOcrStatus');
       if (bitmapStatus) {
         const capability = state.bitmapOcr && typeof state.bitmapOcr === 'object' ? state.bitmapOcr : null;
@@ -1290,17 +1438,17 @@
       }
       state.rendering = false;
     }
-    function syncExperimentalNativeSubtitleControls() {
+    function syncNativeSubtitleControls() {
       const bitmapOcr = document.getElementById('bitmapSubtitleOcrEnabled');
       const bitmapPrefetch = document.getElementById('bitmapSubtitleOcrPrefetchEnabled');
       const bitmapFallback = document.getElementById('bitmapSubtitleOcrScreenshotFallbackEnabled');
-      const master = document.getElementById('experimentalNativeSubtitleHitLayer');
+      const legacyMode = document.getElementById('legacySubtitleMode');
       const highlight = document.getElementById('experimentalNativeSubtitleLookupHighlight');
       const boxes = document.getElementById('experimentalNativeSubtitleHitBoxes');
       const opacity = document.getElementById('experimentalNativeSubtitleTextOpacity');
       const validation = document.getElementById('experimentalNativeSubtitleValidation');
       const hideNative = document.getElementById('hideNativeSubtitles');
-      const active = !!(master && master.checked);
+      const active = !!(legacyMode && !legacyMode.checked);
       if (bitmapPrefetch) bitmapPrefetch.disabled = state.busy || !(bitmapOcr && bitmapOcr.checked);
       if (bitmapFallback) bitmapFallback.disabled = state.busy || !(bitmapOcr && bitmapOcr.checked);
       if (highlight) highlight.disabled = state.busy || !active;
@@ -1309,7 +1457,7 @@
       if (validation) validation.disabled = state.busy || !active;
       if (hideNative) {
         hideNative.disabled = state.busy || active;
-        hideNative.title = active ? 'Native subtitle visibility is required by the experimental lookup layer.' : '';
+        hideNative.title = active ? 'IINA subtitle visibility is required by native subtitle lookup.' : '';
       }
     }
     function renderRecommended() {
@@ -1578,7 +1726,7 @@
       if (event.key === 'Escape' && state.recommendedDialogOpen) closeRecommendedDialog();
     });
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
-      control.addEventListener('change', () => { syncExperimentalNativeSubtitleControls(); saveProfilePreferences(); });
+      control.addEventListener('change', () => { syncNativeSubtitleControls(); saveProfilePreferences(); });
     });
     Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
       control.addEventListener('change', saveGlobalSettings);

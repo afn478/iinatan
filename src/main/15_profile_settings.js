@@ -12,7 +12,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   bitmapSubtitleOcrEnabled: true,
   bitmapSubtitleOcrPrefetchEnabled: false,
   bitmapSubtitleOcrScreenshotFallbackEnabled: false,
-  experimentalNativeSubtitleHitLayer: false,
+  experimentalNativeSubtitleHitLayer: true,
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
   experimentalNativeSubtitleTextOpacity: 0,

@@ -47,6 +47,7 @@ overlay.applyConfig({
   overlayBridgePort: 19741,
   scanLength: 24,
   hoverRequestTimeoutMs: 5000,
+  experimentalNativeSubtitleHitLayer: false,
 });
 overlay.renderSubtitle("I was running quickly", 1);
 

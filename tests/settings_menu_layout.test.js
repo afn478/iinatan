@@ -40,6 +40,10 @@ assert(
   "Anki export should default off",
 );
 assert(
+  info.preferenceDefaults.experimentalNativeSubtitleHitLayer === true,
+  "Native subtitle lookup should default on",
+);
+assert(
   info.preferenceDefaults.ankiConnectUrl === "http://127.0.0.1:8765",
   "AnkiConnect should default to the local AnkiConnect server",
 );
@@ -97,6 +101,56 @@ assert(
 assert(
   /data-profile-pref="pauseWhilePopupVisible"/.test(managerHtml),
   "Settings manager should expose per-profile playback settings",
+);
+assert(
+  /id="legacySubtitleMode"[^>]*data-profile-pref="experimentalNativeSubtitleHitLayer"[^>]*data-profile-pref-invert="true"/.test(
+    managerHtml,
+  ),
+  "Settings should present the older subtitle renderer as an inverted legacy-mode option",
+);
+assert(
+  /<h3>Native Subtitle Lookup<\/h3>/.test(managerHtml) &&
+    /aria-label="More about native subtitle lookup">\?<\/summary>/.test(
+      managerHtml,
+    ),
+  "Native subtitle settings should use plain language with expandable help",
+);
+assert(
+  /\.setting-heading\s*\{[^}]*margin:\s*18px 0 8px/s.test(managerHtml) &&
+    /\.setting-heading h3\s*\{[^}]*margin:\s*0/s.test(managerHtml),
+  "Section help controls should center against headings without including heading margins",
+);
+assert(
+  /\.field \.setting-row\s*\{[^}]*margin-bottom:\s*5px/s.test(managerHtml),
+  "Labeled fields with help controls should keep space above their input",
+);
+assert(
+  /aria-label="More about bitmap subtitle recognition">\?<\/summary>[\s\S]*Activates automatically when this Mac's Apple Vision framework/.test(
+    managerHtml,
+  ),
+  "Bitmap OCR implementation details should be behind expandable help",
+);
+assert(
+  /aria-label="More about continuous bitmap subtitle recognition">\?<\/summary>[\s\S]*Recognizes every active bitmap cue/.test(
+    managerHtml,
+  ) &&
+    /<strong>Warning:<\/strong> uses more energy\./.test(managerHtml),
+  "Continuous bitmap OCR should keep only its concise energy warning visible",
+);
+assert(
+  /aria-label="More about screenshot OCR">\?<\/summary>[\s\S]*Captures and compares full video frames/.test(
+    managerHtml,
+  ) &&
+    /<strong>Warning:<\/strong> degrades performance\./.test(managerHtml),
+  "Screenshot OCR should keep only its concise performance warning visible",
+);
+assert(
+  /Show lookup areas/.test(managerHtml) &&
+    /Run extra subtitle checks/.test(managerHtml) &&
+    !/Experimental Native Subtitle Lookup Layer|lookup hit boxes|native ASS instrumentation/.test(
+      managerHtml,
+    ),
+  "Native subtitle controls should avoid developer-facing labels",
 );
 assert(
   /data-profile-pref="audioAutoPlay"/.test(managerHtml),
@@ -238,7 +292,7 @@ assert(
 assert(
   /data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled"/.test(
     managerHtml,
-  ) && /Performance warning:/.test(managerHtml),
+  ) && /<strong>Warning:<\/strong> degrades performance\./.test(managerHtml),
   "Settings manager should expose the default-off screenshot OCR fallback with a warning",
 );
 assert(

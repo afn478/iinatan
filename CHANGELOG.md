@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Moved the Anki enable checkbox to the top of the Anki settings tab.
+- Made native subtitle lookup the default for new profiles, presented the older renderer as legacy mode, refined its setting spacing, and moved detailed subtitle and OCR explanations behind help controls.
+
 ### Fixed
 
 - Restored native-subtitle lookup for YouTube SRT captions loaded by IINA's Online Media plugin by validating and unwrapping its external subtitle EDL while keeping unrelated unknown codecs and unsafe sources rejected.

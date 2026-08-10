@@ -267,7 +267,7 @@ function overlayConfig() {
       prefBool("experimentalNativeSubtitleHitBoxes", false),
     experimentalNativeSubtitleTextOpacity: prefBool(
       "experimentalNativeSubtitleHitLayer",
-      false,
+      true,
     )
       ? clampNumber(
           prefNumber("experimentalNativeSubtitleTextOpacity", 0),
@@ -360,7 +360,7 @@ function cleanNativeDisplayText(text) {
     .replace(/\r/g, "");
 }
 function experimentalNativeSubtitleMode() {
-  return prefBool("experimentalNativeSubtitleHitLayer", false);
+  return prefBool("experimentalNativeSubtitleHitLayer", true);
 }
 function nativeSubtitleHitLayerMode() {
   return (

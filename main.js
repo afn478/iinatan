@@ -5752,7 +5752,7 @@ function overlayConfig() {
       prefBool("experimentalNativeSubtitleHitBoxes", false),
     experimentalNativeSubtitleTextOpacity: prefBool(
       "experimentalNativeSubtitleHitLayer",
-      false,
+      true,
     )
       ? clampNumber(
           prefNumber("experimentalNativeSubtitleTextOpacity", 0),
@@ -5845,7 +5845,7 @@ function cleanNativeDisplayText(text) {
     .replace(/\r/g, "");
 }
 function experimentalNativeSubtitleMode() {
-  return prefBool("experimentalNativeSubtitleHitLayer", false);
+  return prefBool("experimentalNativeSubtitleHitLayer", true);
 }
 function nativeSubtitleHitLayerMode() {
   return (
@@ -8938,7 +8938,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   bitmapSubtitleOcrEnabled: true,
   bitmapSubtitleOcrPrefetchEnabled: false,
   bitmapSubtitleOcrScreenshotFallbackEnabled: false,
-  experimentalNativeSubtitleHitLayer: false,
+  experimentalNativeSubtitleHitLayer: true,
   experimentalNativeSubtitleLookupHighlight: true,
   experimentalNativeSubtitleHitBoxes: false,
   experimentalNativeSubtitleTextOpacity: 0,

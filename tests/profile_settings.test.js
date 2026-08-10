@@ -125,12 +125,12 @@ assert(
   "Bitmap screenshot OCR fallback should default to off",
 );
 assert(
-  prefs.experimentalNativeSubtitleHitLayer === false &&
+  prefs.experimentalNativeSubtitleHitLayer === true &&
     prefs.experimentalNativeSubtitleLookupHighlight === true &&
     prefs.experimentalNativeSubtitleHitBoxes === false &&
     prefs.experimentalNativeSubtitleTextOpacity === 0 &&
     prefs.experimentalNativeSubtitleValidation === false,
-  "Native lookup highlighting should default on while experimental diagnostics stay invisible",
+  "Native subtitle lookup and highlighting should default on while diagnostics stay invisible",
 );
 
 prefs = settings.normalizeProfilePreferences({

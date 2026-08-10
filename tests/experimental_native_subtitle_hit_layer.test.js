@@ -3745,31 +3745,46 @@ function waitForLayout() {
     path.join(root, "src/dictionary-manager/dictionary-manager.html"),
     "utf8",
   );
+  const valueHelpersStart = managerSource.indexOf(
+    "    function setControlValue(control, value)",
+  );
+  const valueHelpersSource = managerSource.slice(
+    valueHelpersStart,
+    managerSource.indexOf(
+      "    function collectProfilePreferences()",
+      valueHelpersStart,
+    ),
+  );
   const updateBusySource = managerSource.slice(
     managerSource.indexOf("    function updateBusyState()"),
     managerSource.indexOf("    function dictionaryMeta"),
   );
   const syncControlsStart = managerSource.indexOf(
-    "    function syncExperimentalNativeSubtitleControls()",
+    "    function syncNativeSubtitleControls()",
   );
   const syncControlsSource = managerSource.slice(
     syncControlsStart,
     managerSource.indexOf("    function renderRecommended", syncControlsStart),
   );
-  const masterControl = { checked: false, disabled: false };
+  const legacyModeControl = {
+    checked: true,
+    disabled: false,
+    type: "checkbox",
+    dataset: { profilePrefInvert: "true" },
+  };
   const highlightControl = { checked: true, disabled: false };
   const boxesControl = { checked: true, disabled: false };
   const opacityControl = { value: "0.65", disabled: false };
   const hideNativeControl = { checked: true, disabled: false, title: "" };
   const preferenceControls = [
-    masterControl,
+    legacyModeControl,
     highlightControl,
     boxesControl,
     opacityControl,
     hideNativeControl,
   ];
   const managerElements = {
-    experimentalNativeSubtitleHitLayer: masterControl,
+    legacySubtitleMode: legacyModeControl,
     experimentalNativeSubtitleLookupHighlight: highlightControl,
     experimentalNativeSubtitleHitBoxes: boxesControl,
     experimentalNativeSubtitleTextOpacity: opacityControl,
@@ -3811,17 +3826,31 @@ function waitForLayout() {
   };
   vm.createContext(managerContext);
   vm.runInContext(
-    updateBusySource +
+    valueHelpersSource +
+      updateBusySource +
       syncControlsSource +
-      ";globalThis.controlsApi={updateBusyState};",
+      ";globalThis.controlsApi={updateBusyState,setControlValue,readControlValue};",
     managerContext,
   );
+  managerContext.controlsApi.setControlValue(legacyModeControl, false);
+  assert(
+    legacyModeControl.checked &&
+      managerContext.controlsApi.readControlValue(legacyModeControl) === false,
+    "a disabled native layer is presented as enabled legacy mode",
+  );
+  managerContext.controlsApi.setControlValue(legacyModeControl, true);
+  assert(
+    !legacyModeControl.checked &&
+      managerContext.controlsApi.readControlValue(legacyModeControl) === true,
+    "an enabled native layer is presented as disabled legacy mode",
+  );
+  managerContext.controlsApi.setControlValue(legacyModeControl, false);
   managerContext.controlsApi.updateBusyState();
   assert(
     highlightControl.disabled &&
       boxesControl.disabled &&
       opacityControl.disabled,
-    "debug controls remain disabled while the master is off",
+    "native subtitle controls remain disabled in legacy mode",
   );
   assert(
     highlightControl.checked &&
@@ -3831,19 +3860,19 @@ function waitForLayout() {
   );
   assert(
     !hideNativeControl.disabled,
-    "legacy native visibility control remains enabled with master off",
+    "legacy native visibility control remains enabled in legacy mode",
   );
-  masterControl.checked = true;
+  legacyModeControl.checked = false;
   managerContext.controlsApi.updateBusyState();
   assert(
     !highlightControl.disabled &&
       !boxesControl.disabled &&
       !opacityControl.disabled,
-    "dependent native-layer controls enable immediately with the master",
+    "dependent native subtitle controls enable immediately outside legacy mode",
   );
   assert(
     hideNativeControl.disabled,
-    "native hiding is disabled while experimental mode owns visibility",
+    "native hiding is disabled while native subtitle lookup owns visibility",
   );
   managerContext.state.busy = true;
   managerContext.controlsApi.updateBusyState();

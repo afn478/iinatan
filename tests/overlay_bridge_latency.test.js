@@ -17,6 +17,7 @@ function setupOverlay(options) {
     },
     overlayBridgePort: 19741,
     hoverRequestTimeoutMs: 5000,
+    experimentalNativeSubtitleHitLayer: false,
   });
   context.__handlers.enabled({ enabled: true });
   overlay.renderSubtitle("毒物は ありません", 1);
