@@ -133,15 +133,13 @@ assert(
 assert(
   /aria-label="More about continuous bitmap subtitle recognition">\?<\/summary>[\s\S]*Recognizes every active bitmap cue/.test(
     managerHtml,
-  ) &&
-    /<strong>Warning:<\/strong> uses more energy\./.test(managerHtml),
+  ) && /<strong>Warning:<\/strong> uses more energy\./.test(managerHtml),
   "Continuous bitmap OCR should keep only its concise energy warning visible",
 );
 assert(
   /aria-label="More about screenshot OCR">\?<\/summary>[\s\S]*Captures and compares full video frames/.test(
     managerHtml,
-  ) &&
-    /<strong>Warning:<\/strong> degrades performance\./.test(managerHtml),
+  ) && /<strong>Warning:<\/strong> degrades performance\./.test(managerHtml),
   "Screenshot OCR should keep only its concise performance warning visible",
 );
 assert(

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.1.1 - 2026-08-10
+
 ### Changed
 
 - Moved the Anki enable checkbox to the top of the Anki settings tab.
