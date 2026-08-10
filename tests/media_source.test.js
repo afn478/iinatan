@@ -55,6 +55,52 @@ assert(
   "mpv pseudo-URLs are classified as mpv-only",
 );
 
+function onlineSubtitleEdl(locator, codec) {
+  return (
+    "edl://!no_clip;!delay_open,media_type=sub" +
+    (codec ? ",codec=" + codec : "") +
+    ";%" +
+    locator.length +
+    "%" +
+    locator
+  );
+}
+
+const youtubeSrtUrl =
+  "https://www.youtube.com/api/timedtext?v=test&lang=ja&fmt=srt&signature=private";
+const youtubeSrt = context.iinaOnlineMediaSubtitleEdlSource(
+  onlineSubtitleEdl(youtubeSrtUrl),
+);
+assert(
+  youtubeSrt &&
+    youtubeSrt.format === "srt" &&
+    youtubeSrt.source.kind === "http-url" &&
+    youtubeSrt.source.locator === youtubeSrtUrl,
+  "the exact Online Media subtitle EDL unwraps its length-delimited HTTPS SRT URL",
+);
+const declaredSrt = context.iinaOnlineMediaSubtitleEdlSource(
+  onlineSubtitleEdl("https://media.example/subtitle", "subrip"),
+);
+assert(
+  declaredSrt && declaredSrt.format === "srt",
+  "an Online Media EDL can identify SRT through a declared codec",
+);
+assert(
+  context.iinaOnlineMediaSubtitleEdlSource(
+    onlineSubtitleEdl(youtubeSrtUrl).replace(
+      "%" + youtubeSrtUrl.length + "%",
+      "%" + (youtubeSrtUrl.length + 1) + "%",
+    ),
+  ) === null &&
+    context.iinaOnlineMediaSubtitleEdlSource(
+      onlineSubtitleEdl("ftp://media.example/subtitle.srt"),
+    ) === null &&
+    context.iinaOnlineMediaSubtitleEdlSource(
+      onlineSubtitleEdl(youtubeSrtUrl) + ";%4%more",
+    ) === null,
+  "malformed, non-HTTP, and multi-segment subtitle EDLs remain rejected",
+);
+
 const resolved = context.mediaSourceSnapshot({
   path: "https://video.example/watch/123",
   streamOpenFilename:

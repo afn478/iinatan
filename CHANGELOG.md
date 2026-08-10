@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restored native-subtitle lookup for YouTube SRT captions loaded by IINA's Online Media plugin by validating and unwrapping its external subtitle EDL while keeping unrelated unknown codecs and unsafe sources rejected.
+
 ## 2.1.0 - 2026-08-07
 
 ### Added

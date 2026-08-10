@@ -340,6 +340,7 @@ if (!globalThis.__testUseActualFontMetrics) {
   };
 }
 globalThis.nativeHelpers = {
+  iinaOnlineMediaSubtitleEdlSource,
   normalizeNativeOsdDimensions,
   normalizeNativeVideoDimensions,
   nativeSubtitleOptionSnapshot,
@@ -371,6 +372,7 @@ globalThis.nativeHelpers = {
   nativeAssSourceSnapshot,
   nativeSrtTimestampMs,
   parseNativeSrtCues,
+  nativeExternalSubtitleSource,
   nativeExternalSrtCues,
   nativeExternalSrtEventBlocks,
   nativeGraphemeBreakFallback,
@@ -645,6 +647,106 @@ function waitForLayout() {
       streamedSrtRequest.args.includes("=http,https") &&
       streamedSrtRequest.args.includes(String(8 * 1024 * 1024)),
     "external SRT reads restrict protocols and response size",
+  );
+  const onlineMediaSrtUrl =
+    "https://www.youtube.com/api/timedtext?v=test&lang=ja&fmt=srt&signature=private";
+  const onlineMediaSrtEdl =
+    "edl://!no_clip;!delay_open,media_type=sub;%" +
+    onlineMediaSrtUrl.length +
+    "%" +
+    onlineMediaSrtUrl;
+  const onlineMediaSrtTrack = {
+    type: "sub",
+    id: 7,
+    selected: true,
+    "main-selection": 0,
+    codec: "null",
+    "codec-desc": "Unknown",
+    external: true,
+    "external-filename": onlineMediaSrtEdl,
+  };
+  const onlineMediaSrtHelpers = loadMainNativeHelpers({
+    __curlResult: {
+      status: 0,
+      stdout: overlappingSrtText,
+      stderr: "",
+    },
+    sid: 7,
+    "track-list": [onlineMediaSrtTrack],
+    "time-pos": 714.5,
+    "options/sub-delay": 0,
+    "sub-text": overlappingSrtDisplay,
+    "osd-dimensions": {
+      w: 1920,
+      h: 1080,
+      ml: 0,
+      mr: 0,
+      mt: 0,
+      mb: 0,
+      par: 1,
+    },
+    "options/sub-font": "Helvetica",
+    languageId: "ja",
+  });
+  assertEqual(
+    onlineMediaSrtHelpers.nativeSubtitleTrackEligibility(
+      [onlineMediaSrtTrack],
+      7,
+    ).kind,
+    "srt",
+    "mpv's null-codec sentinel is accepted only when a validated Online Media EDL identifies SRT",
+  );
+  assertEqual(
+    onlineMediaSrtHelpers.nativeSubtitleCueSnapshot(overlappingSrtDisplay)
+      .reason,
+    "srt-read-pending",
+    "the validated Online Media EDL begins a bounded read of its inner SRT URL",
+  );
+  await waitForLayout();
+  const onlineMediaSnapshot = onlineMediaSrtHelpers.nativeSubtitleCueSnapshot(
+    overlappingSrtDisplay,
+  );
+  assertEqual(
+    {
+      kind: onlineMediaSnapshot.kind,
+      eventBlocks: onlineMediaSnapshot.layout.eventBlocks.length,
+    },
+    { kind: "srt", eventBlocks: 2 },
+    "the live Online Media track reaches normal SRT geometry with overlapping cues preserved",
+  );
+  const onlineMediaSrtRequest = onlineMediaSrtHelpers.testExecEvents.find(
+    (event) => event.command === "/usr/bin/curl",
+  );
+  assert(
+    onlineMediaSrtRequest &&
+      onlineMediaSrtRequest.args.includes(onlineMediaSrtUrl) &&
+      !onlineMediaSrtRequest.args.some((arg) =>
+        String(arg).startsWith("edl://"),
+      ),
+    "the SRT reader receives only the validated inner URL, never the EDL wrapper",
+  );
+  assertEqual(
+    onlineMediaSrtHelpers.nativeSubtitleTrackEligibility(
+      [Object.assign({}, onlineMediaSrtTrack, { codec: "mystery" })],
+      7,
+    ).reason,
+    "unsupported-codec",
+    "an explicit unknown codec is not overridden by an inferred EDL format",
+  );
+  assertEqual(
+    onlineMediaSrtHelpers.nativeSubtitleTrackEligibility(
+      [
+        Object.assign({}, onlineMediaSrtTrack, {
+          "external-filename": onlineMediaSrtEdl.replace(
+            "%" + onlineMediaSrtUrl.length + "%",
+            "%" + (onlineMediaSrtUrl.length + 1) + "%",
+          ),
+        }),
+      ],
+      7,
+    ).reason,
+    "unsupported-codec",
+    "a malformed length-delimited EDL cannot supply missing codec metadata",
   );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(

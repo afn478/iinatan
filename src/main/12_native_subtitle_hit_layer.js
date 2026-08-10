@@ -607,27 +607,43 @@ function normalizeNativeTrackList(raw) {
     .filter(
       (track) => track && String(track.type || "").toLowerCase() === "sub",
     )
-    .map((track) => ({
-      id: Number(track.id),
-      selected: !!track.selected,
-      mainSelection: Number(
-        track["main-selection"] !== undefined
-          ? track["main-selection"]
-          : track.mainSelection,
-      ),
-      codec: String(track.codec || track["codec-desc"] || "")
-        .trim()
-        .toLowerCase(),
-      ffIndex: Number(
-        track["ff-index"] !== undefined ? track["ff-index"] : track.ffIndex,
-      ),
-      external: !!track.external,
-      externalFilename: String(
+    .map((track) => {
+      const externalFilename = String(
         track["external-filename"] || track.externalFilename || "",
-      ),
-      language: String(track.lang || track.language || ""),
-      title: String(track.title || ""),
-    }));
+      );
+      const reportedCodec = String(track.codec || "")
+        .trim()
+        .toLowerCase();
+      const codecDescription = String(track["codec-desc"] || "")
+        .trim()
+        .toLowerCase();
+      let codec = reportedCodec || codecDescription;
+      const hasConcreteReportedCodec =
+        !!reportedCodec && reportedCodec !== "null";
+      if (!hasConcreteReportedCodec && track.external) {
+        const onlineMediaSource =
+          iinaOnlineMediaSubtitleEdlSource(externalFilename);
+        if (onlineMediaSource && onlineMediaSource.format === "srt")
+          codec = "srt";
+      }
+      return {
+        id: Number(track.id),
+        selected: !!track.selected,
+        mainSelection: Number(
+          track["main-selection"] !== undefined
+            ? track["main-selection"]
+            : track.mainSelection,
+        ),
+        codec,
+        ffIndex: Number(
+          track["ff-index"] !== undefined ? track["ff-index"] : track.ffIndex,
+        ),
+        external: !!track.external,
+        externalFilename,
+        language: String(track.lang || track.language || ""),
+        title: String(track.title || ""),
+      };
+    });
 }
 
 function nativeSubtitleTrackEligibility(
@@ -1800,12 +1816,20 @@ function parseNativeSrtCues(raw) {
   return cues.length ? { cues } : { reason: "empty-subtitle" };
 }
 
+function nativeExternalSubtitleSource(track) {
+  const selected = track || {};
+  const filename = String(
+    selected.externalFilename || selected["external-filename"] || "",
+  );
+  const onlineMediaSource = iinaOnlineMediaSubtitleEdlSource(filename);
+  return onlineMediaSource
+    ? onlineMediaSource.source
+    : mediaSourceDescriptor(filename, "subtitle-track");
+}
+
 function nativeExternalSrtCues(track) {
   const selected = track || {};
-  const source = mediaSourceDescriptor(
-    selected.externalFilename,
-    "subtitle-track",
-  );
+  const source = nativeExternalSubtitleSource(selected);
   const path = source.locator;
   if (!selected.external || !path)
     return { reason: "srt-event-boundaries-unavailable" };
@@ -2794,7 +2818,7 @@ function reportNativeAssReadiness(snapshot) {
   const media = currentMediaSourceSnapshot();
   const source =
     track && track.external
-      ? mediaSourceDescriptor(track.externalFilename, "subtitle-track")
+      ? nativeExternalSubtitleSource(track)
       : media.primary;
   const retryableReadinessReasons = {
     "ambiguous-stream-map": true,
@@ -2802,6 +2826,7 @@ function reportNativeAssReadiness(snapshot) {
     "cue-timing-unavailable": true,
     "missing-osd-dimensions": true,
     "missing-video-dimensions": true,
+    "srt-read-pending": true,
     "subtitle-track-unavailable": true,
     "unsupported-codec": true,
     "unsafe-media-path": true,
