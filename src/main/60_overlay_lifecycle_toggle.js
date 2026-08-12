@@ -173,6 +173,15 @@ function initializeOverlay() {
   overlay.onMessage("lookup-at-lite", (payload) => {
     handleLookupAt(payload);
   });
+  overlay.onMessage("line-lookup", (payload) => {
+    handleBridgeLookup(payload);
+  });
+  overlay.onMessage("nested-lookup", (payload) => {
+    handleBridgeNestedLookup(payload);
+  });
+  overlay.onMessage("audio-source", (payload) => {
+    handleBridgeAudioSource(payload);
+  });
   overlay.onMessage("lookup-popup-visibility", (payload) => {
     handleLookupPopupVisibility(payload);
   });

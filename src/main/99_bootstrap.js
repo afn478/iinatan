@@ -57,7 +57,7 @@ event.on("mpv.end-file", () => {
   nativeExternalSrtInFlight = Object.create(null);
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
-    clearTimeout(nativeSubtitlePropertyRebuildTimer);
+    cancelOneShot(nativeSubtitlePropertyRebuildTimer);
     nativeSubtitlePropertyRebuildTimer = null;
   }
   resetLookupPopupPause();
@@ -77,7 +77,7 @@ event.on("iina.window-will-close", () => {
   setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
-    clearTimeout(nativeSubtitlePropertyRebuildTimer);
+    cancelOneShot(nativeSubtitlePropertyRebuildTimer);
     nativeSubtitlePropertyRebuildTimer = null;
   }
   resetLookupPopupPause();
@@ -106,7 +106,7 @@ function invalidateExperimentalNativeLayout(reason) {
 }
 function scheduleExperimentalNativeLayoutRebuild() {
   if (pluginShuttingDown || nativeSubtitlePropertyRebuildTimer !== null) return;
-  nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
+  nativeSubtitlePropertyRebuildTimer = scheduleOneShot(() => {
     nativeSubtitlePropertyRebuildTimer = null;
     if (!pluginShuttingDown && enabled && nativeSubtitleHitLayerMode())
       pollSubtitle();
@@ -264,6 +264,19 @@ function scheduleExperimentalNativeLayoutRebuild() {
       )
         if (typeof advanceNativeBitmapOcrGeneration === "function")
           advanceNativeBitmapOcrGeneration();
+      if (property === "pause") {
+        const paused = pauseState();
+        const bitmapOcr =
+          typeof bitmapSubtitleOcrMode === "function" &&
+          bitmapSubtitleOcrMode();
+        if (
+          bitmapOcr &&
+          (!paused || !lookupPopupPauseActive) &&
+          typeof observeNativeBitmapOcrPauseState === "function"
+        )
+          observeNativeBitmapOcrPauseState();
+        if (!bitmapOcr || !paused || lookupPopupPauseActive) return;
+      }
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
       if (

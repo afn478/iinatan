@@ -58,6 +58,35 @@ function dispatchOverlayBridgePayload(payload) {
   return false;
 }
 
+function restartOverlayBridgeAfterFailure(error) {
+  if (overlayBridgeRecovering || overlayBridgeRecoveryCount >= 8) return;
+  overlayBridgeRecovering = true;
+  overlayBridgeRecoveryCount++;
+  const previousPort = overlayBridgePort;
+  overlayBridgePort = nextOverlayBridgePort(previousPort);
+  overlayBridgeConnections = Object.create(null);
+  overlayBridgeLastConnection = null;
+  try {
+    debugWarn(
+      "overlay bridge retry=" +
+        overlayBridgeRecoveryCount +
+        " previousPort=" +
+        previousPort +
+        " nextPort=" +
+        overlayBridgePort +
+        " reason=" +
+        compactError(error),
+    );
+    ws.createServer({ port: overlayBridgePort });
+    ws.startServer();
+    postToOverlay("config", overlayConfig());
+  } catch (restartError) {
+    debugWarn("overlay bridge retry failed: " + compactError(restartError));
+  } finally {
+    overlayBridgeRecovering = false;
+  }
+}
+
 function ensureOverlayBridge() {
   if (overlayBridgeStarted) return;
   overlayBridgeStarted = true;
@@ -76,6 +105,9 @@ function ensureOverlayBridge() {
               compactError(error.message || error.description || error)
             : ""),
       );
+      if (String(state) === "ready") overlayBridgeRecoveryCount = 0;
+      else if (String(state) === "failed")
+        restartOverlayBridgeAfterFailure(error || "listener failed");
     });
     ws.onNewConnection((conn, info) => {
       rememberOverlayBridgeConnection(conn);
@@ -592,23 +624,17 @@ function setPauseState(paused) {
   } catch (_) {}
   return false;
 }
-function clearLookupPopupWatchdog() {
-  if (lookupPopupWatchdogTimer !== null) {
-    clearTimeout(lookupPopupWatchdogTimer);
-    lookupPopupWatchdogTimer = null;
-  }
-}
 function cancelLookupPopupResumeTimer() {
   lookupPopupPauseResumeToken++;
   if (lookupPopupPauseResumeTimer !== null) {
-    clearTimeout(lookupPopupPauseResumeTimer);
+    cancelOneShot(lookupPopupPauseResumeTimer);
     lookupPopupPauseResumeTimer = null;
   }
 }
 function scheduleLookupPopupResume(reason) {
   cancelLookupPopupResumeTimer();
   const token = ++lookupPopupPauseResumeToken;
-  lookupPopupPauseResumeTimer = setTimeout(() => {
+  lookupPopupPauseResumeTimer = scheduleOneShot(() => {
     if (token !== lookupPopupPauseResumeToken) return;
     lookupPopupPauseResumeTimer = null;
     if (!lookupPopupPauseShouldResume) return;
@@ -658,7 +684,6 @@ function scheduleLookupPopupResume(reason) {
   );
 }
 function finishLookupPopupPause(reason, options) {
-  clearLookupPopupWatchdog();
   const resume = !!(options && options.resume);
   if (
     !lookupPopupPauseActive &&
@@ -678,11 +703,6 @@ function finishLookupPopupPause(reason, options) {
       String(reason || "unknown") +
       "; resume not owned",
   );
-}
-function scheduleLookupPopupWatchdog() {
-  // Resume is driven by explicit overlay hide events. A heartbeat watchdog would
-  // risk resuming during transient bridge delays, so keep this path inactive.
-  clearLookupPopupWatchdog();
 }
 function lookupPopupSessionFromPayload(payload) {
   if (!payload || typeof payload !== "object") return "";
@@ -833,7 +853,6 @@ function handleLookupPopupVisibility(payload) {
 }
 function resetLookupPopupPause() {
   cancelLookupPopupResumeTimer();
-  clearLookupPopupWatchdog();
   lookupPopupPauseActive = false;
   lookupPopupPauseShouldResume = false;
   lookupPopupLastHeartbeatAt = 0;

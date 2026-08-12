@@ -5,7 +5,14 @@ const {
 
 function setupOverlay(options) {
   const { context, overlay } = loadOverlayForTest(
-    ["state", "applyConfig", "renderSubtitle", "subtitleEl", "popupEl"],
+    [
+      "state",
+      "applyConfig",
+      "renderSubtitle",
+      "trySendLookupRequest",
+      "subtitleEl",
+      "popupEl",
+    ],
     options,
   );
   overlay.applyConfig({
@@ -105,6 +112,45 @@ function finishLookup(context) {
     "Pending lookup flush should remain ahead of popup visibility after bridge open",
   );
   finishLookup(context);
+}
+
+{
+  const { context, overlay } = setupOverlay({ autoOpenWebSocket: false });
+  hoverFirstChar(overlay);
+  const req = overlay.state.pendingLookupRequests[0];
+  for (let attempt = 1; attempt < 6; attempt++)
+    overlay.trySendLookupRequest(req);
+  assert(
+    context.__posted.some(
+      (message) =>
+        message.name === "line-lookup" && message.payload.lineId === 1,
+    ),
+    "a lookup should fall back to IINA messaging when the socket cannot open",
+  );
+  overlay.renderSubtitle("下一行", 2);
+}
+
+{
+  const { context, overlay } = setupOverlay();
+  const firstSocket = context.__sockets[0];
+  overlay.applyConfig({ overlayBridgePort: 19742 });
+  assert(firstSocket.readyState === 3, "the old bridge socket should close");
+  assert(
+    context.__sockets.at(-1).url === "ws://127.0.0.1:19742/overlay",
+    "the overlay should reconnect to the replacement bridge port",
+  );
+}
+
+{
+  const { overlay } = setupOverlay();
+  hoverFirstChar(overlay);
+  assert(!overlay.popupEl.classList.contains("hidden"));
+  overlay.renderSubtitle("新的字幕", 2);
+  assert(
+    overlay.popupEl.classList.contains("hidden") &&
+      overlay.state.currentPos === null,
+    "a changed subtitle line should not leave an orphaned loading popup",
+  );
 }
 
 console.log("overlay bridge latency tests passed");

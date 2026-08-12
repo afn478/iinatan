@@ -192,7 +192,7 @@ async function runBackendJson(args, timeoutMs, stage) {
     const result = await Promise.race([
       utils.exec(binPath(), args || [], dataRoot()),
       new Promise((_, reject) => {
-        timer = setTimeout(
+        timer = scheduleOneShot(
           () =>
             reject(new Error(label + " timed out after " + timeout + " ms")),
           timeout,
@@ -225,7 +225,7 @@ async function runBackendJson(args, timeoutMs, stage) {
       throw backendCommandError(label, args, result, parsed, null);
     return parsed;
   } finally {
-    if (timer !== null) clearTimeout(timer);
+    if (timer !== null) cancelOneShot(timer);
   }
 }
 function filenameFromPath(path) {
@@ -739,8 +739,8 @@ async function writeWorkerStartScript() {
 set -eu
 umask 077
 DATA_ROOT="$1"
-SLEEP_MS="${"$"}{2:-2}"
-WORKER_ROOT="$DATA_ROOT/worker"
+WORKER_ROOT="$2"
+SLEEP_MS="${"$"}{3:-2}"
 BIN="$DATA_ROOT/bin/iina-hoshi-dicts"
 CONFIG="$WORKER_ROOT/config.tsv"
 LOG="$WORKER_ROOT/worker.log"
@@ -872,7 +872,7 @@ async function startBackendWorkerProcess(dicts, language) {
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
   const res = await utils.exec(
     "/bin/bash",
-    [workerStartScriptPath(), dataRoot(), String(sleepMs)],
+    [workerStartScriptPath(), dataRoot(), workerRoot(), String(sleepMs)],
     dataRoot(),
   );
   if (!res || res.status !== 0)
@@ -1019,6 +1019,28 @@ function makeJsWorkerRequestId() {
     String(Math.floor(Math.random() * 1000000))
   );
 }
+let directWorkerPollTimer = null;
+let directWorkerPollWaiters = [];
+function flushDirectWorkerPollWaiters() {
+  if (!directWorkerPollWaiters.length) {
+    if (directWorkerPollTimer !== null) clearInterval(directWorkerPollTimer);
+    directWorkerPollTimer = null;
+    return;
+  }
+  const waiters = directWorkerPollWaiters;
+  directWorkerPollWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+function waitForDirectWorkerPoll() {
+  return new Promise((resolve) => {
+    directWorkerPollWaiters.push(resolve);
+    if (directWorkerPollTimer !== null) return;
+    directWorkerPollTimer = setInterval(
+      flushDirectWorkerPollWaiters,
+      Math.max(1, prefNumber("directIpcPollMs", 2)),
+    );
+  });
+}
 async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
   const lang = language || selectedLanguageModule();
   const dicts = activeDictionaryPaths(lang);
@@ -1069,7 +1091,7 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
       cleanupWorkerRequest(id);
       throw new Error("Worker stopped before request completed");
     }
-    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+    await waitForDirectWorkerPoll();
   }
   cleanupWorkerRequest(id);
   throw new Error("Native worker request timed out after " + timeout + " ms");
@@ -1143,7 +1165,7 @@ async function runWorkerQueueLookupDirect(
       cleanupWorkerRequest(id);
       throw new Error("Worker stopped before direct lookup completed");
     }
-    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+    await waitForDirectWorkerPoll();
   }
   cleanupWorkerRequest(id);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");

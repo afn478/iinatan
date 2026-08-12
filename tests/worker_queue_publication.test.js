@@ -5,6 +5,10 @@ const vm = require("vm");
 const root = path.resolve(__dirname, "..");
 const writes = [];
 const removals = [];
+let nextIntervalId = 1;
+let activeInterval = null;
+let intervalStarts = 0;
+let intervalClears = 0;
 const context = {
   workerQueueDir() {
     return "/worker/queue";
@@ -19,6 +23,18 @@ const context = {
   },
   safeDelete(filePath) {
     removals.push(filePath);
+  },
+  prefNumber() {
+    return 2;
+  },
+  setInterval(callback, ms) {
+    intervalStarts++;
+    activeInterval = { id: nextIntervalId++, callback, ms };
+    return activeInterval.id;
+  },
+  clearInterval(id) {
+    if (activeInterval && activeInterval.id === id) activeInterval = null;
+    intervalClears++;
   },
 };
 vm.createContext(context);
@@ -71,4 +87,30 @@ assert(
   "failed marker publication should remove the unpublished body",
 );
 
-console.log("worker queue publication tests passed");
+async function testSharedDirectWorkerPolling() {
+  const waits = [];
+  for (let index = 0; index < 1000; index++)
+    waits.push(context.waitForDirectWorkerPoll());
+  assert(
+    intervalStarts === 1 && activeInterval && activeInterval.ms === 2,
+    "concurrent direct-worker waits should share the configured fast interval",
+  );
+  activeInterval.callback();
+  await Promise.all(waits);
+  assert(
+    intervalClears === 0 && activeInterval,
+    "the shared interval should stay active while continuations can requeue",
+  );
+  activeInterval.callback();
+  assert(
+    intervalClears === 1 && activeInterval === null,
+    "an idle direct-worker interval should stop itself on its main-queue tick",
+  );
+}
+
+testSharedDirectWorkerPolling()
+  .then(() => console.log("worker queue publication tests passed"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

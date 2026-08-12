@@ -273,12 +273,33 @@ let lookupPopupPauseActive = false;
 let lookupPopupPauseShouldResume = false;
 let lookupPopupPauseResumeTimer = null;
 let lookupPopupPauseResumeToken = 0;
-let lookupPopupWatchdogTimer = null;
 let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
 let lookupPopupSessionId = "";
 let overlayBridgeStarted = false;
-let overlayBridgePort = 19741;
+function makePluginRuntimeId(now, randomValue) {
+  return (
+    Number(now).toString(36) +
+    "-" +
+    Math.floor(Number(randomValue) * 0x100000000).toString(36)
+  );
+}
+const pluginRuntimeId = makePluginRuntimeId(Date.now(), Math.random());
+const OVERLAY_BRIDGE_PORT_MIN = 20000;
+const OVERLAY_BRIDGE_PORT_SPAN = 30000;
+function nextOverlayBridgePort(previousPort) {
+  let port =
+    OVERLAY_BRIDGE_PORT_MIN +
+    Math.floor(Math.random() * OVERLAY_BRIDGE_PORT_SPAN);
+  if (port === previousPort)
+    port =
+      OVERLAY_BRIDGE_PORT_MIN +
+      ((port - OVERLAY_BRIDGE_PORT_MIN + 1) % OVERLAY_BRIDGE_PORT_SPAN);
+  return port;
+}
+let overlayBridgePort = nextOverlayBridgePort(0);
+let overlayBridgeRecoveryCount = 0;
+let overlayBridgeRecovering = false;
 let overlayBridgeConnections = Object.create(null);
 let overlayBridgeLastConnection = null;
 let dictionaryManagerHandlerGeneration = 0;
@@ -325,8 +346,27 @@ function compactError(error) {
       : String(error || "Unknown error");
   return msg.replace(/\s+/g, " ").slice(0, 1200);
 }
+// IINA 1.4.4 keeps fired setTimeout callbacks in its native timer dictionary.
+// Remove each timer from inside its main-queue callback, and make cancellation
+// only mark the task so WebSocket callbacks never mutate that dictionary.
+function scheduleOneShot(callback, delayMs) {
+  const task = { cancelled: false, nativeId: null };
+  task.nativeId = setTimeout(
+    () => {
+      const nativeId = task.nativeId;
+      task.nativeId = null;
+      if (nativeId !== null) clearTimeout(nativeId);
+      if (!task.cancelled) callback();
+    },
+    Math.max(0, Number(delayMs) || 0),
+  );
+  return task;
+}
+function cancelOneShot(task) {
+  if (task) task.cancelled = true;
+}
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => scheduleOneShot(resolve, ms));
 }
 function showOSD(message) {
   try {
@@ -428,7 +468,7 @@ function trimDebugLogText(text) {
 }
 function flushDebugLogBuffer() {
   if (debugLogFlushTimer !== null) {
-    clearTimeout(debugLogFlushTimer);
+    cancelOneShot(debugLogFlushTimer);
     debugLogFlushTimer = null;
   }
   if (!debugLogPending) return;
@@ -451,7 +491,7 @@ function flushDebugLogBuffer() {
 }
 function scheduleDebugLogFlush() {
   if (debugLogFlushTimer !== null) return;
-  debugLogFlushTimer = setTimeout(
+  debugLogFlushTimer = scheduleOneShot(
     flushDebugLogBuffer,
     DEBUG_LOG_FLUSH_DELAY_MS,
   );
@@ -517,12 +557,12 @@ function postToOverlayBridge(payload) {
 }
 function setOverlayStatus(message, kind, ttlMs) {
   if (statusTimer !== null) {
-    clearTimeout(statusTimer);
+    cancelOneShot(statusTimer);
     statusTimer = null;
   }
   postToOverlay("status", { message: message || "", kind: kind || "info" });
   if (message && ttlMs && ttlMs > 0) {
-    statusTimer = setTimeout(() => {
+    statusTimer = scheduleOneShot(() => {
       statusTimer = null;
       postToOverlay("status", { message: "", kind: "info" });
     }, ttlMs);
@@ -664,6 +704,7 @@ function pathJoin() {
     .join("/");
 }
 let cachedDataRoot = null;
+let cachedTempRoot = null;
 let cachedPluginRoot = null;
 function dataRoot() {
   if (cachedDataRoot) return cachedDataRoot;
@@ -676,6 +717,18 @@ function dataRoot() {
   }
   cachedDataRoot = String(resolved).replace(/\/+$/, "");
   return cachedDataRoot;
+}
+function tempRoot() {
+  if (cachedTempRoot) return cachedTempRoot;
+  const resolved = utils.resolvePath("@tmp/");
+  if (!resolved || String(resolved).charAt(0) !== "/") {
+    throw new Error(
+      "Could not resolve @tmp/ to an absolute plugin temporary directory; got: " +
+        String(resolved),
+    );
+  }
+  cachedTempRoot = String(resolved).replace(/\/+$/, "");
+  return cachedTempRoot;
 }
 function parentDir(path) {
   const s = String(path || "").replace(/\/+$/, "");
@@ -753,7 +806,7 @@ function manifestPath() {
   return pathJoin(dataRoot(), "manifest.json");
 }
 function workerRoot() {
-  return pathJoin(dataRoot(), "worker");
+  return pathJoin(tempRoot(), "worker-" + pluginRuntimeId);
 }
 function workerQueueDir() {
   return pathJoin(workerRoot(), "queue");

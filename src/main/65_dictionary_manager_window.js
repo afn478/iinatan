@@ -382,7 +382,7 @@ function openDictionaryManager() {
     if (typeof standaloneWindow.open === "function") standaloneWindow.open();
     else if (typeof standaloneWindow.show === "function")
       standaloneWindow.show();
-    setTimeout(() => postDictionaryManagerState(), 120);
+    scheduleOneShot(() => postDictionaryManagerState(), 120);
   } catch (error) {
     const msg = "Could not open iinatan Settings: " + compactError(error);
     debugError(msg);

@@ -549,12 +549,13 @@
         resolve(result || null);
       };
       state.pendingAudioSourceRequests[requestId] = { finish, sourceUrl };
-      const sent = sendBridgeMessage({
+      const payload = {
         type: "audio-source",
         requestId,
         url: sourceUrl,
         at: Date.now(),
-      });
+      };
+      const sent = sendBridgeMessage(payload) || postPluginMessage(payload);
       if (!sent) {
         delete state.pendingAudioSourceRequests[requestId];
         resolve(null);
@@ -1418,8 +1419,22 @@
       );
     applyCustomPopupCss(state.config.customPopupCss || "");
     updateNestedPopupScanningState();
-    if (state.config.overlayBridgePort) {
-      state.bridgePort = Number(state.config.overlayBridgePort);
+    const configuredBridgePort = Number(state.config.overlayBridgePort);
+    if (Number.isFinite(configuredBridgePort) && configuredBridgePort > 0) {
+      if (configuredBridgePort !== state.bridgePort) {
+        const previousSocket = state.bridgeSocket;
+        state.bridgePort = configuredBridgePort;
+        state.bridgeSocket = null;
+        if (state.bridgeReconnectTimer) {
+          clearTimeout(state.bridgeReconnectTimer);
+          state.bridgeReconnectTimer = null;
+        }
+        if (previousSocket) {
+          try {
+            previousSocket.close();
+          } catch (_) {}
+        }
+      }
       ensureBridgeSocket();
     }
     overlayDebug(
@@ -3110,9 +3125,12 @@
     nativeSurfaces,
     bitmapOcrStatus,
   ) {
+    const nextLineId = Number(lineId || 0);
+    const lineChanged = nextLineId !== state.lineId;
     state.text = state.config.flattenSubtitleLineBreaks
       ? flattenSubtitleText(text)
       : String(text || "");
+    state.lineId = nextLineId;
     if (overlayDebugEnabled())
       overlayDebug(
         "renderSubtitle lineId=" +
@@ -3123,10 +3141,10 @@
           JSON.stringify(String(state.text || "").slice(0, 80)),
       );
     state.chars = Array.from(state.text);
-    state.lineId = Number(lineId || 0);
     state.nativeSurfaces = Array.isArray(nativeSurfaces)
       ? nativeSurfaces.slice()
       : [];
+    if (lineChanged && state.lookupPopupVisible) hidePopup();
     renderBitmapOcrStatus(bitmapOcrStatus);
     Object.keys(state.pendingLookupTimers || {}).forEach((k) =>
       clearTimeout(state.pendingLookupTimers[k]),
@@ -3600,7 +3618,8 @@
         try {
           console.log("[iinatan overlay] bridge socket close");
         } catch (_) {}
-        if (state.bridgeSocket === socket) state.bridgeSocket = null;
+        if (state.bridgeSocket !== socket) return;
+        state.bridgeSocket = null;
         if (state.bridgeReconnectTimer)
           clearTimeout(state.bridgeReconnectTimer);
         state.bridgeReconnectTimer = setTimeout(() => {
@@ -3697,14 +3716,18 @@
   }
 
   function sendLookupRequestPayload(req) {
-    return sendBridgeMessage({
+    const payload = {
       type: "lookup",
       requestId: req.requestId,
       lineId: req.lineId,
       position: req.pos,
       at: Date.now(),
       attempt: req.attempts,
-    });
+    };
+    if (sendBridgeMessage(payload)) return true;
+    if (req.attempts < 6) return false;
+    payload.type = "line-lookup";
+    return postPluginMessage(payload);
   }
 
   function lookupRequestIsCurrent(req) {
@@ -5132,7 +5155,7 @@
   }
   function sendNestedLookupRequest(req) {
     req.attempts += 1;
-    const sent = sendBridgeMessage({
+    const payload = {
       type: "nested-lookup",
       requestId: req.requestId,
       popupSessionId: state.popupSessionId,
@@ -5142,7 +5165,10 @@
       depth: req.depth,
       at: Date.now(),
       attempt: req.attempts,
-    });
+    };
+    const sent =
+      sendBridgeMessage(payload) ||
+      (req.attempts >= 6 && postPluginMessage(payload));
     if (sent && req.retryTimer) {
       clearInterval(req.retryTimer);
       req.retryTimer = null;

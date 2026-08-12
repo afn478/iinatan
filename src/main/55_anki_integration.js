@@ -771,7 +771,7 @@ function finishAnkiBridgeRequest(type, payload) {
   const key = ankiBridgeRequestKey(type, payload);
   if (!requestId || !ankiActiveBridgeRequests[key]) return;
   ankiActiveBridgeRequests[key] = "done";
-  setTimeout(() => {
+  scheduleOneShot(() => {
     try {
       delete ankiActiveBridgeRequests[key];
     } catch (_) {}

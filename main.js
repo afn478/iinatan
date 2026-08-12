@@ -274,12 +274,33 @@ let lookupPopupPauseActive = false;
 let lookupPopupPauseShouldResume = false;
 let lookupPopupPauseResumeTimer = null;
 let lookupPopupPauseResumeToken = 0;
-let lookupPopupWatchdogTimer = null;
 let lookupPopupLastHeartbeatAt = 0;
 let lookupPopupLastSeq = 0;
 let lookupPopupSessionId = "";
 let overlayBridgeStarted = false;
-let overlayBridgePort = 19741;
+function makePluginRuntimeId(now, randomValue) {
+  return (
+    Number(now).toString(36) +
+    "-" +
+    Math.floor(Number(randomValue) * 0x100000000).toString(36)
+  );
+}
+const pluginRuntimeId = makePluginRuntimeId(Date.now(), Math.random());
+const OVERLAY_BRIDGE_PORT_MIN = 20000;
+const OVERLAY_BRIDGE_PORT_SPAN = 30000;
+function nextOverlayBridgePort(previousPort) {
+  let port =
+    OVERLAY_BRIDGE_PORT_MIN +
+    Math.floor(Math.random() * OVERLAY_BRIDGE_PORT_SPAN);
+  if (port === previousPort)
+    port =
+      OVERLAY_BRIDGE_PORT_MIN +
+      ((port - OVERLAY_BRIDGE_PORT_MIN + 1) % OVERLAY_BRIDGE_PORT_SPAN);
+  return port;
+}
+let overlayBridgePort = nextOverlayBridgePort(0);
+let overlayBridgeRecoveryCount = 0;
+let overlayBridgeRecovering = false;
 let overlayBridgeConnections = Object.create(null);
 let overlayBridgeLastConnection = null;
 let dictionaryManagerHandlerGeneration = 0;
@@ -326,8 +347,27 @@ function compactError(error) {
       : String(error || "Unknown error");
   return msg.replace(/\s+/g, " ").slice(0, 1200);
 }
+// IINA 1.4.4 keeps fired setTimeout callbacks in its native timer dictionary.
+// Remove each timer from inside its main-queue callback, and make cancellation
+// only mark the task so WebSocket callbacks never mutate that dictionary.
+function scheduleOneShot(callback, delayMs) {
+  const task = { cancelled: false, nativeId: null };
+  task.nativeId = setTimeout(
+    () => {
+      const nativeId = task.nativeId;
+      task.nativeId = null;
+      if (nativeId !== null) clearTimeout(nativeId);
+      if (!task.cancelled) callback();
+    },
+    Math.max(0, Number(delayMs) || 0),
+  );
+  return task;
+}
+function cancelOneShot(task) {
+  if (task) task.cancelled = true;
+}
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => scheduleOneShot(resolve, ms));
 }
 function showOSD(message) {
   try {
@@ -429,7 +469,7 @@ function trimDebugLogText(text) {
 }
 function flushDebugLogBuffer() {
   if (debugLogFlushTimer !== null) {
-    clearTimeout(debugLogFlushTimer);
+    cancelOneShot(debugLogFlushTimer);
     debugLogFlushTimer = null;
   }
   if (!debugLogPending) return;
@@ -452,7 +492,7 @@ function flushDebugLogBuffer() {
 }
 function scheduleDebugLogFlush() {
   if (debugLogFlushTimer !== null) return;
-  debugLogFlushTimer = setTimeout(
+  debugLogFlushTimer = scheduleOneShot(
     flushDebugLogBuffer,
     DEBUG_LOG_FLUSH_DELAY_MS,
   );
@@ -518,12 +558,12 @@ function postToOverlayBridge(payload) {
 }
 function setOverlayStatus(message, kind, ttlMs) {
   if (statusTimer !== null) {
-    clearTimeout(statusTimer);
+    cancelOneShot(statusTimer);
     statusTimer = null;
   }
   postToOverlay("status", { message: message || "", kind: kind || "info" });
   if (message && ttlMs && ttlMs > 0) {
-    statusTimer = setTimeout(() => {
+    statusTimer = scheduleOneShot(() => {
       statusTimer = null;
       postToOverlay("status", { message: "", kind: "info" });
     }, ttlMs);
@@ -665,6 +705,7 @@ function pathJoin() {
     .join("/");
 }
 let cachedDataRoot = null;
+let cachedTempRoot = null;
 let cachedPluginRoot = null;
 function dataRoot() {
   if (cachedDataRoot) return cachedDataRoot;
@@ -677,6 +718,18 @@ function dataRoot() {
   }
   cachedDataRoot = String(resolved).replace(/\/+$/, "");
   return cachedDataRoot;
+}
+function tempRoot() {
+  if (cachedTempRoot) return cachedTempRoot;
+  const resolved = utils.resolvePath("@tmp/");
+  if (!resolved || String(resolved).charAt(0) !== "/") {
+    throw new Error(
+      "Could not resolve @tmp/ to an absolute plugin temporary directory; got: " +
+        String(resolved),
+    );
+  }
+  cachedTempRoot = String(resolved).replace(/\/+$/, "");
+  return cachedTempRoot;
 }
 function parentDir(path) {
   const s = String(path || "").replace(/\/+$/, "");
@@ -754,7 +807,7 @@ function manifestPath() {
   return pathJoin(dataRoot(), "manifest.json");
 }
 function workerRoot() {
-  return pathJoin(dataRoot(), "worker");
+  return pathJoin(tempRoot(), "worker-" + pluginRuntimeId);
 }
 function workerQueueDir() {
   return pathJoin(workerRoot(), "queue");
@@ -6681,7 +6734,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     const result = await Promise.race([
       utils.exec(binPath(), args, dataRoot()),
       new Promise((_, reject) => {
-        timeoutId = setTimeout(
+        timeoutId = scheduleOneShot(
           () =>
             reject(
               nativeSubtitleFontMetricFailure("font-metrics-timeout", true),
@@ -6695,7 +6748,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     const parsed = parseBackendJsonOutput(result.stdout, result.stderr);
     return normalizeNativeSubtitleFontMetricResult(parsed);
   } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (timeoutId !== null) cancelOneShot(timeoutId);
     safeDelete(cuePath);
   }
 }
@@ -11596,7 +11649,7 @@ async function runBackendJson(args, timeoutMs, stage) {
     const result = await Promise.race([
       utils.exec(binPath(), args || [], dataRoot()),
       new Promise((_, reject) => {
-        timer = setTimeout(
+        timer = scheduleOneShot(
           () =>
             reject(new Error(label + " timed out after " + timeout + " ms")),
           timeout,
@@ -11629,7 +11682,7 @@ async function runBackendJson(args, timeoutMs, stage) {
       throw backendCommandError(label, args, result, parsed, null);
     return parsed;
   } finally {
-    if (timer !== null) clearTimeout(timer);
+    if (timer !== null) cancelOneShot(timer);
   }
 }
 function filenameFromPath(path) {
@@ -12143,8 +12196,8 @@ async function writeWorkerStartScript() {
 set -eu
 umask 077
 DATA_ROOT="$1"
-SLEEP_MS="${"$"}{2:-2}"
-WORKER_ROOT="$DATA_ROOT/worker"
+WORKER_ROOT="$2"
+SLEEP_MS="${"$"}{3:-2}"
 BIN="$DATA_ROOT/bin/iina-hoshi-dicts"
 CONFIG="$WORKER_ROOT/config.tsv"
 LOG="$WORKER_ROOT/worker.log"
@@ -12276,7 +12329,7 @@ async function startBackendWorkerProcess(dicts, language) {
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
   const res = await utils.exec(
     "/bin/bash",
-    [workerStartScriptPath(), dataRoot(), String(sleepMs)],
+    [workerStartScriptPath(), dataRoot(), workerRoot(), String(sleepMs)],
     dataRoot(),
   );
   if (!res || res.status !== 0)
@@ -12423,6 +12476,28 @@ function makeJsWorkerRequestId() {
     String(Math.floor(Math.random() * 1000000))
   );
 }
+let directWorkerPollTimer = null;
+let directWorkerPollWaiters = [];
+function flushDirectWorkerPollWaiters() {
+  if (!directWorkerPollWaiters.length) {
+    if (directWorkerPollTimer !== null) clearInterval(directWorkerPollTimer);
+    directWorkerPollTimer = null;
+    return;
+  }
+  const waiters = directWorkerPollWaiters;
+  directWorkerPollWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+function waitForDirectWorkerPoll() {
+  return new Promise((resolve) => {
+    directWorkerPollWaiters.push(resolve);
+    if (directWorkerPollTimer !== null) return;
+    directWorkerPollTimer = setInterval(
+      flushDirectWorkerPollWaiters,
+      Math.max(1, prefNumber("directIpcPollMs", 2)),
+    );
+  });
+}
 async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
   const lang = language || selectedLanguageModule();
   const dicts = activeDictionaryPaths(lang);
@@ -12473,7 +12548,7 @@ async function runWorkerQueueRequestDirect(payloadValue, language, timeoutMs) {
       cleanupWorkerRequest(id);
       throw new Error("Worker stopped before request completed");
     }
-    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+    await waitForDirectWorkerPoll();
   }
   cleanupWorkerRequest(id);
   throw new Error("Native worker request timed out after " + timeout + " ms");
@@ -12547,7 +12622,7 @@ async function runWorkerQueueLookupDirect(
       cleanupWorkerRequest(id);
       throw new Error("Worker stopped before direct lookup completed");
     }
-    await sleep(Math.max(1, prefNumber("directIpcPollMs", 2)));
+    await waitForDirectWorkerPoll();
   }
   cleanupWorkerRequest(id);
   throw new Error("Direct worker lookup timed out after " + timeout + " ms");
@@ -13286,6 +13361,35 @@ function dispatchOverlayBridgePayload(payload) {
   return false;
 }
 
+function restartOverlayBridgeAfterFailure(error) {
+  if (overlayBridgeRecovering || overlayBridgeRecoveryCount >= 8) return;
+  overlayBridgeRecovering = true;
+  overlayBridgeRecoveryCount++;
+  const previousPort = overlayBridgePort;
+  overlayBridgePort = nextOverlayBridgePort(previousPort);
+  overlayBridgeConnections = Object.create(null);
+  overlayBridgeLastConnection = null;
+  try {
+    debugWarn(
+      "overlay bridge retry=" +
+        overlayBridgeRecoveryCount +
+        " previousPort=" +
+        previousPort +
+        " nextPort=" +
+        overlayBridgePort +
+        " reason=" +
+        compactError(error),
+    );
+    ws.createServer({ port: overlayBridgePort });
+    ws.startServer();
+    postToOverlay("config", overlayConfig());
+  } catch (restartError) {
+    debugWarn("overlay bridge retry failed: " + compactError(restartError));
+  } finally {
+    overlayBridgeRecovering = false;
+  }
+}
+
 function ensureOverlayBridge() {
   if (overlayBridgeStarted) return;
   overlayBridgeStarted = true;
@@ -13304,6 +13408,9 @@ function ensureOverlayBridge() {
               compactError(error.message || error.description || error)
             : ""),
       );
+      if (String(state) === "ready") overlayBridgeRecoveryCount = 0;
+      else if (String(state) === "failed")
+        restartOverlayBridgeAfterFailure(error || "listener failed");
     });
     ws.onNewConnection((conn, info) => {
       rememberOverlayBridgeConnection(conn);
@@ -13820,23 +13927,17 @@ function setPauseState(paused) {
   } catch (_) {}
   return false;
 }
-function clearLookupPopupWatchdog() {
-  if (lookupPopupWatchdogTimer !== null) {
-    clearTimeout(lookupPopupWatchdogTimer);
-    lookupPopupWatchdogTimer = null;
-  }
-}
 function cancelLookupPopupResumeTimer() {
   lookupPopupPauseResumeToken++;
   if (lookupPopupPauseResumeTimer !== null) {
-    clearTimeout(lookupPopupPauseResumeTimer);
+    cancelOneShot(lookupPopupPauseResumeTimer);
     lookupPopupPauseResumeTimer = null;
   }
 }
 function scheduleLookupPopupResume(reason) {
   cancelLookupPopupResumeTimer();
   const token = ++lookupPopupPauseResumeToken;
-  lookupPopupPauseResumeTimer = setTimeout(() => {
+  lookupPopupPauseResumeTimer = scheduleOneShot(() => {
     if (token !== lookupPopupPauseResumeToken) return;
     lookupPopupPauseResumeTimer = null;
     if (!lookupPopupPauseShouldResume) return;
@@ -13886,7 +13987,6 @@ function scheduleLookupPopupResume(reason) {
   );
 }
 function finishLookupPopupPause(reason, options) {
-  clearLookupPopupWatchdog();
   const resume = !!(options && options.resume);
   if (
     !lookupPopupPauseActive &&
@@ -13906,11 +14006,6 @@ function finishLookupPopupPause(reason, options) {
       String(reason || "unknown") +
       "; resume not owned",
   );
-}
-function scheduleLookupPopupWatchdog() {
-  // Resume is driven by explicit overlay hide events. A heartbeat watchdog would
-  // risk resuming during transient bridge delays, so keep this path inactive.
-  clearLookupPopupWatchdog();
 }
 function lookupPopupSessionFromPayload(payload) {
   if (!payload || typeof payload !== "object") return "";
@@ -14061,7 +14156,6 @@ function handleLookupPopupVisibility(payload) {
 }
 function resetLookupPopupPause() {
   cancelLookupPopupResumeTimer();
-  clearLookupPopupWatchdog();
   lookupPopupPauseActive = false;
   lookupPopupPauseShouldResume = false;
   lookupPopupLastHeartbeatAt = 0;
@@ -14167,7 +14261,7 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(
+        timer = scheduleOneShot(
           () =>
             reject(
               ankiConnectTransportError(
@@ -14183,7 +14277,7 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) cancelOneShot(timer);
   }
 }
 async function ankiConnectInvokeCurlOnce(payload, url, timeout) {
@@ -16626,7 +16720,7 @@ function finishAnkiBridgeRequest(type, payload) {
   const key = ankiBridgeRequestKey(type, payload);
   if (!requestId || !ankiActiveBridgeRequests[key]) return;
   ankiActiveBridgeRequests[key] = "done";
-  setTimeout(() => {
+  scheduleOneShot(() => {
     try {
       delete ankiActiveBridgeRequests[key];
     } catch (_) {}
@@ -16922,6 +17016,15 @@ function initializeOverlay() {
   });
   overlay.onMessage("lookup-at-lite", (payload) => {
     handleLookupAt(payload);
+  });
+  overlay.onMessage("line-lookup", (payload) => {
+    handleBridgeLookup(payload);
+  });
+  overlay.onMessage("nested-lookup", (payload) => {
+    handleBridgeNestedLookup(payload);
+  });
+  overlay.onMessage("audio-source", (payload) => {
+    handleBridgeAudioSource(payload);
   });
   overlay.onMessage("lookup-popup-visibility", (payload) => {
     handleLookupPopupVisibility(payload);
@@ -17671,7 +17774,7 @@ function openDictionaryManager() {
     if (typeof standaloneWindow.open === "function") standaloneWindow.open();
     else if (typeof standaloneWindow.show === "function")
       standaloneWindow.show();
-    setTimeout(() => postDictionaryManagerState(), 120);
+    scheduleOneShot(() => postDictionaryManagerState(), 120);
   } catch (error) {
     const msg = "Could not open iinatan Settings: " + compactError(error);
     debugError(msg);
@@ -18000,7 +18103,7 @@ event.on("mpv.end-file", () => {
   nativeExternalSrtInFlight = Object.create(null);
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
-    clearTimeout(nativeSubtitlePropertyRebuildTimer);
+    cancelOneShot(nativeSubtitlePropertyRebuildTimer);
     nativeSubtitlePropertyRebuildTimer = null;
   }
   resetLookupPopupPause();
@@ -18020,7 +18123,7 @@ event.on("iina.window-will-close", () => {
   setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
-    clearTimeout(nativeSubtitlePropertyRebuildTimer);
+    cancelOneShot(nativeSubtitlePropertyRebuildTimer);
     nativeSubtitlePropertyRebuildTimer = null;
   }
   resetLookupPopupPause();
@@ -18049,7 +18152,7 @@ function invalidateExperimentalNativeLayout(reason) {
 }
 function scheduleExperimentalNativeLayoutRebuild() {
   if (pluginShuttingDown || nativeSubtitlePropertyRebuildTimer !== null) return;
-  nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
+  nativeSubtitlePropertyRebuildTimer = scheduleOneShot(() => {
     nativeSubtitlePropertyRebuildTimer = null;
     if (!pluginShuttingDown && enabled && nativeSubtitleHitLayerMode())
       pollSubtitle();
@@ -18207,6 +18310,19 @@ function scheduleExperimentalNativeLayoutRebuild() {
       )
         if (typeof advanceNativeBitmapOcrGeneration === "function")
           advanceNativeBitmapOcrGeneration();
+      if (property === "pause") {
+        const paused = pauseState();
+        const bitmapOcr =
+          typeof bitmapSubtitleOcrMode === "function" &&
+          bitmapSubtitleOcrMode();
+        if (
+          bitmapOcr &&
+          (!paused || !lookupPopupPauseActive) &&
+          typeof observeNativeBitmapOcrPauseState === "function"
+        )
+          observeNativeBitmapOcrPauseState();
+        if (!bitmapOcr || !paused || lookupPopupPauseActive) return;
+      }
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
       if (

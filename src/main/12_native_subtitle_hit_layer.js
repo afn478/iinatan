@@ -472,7 +472,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     const result = await Promise.race([
       utils.exec(binPath(), args, dataRoot()),
       new Promise((_, reject) => {
-        timeoutId = setTimeout(
+        timeoutId = scheduleOneShot(
           () =>
             reject(
               nativeSubtitleFontMetricFailure("font-metrics-timeout", true),
@@ -486,7 +486,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     const parsed = parseBackendJsonOutput(result.stdout, result.stderr);
     return normalizeNativeSubtitleFontMetricResult(parsed);
   } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (timeoutId !== null) cancelOneShot(timeoutId);
     safeDelete(cuePath);
   }
 }

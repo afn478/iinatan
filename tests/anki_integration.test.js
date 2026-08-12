@@ -40,6 +40,12 @@ const context = {
     }
     clearTimeout(timer);
   },
+  scheduleOneShot(callback, delay) {
+    return context.setTimeout(callback, delay);
+  },
+  cancelOneShot(timer) {
+    context.clearTimeout(timer);
+  },
   lastSubtitle: "私は猫です。",
   __overlayMessages: overlayMessages,
   compactError(error) {

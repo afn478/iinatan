@@ -73,6 +73,12 @@ function lifecycleContext(options) {
     Promise,
     setTimeout,
     clearTimeout,
+    scheduleOneShot(callback, delay) {
+      return setTimeout(callback, delay);
+    },
+    cancelOneShot(timer) {
+      clearTimeout(timer);
+    },
     setInterval(callback) {
       intervalCalls++;
       const timer = { callback, id: intervalCalls };
@@ -128,6 +134,9 @@ function lifecycleContext(options) {
         settings.pollSubtitle(context);
     },
     handleLookupAt() {},
+    handleBridgeLookup() {},
+    handleBridgeNestedLookup() {},
+    handleBridgeAudioSource() {},
     handleLookupPopupVisibility() {},
     openExternalUrlFromOverlay() {},
     handleBridgeAnkiCardStatus() {},
@@ -574,6 +583,9 @@ function testSettingsClassification() {
 function testBridgeHelloMarksOverlayReady() {
   let connectionHandler = null;
   let messageHandler = null;
+  let stateHandler = null;
+  const serverPorts = [];
+  const overlayConfigs = [];
   const readiness = [];
   const layoutDiagnostics = [];
   const layoutPerformance = [];
@@ -581,9 +593,20 @@ function testBridgeHelloMarksOverlayReady() {
   const context = vm.createContext({
     overlayBridgeStarted: false,
     overlayBridgePort: 19741,
+    overlayBridgeRecoveryCount: 0,
+    overlayBridgeRecovering: false,
+    overlayBridgeConnections: Object.create(null),
+    overlayBridgeLastConnection: null,
+    nextOverlayBridgePort(previousPort) {
+      return previousPort + 1;
+    },
     ws: {
-      createServer() {},
-      onStateUpdate() {},
+      createServer(options) {
+        serverPorts.push(options.port);
+      },
+      onStateUpdate(callback) {
+        stateHandler = callback;
+      },
       onNewConnection(callback) {
         connectionHandler = callback;
       },
@@ -599,6 +622,12 @@ function testBridgeHelloMarksOverlayReady() {
     debugVerbose() {},
     debugWarn(message) {
       warnings.push(message);
+    },
+    postToOverlay(name, payload) {
+      if (name === "config") overlayConfigs.push(payload);
+    },
+    overlayConfig() {
+      return { overlayBridgePort: context.overlayBridgePort };
     },
     compactError(error) {
       return String(error);
@@ -626,6 +655,7 @@ function testBridgeHelloMarksOverlayReady() {
   );
   vm.runInContext(source + "\nensureOverlayBridge();", context);
   assert.strictEqual(typeof connectionHandler, "function");
+  assert.deepStrictEqual(serverPorts, [19741]);
   connectionHandler("connection", { path: "127.0.0.1:12345" });
   assert.strictEqual(readiness.length, 1);
   assert.strictEqual(readiness[0].source, "bridge-connection");
@@ -666,6 +696,13 @@ function testBridgeHelloMarksOverlayReady() {
     warnings.some((message) => /future-message/.test(message)),
     "unknown overlay bridge messages should be reported",
   );
+  stateHandler("failed", { message: "Address already in use" });
+  assert.deepStrictEqual(
+    serverPorts,
+    [19741, 19742],
+    "a failed listener should retry on a different port",
+  );
+  assert.strictEqual(overlayConfigs.at(-1).overlayBridgePort, 19742);
 }
 
 (async () => {

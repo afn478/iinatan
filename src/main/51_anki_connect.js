@@ -96,7 +96,7 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
     return await Promise.race([
       promise,
       new Promise((_, reject) => {
-        timer = setTimeout(
+        timer = scheduleOneShot(
           () =>
             reject(
               ankiConnectTransportError(
@@ -112,7 +112,7 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
       }),
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) cancelOneShot(timer);
   }
 }
 async function ankiConnectInvokeCurlOnce(payload, url, timeout) {

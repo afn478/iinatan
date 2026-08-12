@@ -54,8 +54,9 @@ function clearFakeTimeout(id) {
 
 function runTimers() {
   const pending = Array.from(timers.entries());
-  timers.clear();
-  pending.forEach(([, timer]) => timer.fn());
+  pending.forEach(([id, timer]) => {
+    if (timers.has(id)) timer.fn();
+  });
 }
 
 function pendingTimerCount() {
@@ -145,6 +146,23 @@ vm.runInContext(
     .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
     .join("\n") + "\nenabled = true;",
   context,
+);
+
+let firedOneShots = 0;
+for (let index = 0; index < 1000; index++)
+  context.scheduleOneShot(() => firedOneShots++, 2);
+assert(pendingTimerCount() === 1000, "stress timers should all be scheduled");
+runTimers();
+assert(
+  firedOneShots === 1000 && pendingTimerCount() === 0,
+  "fired one-shot timers should remove their native IINA timer entries",
+);
+const cancelledOneShot = context.scheduleOneShot(() => firedOneShots++, 2);
+context.cancelOneShot(cancelledOneShot);
+runTimers();
+assert(
+  firedOneShots === 1000 && pendingTimerCount() === 0,
+  "cancelled one-shot timers should self-remove without running callbacks",
 );
 
 function showPopup(seq, popupSessionId) {
@@ -293,13 +311,13 @@ assert(
 );
 showPopup(3, "cancel-resume");
 assert(
-  pendingTimerCount() === 0,
-  "A new visible popup should cancel pending resume",
+  pendingTimerCount() === 1,
+  "A cancelled resume should remain only until its main-queue callback removes it",
 );
 runTimers();
 assert(
-  paused === true,
-  "Cancelled resume must keep playback paused while the new popup is visible",
+  paused === true && pendingTimerCount() === 0,
+  "Cancelled resume must self-remove and keep playback paused while the new popup is visible",
 );
 hidePopup(4, "cancel-resume");
 runTimers();

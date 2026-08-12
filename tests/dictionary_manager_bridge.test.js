@@ -62,6 +62,9 @@ const context = {
   console,
   setTimeout,
   clearTimeout,
+  scheduleOneShot(callback, delay) {
+    return setTimeout(callback, delay);
+  },
 };
 
 vm.createContext(context);

@@ -8,6 +8,12 @@
 - Reduced plugin-wide startup and interaction overhead by deduplicating cold-start filesystem/backend work, caching active dictionary discovery, indexing deinflection rules, avoiding repeated overlay lookup scans and debug formatting, streamlining subtitle hit-box layout and Anki card formatting, and preventing teardown events from restarting plugin work.
 - Added a reproducible plugin-wide benchmark covering startup, six-language lookup, media/subtitle handling, native geometry, overlay rendering, Anki cards, and dictionary/profile settings, including comparisons against an untouched Git revision.
 
+### Fixed
+
+- Prevented rapid subtitle lookups, including Chinese lookup thrashing, from leaking IINA native timers or racing its WebSocket timer bookkeeping; direct worker responses retain their fast polling cadence through one shared active-lookup interval.
+- Kept dictionary lookups responsive when opening overlapping player windows or loading subtitles manually by giving each player its own bridge and worker runtime, recovering rare bridge-port conflicts, and retaining a native-message fallback if the socket is unavailable.
+- Prevented lookup-owned pauses from rebuilding text-subtitle hit targets under a stationary pointer, which could repeatedly reopen one word and rapidly alternate pause and resume; bitmap-subtitle OCR still rebuilds when pausing requires a fresh frame.
+
 ## 2.1.1 - 2026-08-10
 
 ### Changed

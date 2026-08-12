@@ -37,7 +37,12 @@ const context = {
     console: sharedConsole,
     file: {
       exists(p) {
-        return p === "/data" || String(p).startsWith("/data/");
+        return (
+          p === "/data" ||
+          String(p).startsWith("/data/") ||
+          p === "/tmp/iinatan" ||
+          String(p).startsWith("/tmp/iinatan/")
+        );
       },
       read(p) {
         if (p === "/data/debug.log") {
@@ -56,7 +61,11 @@ const context = {
     http: {},
     utils: {
       resolvePath: (value) =>
-        value === "@data/" ? "/data/" : String(value || ""),
+        value === "@data/"
+          ? "/data/"
+          : value === "@tmp/"
+            ? "/tmp/iinatan/"
+            : String(value || ""),
       async exec() {
         processLaunches++;
         return { status: 0, stdout: "", stderr: "" };
@@ -81,7 +90,7 @@ const source =
     path.join(root, "src/main/00_context_state_paths.js"),
     "utf8",
   ) +
-  "\nglobalThis.__debugLogTest = { debugLog, flushDebugLogBuffer, ensureDataDirs };";
+  "\nglobalThis.__debugLogTest = { debugLog, flushDebugLogBuffer, ensureDataDirs, workerRoot, overlayBridgePort, pluginRuntimeId, makePluginRuntimeId };";
 vm.runInContext(source, context, { filename: "00_context_state_paths.js" });
 
 function assert(condition, message) {
@@ -104,6 +113,21 @@ assert(
 assert(
   processLaunches === 0,
   "existing data directories should not launch mkdir",
+);
+assert(
+  context.__debugLogTest.workerRoot() ===
+    "/tmp/iinatan/worker-" + context.__debugLogTest.pluginRuntimeId,
+  "each player worker should live in its runtime-specific temporary directory",
+);
+assert(
+  context.__debugLogTest.makePluginRuntimeId(1000, 0.1) !==
+    context.__debugLogTest.makePluginRuntimeId(1000, 0.2),
+  "simultaneous players should receive distinct worker runtime IDs",
+);
+assert(
+  context.__debugLogTest.overlayBridgePort >= 20000 &&
+    context.__debugLogTest.overlayBridgePort < 50000,
+  "each player should select a runtime bridge port from the private range",
 );
 
 context.__debugLogTest.flushDebugLogBuffer();

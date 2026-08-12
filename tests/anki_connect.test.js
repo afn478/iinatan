@@ -24,6 +24,12 @@ const context = {
     if (timer && timer.ignored) return;
     clearTimeout(timer);
   },
+  scheduleOneShot(callback, delay) {
+    return context.setTimeout(callback, delay);
+  },
+  cancelOneShot(timer) {
+    context.clearTimeout(timer);
+  },
   compactError(error) {
     return error && error.message ? error.message : String(error);
   },

@@ -101,6 +101,12 @@ function loadMainNativeHelpers(properties) {
     Promise,
     setTimeout,
     clearTimeout,
+    scheduleOneShot(callback, delay) {
+      return setTimeout(callback, delay);
+    },
+    cancelOneShot(timer) {
+      clearTimeout(timer);
+    },
     Date: values.__clock
       ? {
           now() {
@@ -4716,6 +4722,9 @@ function waitForLayout() {
   let bootstrapFontMetricGeneration = 0;
   let bootstrapGeometryGeneration = 0;
   let bootstrapLookupLineInvalidations = 0;
+  let bootstrapBitmapSubtitleOcrMode = false;
+  let bootstrapPaused = false;
+  let bootstrapBitmapPauseObservations = 0;
   const bootstrapContext = {
     console,
     JSON,
@@ -4772,6 +4781,17 @@ function waitForLayout() {
     nativeSubtitleHitLayerMode() {
       return true;
     },
+    lookupPopupPauseActive: false,
+    pauseState() {
+      return bootstrapPaused;
+    },
+    bitmapSubtitleOcrMode() {
+      return bootstrapBitmapSubtitleOcrMode;
+    },
+    observeNativeBitmapOcrPauseState() {
+      bootstrapBitmapPauseObservations++;
+      return bootstrapPaused;
+    },
     pollSubtitle() {
       bootstrapContext.nativeSubtitleLayoutInvalidated = false;
       propertyChangeOrder.push("poll");
@@ -4781,6 +4801,11 @@ function waitForLayout() {
       return scheduledRebuilds.length;
     },
     clearTimeout() {},
+    scheduleOneShot(callback) {
+      scheduledRebuilds.push(callback);
+      return scheduledRebuilds.length;
+    },
+    cancelOneShot() {},
     mpv: {},
     event: {
       on(name, callback) {
@@ -4835,6 +4860,7 @@ function waitForLayout() {
     "options/sub-ass-justify",
     "sub-ass-justify",
     "options/sub-pos",
+    "pause",
   ].forEach((property) => {
     assert(
       typeof bootstrapHandlers["mpv." + property + ".changed"] === "function",
@@ -4879,6 +4905,54 @@ function waitForLayout() {
     ["invalidate", "poll"],
     "cue-boundary changes rebuild after their immediate clear",
   );
+  propertyChangeOrder.length = 0;
+  bootstrapPaused = true;
+  bootstrapHandlers["mpv.pause.changed"]();
+  assertEqual(
+    propertyChangeOrder,
+    [],
+    "text-subtitle lookup pauses keep the existing hit targets stable",
+  );
+  assertEqual(
+    scheduledRebuilds.length,
+    0,
+    "text-subtitle lookup pauses schedule no geometry rebuild",
+  );
+  bootstrapBitmapSubtitleOcrMode = true;
+  bootstrapHandlers["mpv.pause.changed"]();
+  assertEqual(
+    propertyChangeOrder,
+    ["invalidate"],
+    "bitmap subtitle OCR still observes pause-triggered layout changes",
+  );
+  assertEqual(
+    bootstrapBitmapPauseObservations,
+    1,
+    "a manual bitmap-subtitle pause records OCR intent",
+  );
+  scheduledRebuilds.shift()();
+  propertyChangeOrder.length = 0;
+  bootstrapContext.lookupPopupPauseActive = true;
+  bootstrapHandlers["mpv.pause.changed"]();
+  assertEqual(
+    propertyChangeOrder,
+    [],
+    "lookup-owned bitmap pauses also keep existing hit targets stable",
+  );
+  assertEqual(
+    scheduledRebuilds.length,
+    0,
+    "lookup-owned bitmap pauses schedule no geometry rebuild",
+  );
+  bootstrapContext.lookupPopupPauseActive = false;
+  bootstrapPaused = false;
+  bootstrapHandlers["mpv.pause.changed"]();
+  assertEqual(
+    bootstrapBitmapPauseObservations,
+    2,
+    "bitmap-subtitle resume updates pause intent without rebuilding",
+  );
+  bootstrapBitmapSubtitleOcrMode = false;
   propertyChangeOrder.length = 0;
   bootstrapHandlers["mpv.options/secondary-sub-delay.changed"]();
   assertEqual(
