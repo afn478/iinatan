@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved
+
+- Restored fast YouTube startup with native subtitle lookup by keeping Online Media caption URLs delayed until mpv needs them, reusing mpv's decoded SRT events instead of downloading captions twice, and avoiding repeated work for unselected tracks and unchanged cues.
+
 ## 2.1.1 - 2026-08-10
 
 ### Changed

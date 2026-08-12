@@ -135,6 +135,7 @@ function loadMainNativeHelpers(properties) {
     activeWorkerReady: values.__workerReady || null,
     nativeExternalSrtCache: Object.create(null),
     nativeExternalSrtInFlight: Object.create(null),
+    nativeExternalSrtGeneration: 0,
     nativeSubtitleLayoutTrigger: "test",
     lastNativeAssReadinessDiagnosticKey: "",
     nativeSubtitlePrivateCueSerial: 0,
@@ -352,7 +353,6 @@ globalThis.nativeHelpers = {
   runNativeSubtitleFontMetricCommand,
   nativeSubtitleFontMetricSnapshot,
   advanceNativeSubtitleFontMetricGeneration,
-  normalizeNativeTrackList,
   nativeSubtitleTrackEligibility,
   nativeBitmapSelectedTrack,
   bitmapSubtitleOcrMode,
@@ -676,6 +676,8 @@ function waitForLayout() {
     "time-pos": 714.5,
     "options/sub-delay": 0,
     "sub-text": overlappingSrtDisplay,
+    "sub-text-ass":
+      "彼女の娘とは思えないな\nできる子は\\Nこの年齢で もっとできてる",
     "osd-dimensions": {
       w: 1920,
       h: 1080,
@@ -696,13 +698,6 @@ function waitForLayout() {
     "srt",
     "mpv's null-codec sentinel is accepted only when a validated Online Media EDL identifies SRT",
   );
-  assertEqual(
-    onlineMediaSrtHelpers.nativeSubtitleCueSnapshot(overlappingSrtDisplay)
-      .reason,
-    "srt-read-pending",
-    "the validated Online Media EDL begins a bounded read of its inner SRT URL",
-  );
-  await waitForLayout();
   const onlineMediaSnapshot = onlineMediaSrtHelpers.nativeSubtitleCueSnapshot(
     overlappingSrtDisplay,
   );
@@ -712,18 +707,45 @@ function waitForLayout() {
       eventBlocks: onlineMediaSnapshot.layout.eventBlocks.length,
     },
     { kind: "srt", eventBlocks: 2 },
-    "the live Online Media track reaches normal SRT geometry with overlapping cues preserved",
+    "mpv's live SRT observation preserves overlapping Online Media cue geometry immediately",
   );
   const onlineMediaSrtRequest = onlineMediaSrtHelpers.testExecEvents.find(
     (event) => event.command === "/usr/bin/curl",
   );
   assert(
-    onlineMediaSrtRequest &&
-      onlineMediaSrtRequest.args.includes(onlineMediaSrtUrl) &&
-      !onlineMediaSrtRequest.args.some((arg) =>
-        String(arg).startsWith("edl://"),
-      ),
-    "the SRT reader receives only the validated inner URL, never the EDL wrapper",
+    !onlineMediaSrtRequest,
+    "Online Media's player-deferred subtitle URL is not downloaded a second time",
+  );
+  onlineMediaSrtHelpers.testValues["sub-text"] = "最初の字幕";
+  onlineMediaSrtHelpers.testValues["sub-text-ass"] = "最初の字幕";
+  const singleOnlineMediaSnapshot =
+    onlineMediaSrtHelpers.nativeSubtitleCueSnapshot("最初の字幕");
+  assertEqual(
+    singleOnlineMediaSnapshot.layout.eventBlocks.length,
+    0,
+    "an ordinary Online Media cue uses the live player text without preloading its full caption file",
+  );
+  assert(
+    !onlineMediaSrtHelpers.testExecEvents.some(
+      (event) => event.command === "/usr/bin/curl",
+    ),
+    "the first ordinary YouTube cue leaves Online Media's delayed-open network policy intact",
+  );
+  onlineMediaSrtHelpers.testValues["sub-text"] = "first\nsecond";
+  onlineMediaSrtHelpers.testValues["sub-text-ass"] =
+    "{\\unknown}mismatch\nsecond";
+  const ambiguousOnlineMediaSnapshot =
+    onlineMediaSrtHelpers.nativeSubtitleCueSnapshot("first\nsecond");
+  assertEqual(
+    ambiguousOnlineMediaSnapshot.layout.eventBlocks.length,
+    0,
+    "an ambiguous converted cue safely keeps the combined lookup surface",
+  );
+  assert(
+    !onlineMediaSrtHelpers.testExecEvents.some(
+      (event) => event.command === "/usr/bin/curl",
+    ),
+    "even an ambiguous Online Media cue never bypasses delayed-open with a duplicate download",
   );
   assertEqual(
     onlineMediaSrtHelpers.nativeSubtitleTrackEligibility(
@@ -763,6 +785,33 @@ function waitForLayout() {
     ).kind,
     "srt",
     "selected SubRip track is accepted by codec metadata",
+  );
+  const untouchedUnselectedTrack = {
+    type: "sub",
+    id: 99,
+    selected: false,
+    codec: "null",
+    external: true,
+    get "external-filename"() {
+      throw new Error("unselected track metadata should stay lazy");
+    },
+  };
+  assertEqual(
+    helpers.nativeSubtitleTrackEligibility(
+      [
+        untouchedUnselectedTrack,
+        {
+          type: "sub",
+          id: 2,
+          selected: true,
+          "main-selection": 0,
+          codec: "subrip",
+        },
+      ],
+      2,
+    ).kind,
+    "srt",
+    "eligibility normalizes only the selected subtitle instead of every delayed Online Media track",
   );
   assertEqual(
     helpers.nativeSubtitleTrackEligibility(
@@ -3338,6 +3387,8 @@ function waitForLayout() {
     subtitleStyleSource.indexOf("function charsOf"),
   );
   const published = [];
+  let nativeSnapshotCalls = 0;
+  let legacySubtitleReads = 0;
   const pollContext = {
     console,
     JSON,
@@ -3346,9 +3397,21 @@ function waitForLayout() {
     lastSubtitleCueIdentity: null,
     lastNativeLayoutFingerprint: "",
     nativeLayoutStablePolls: 0,
+    lastNativePollInputIdentity: "",
+    lastNativeSnapshotSettled: false,
+    nativeSubtitleLayoutInvalidated: false,
+    mpv: {
+      getString(name) {
+        return name === "sub-text" ? "Cafe\u0301 Ａ" : "";
+      },
+    },
+    mpvStringProp() {
+      return "";
+    },
     refreshPollingInterval() {},
     syncNativeSubtitleVisibility() {},
     readCurrentSubtitle() {
+      legacySubtitleReads++;
       return "Cafe\u0301 Ａ";
     },
     readExperimentalLookupSubtitle() {
@@ -3361,6 +3424,7 @@ function waitForLayout() {
       return true;
     },
     nativeSubtitleCueSnapshot() {
+      nativeSnapshotCalls++;
       return {
         kind: "srt",
         trackId: 2,
@@ -3393,8 +3457,17 @@ function waitForLayout() {
       ";globalThis.pollApi={pollSubtitle,getLastSubtitle:()=>lastSubtitle};",
     pollContext,
   );
-  pollContext.pollApi.pollSubtitle();
-  pollContext.pollApi.pollSubtitle();
+  for (let poll = 0; poll < 100; poll++) pollContext.pollApi.pollSubtitle();
+  assertEqual(
+    nativeSnapshotCalls,
+    2,
+    "stable native cues skip repeated track, geometry, and mapping reconstruction",
+  );
+  assertEqual(
+    legacySubtitleReads,
+    2,
+    "stable polling also skips repeated subtitle normalization",
+  );
   assertEqual(
     pollContext.pollApi.getLastSubtitle(),
     "Cafe\u0301 Ａ",
@@ -4651,9 +4724,15 @@ function waitForLayout() {
     lastSubtitleCueIdentity: null,
     lastNativeLayoutFingerprint: "",
     nativeLayoutStablePolls: 0,
+    lastNativePollInputIdentity: "",
+    lastNativeSnapshotSettled: false,
     nativeSubtitlePropertyRebuildTimer: null,
+    nativeExternalSrtCache: Object.create(null),
+    nativeExternalSrtInFlight: Object.create(null),
+    nativeExternalSrtGeneration: 0,
     nativeSubtitlePlaybackActive: false,
     nativeSubtitleLayoutTrigger: "startup",
+    nativeSubtitleLayoutInvalidated: false,
     nativeSubVisibilityBeforeEnable: null,
     nativeSubtitleVisibilityOwned: false,
     registerShortcut() {},
@@ -4672,7 +4751,9 @@ function waitForLayout() {
       bootstrapLookupLineInvalidations++;
     },
     acquireNativeSubtitleVisibilityOwnership() {},
-    startPolling() {},
+    startPolling() {
+      bootstrapContext.nativeSubtitleLayoutInvalidated = false;
+    },
     updateOverlayRuntimeState() {},
     setOverlayRuntimeState() {},
     debugWarn() {},
@@ -4692,6 +4773,7 @@ function waitForLayout() {
       return true;
     },
     pollSubtitle() {
+      bootstrapContext.nativeSubtitleLayoutInvalidated = false;
       propertyChangeOrder.push("poll");
     },
     setTimeout(callback) {
@@ -4827,8 +4909,8 @@ function waitForLayout() {
   scheduledRebuilds.shift()();
   assertEqual(
     propertyChangeOrder,
-    ["invalidate", "invalidate", "poll"],
-    "resolved URL readiness rebuilds automatically without a toggle",
+    ["invalidate", "poll"],
+    "resolved URL readiness coalesces invalidation and rebuilds automatically without a toggle",
   );
   propertyChangeOrder.length = 0;
   bootstrapHandlers["mpv.sub-font.changed"]();

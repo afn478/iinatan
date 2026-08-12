@@ -306,13 +306,15 @@ function overlayConfig() {
     overlayBridgePort,
   };
 }
-function readCurrentSubtitle() {
+function readCurrentSubtitle(prefetchedSubtitle) {
   let sub = "";
-  try {
-    sub = mpv.getString("sub-text") || "";
-  } catch (_) {
-    sub = "";
-  }
+  if (arguments.length) sub = String(prefetchedSubtitle || "");
+  else
+    try {
+      sub = mpv.getString("sub-text") || "";
+    } catch (_) {
+      sub = "";
+    }
   const clean = cleanSubtitleText(
     sub,
     prefBool("flattenSubtitleLineBreaks", false),
@@ -486,13 +488,20 @@ function syncNativeSubtitleVisibility() {
   if (!enabled || !nativeSubtitlePlaybackActive) return;
   acquireNativeSubtitleVisibilityOwnership();
   try {
+    const experimental = experimentalNativeSubtitleMode();
+    const bitmapOcr =
+      !experimental &&
+      typeof bitmapSubtitleOcrMode === "function" &&
+      bitmapSubtitleOcrMode();
     const target = nativeSubtitleVisibilityTarget({
       enabled,
-      experimental: experimentalNativeSubtitleMode(),
-      bitmapOcr:
-        typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode(),
+      experimental,
+      bitmapOcr,
       hideNative: prefBool("hideNativeSubtitles", true),
-      backendReady: canHideNativeSubtitlesForCurrentLanguage(),
+      backendReady:
+        !experimental && !bitmapOcr
+          ? canHideNativeSubtitlesForCurrentLanguage()
+          : false,
       original: nativeSubVisibilityBeforeEnable,
     });
     const current = mpv.getFlag("sub-visibility");
@@ -512,18 +521,55 @@ function pollSubtitle() {
   if (!enabled) return;
   refreshPollingInterval();
   syncNativeSubtitleVisibility();
-  const sub = readCurrentSubtitle();
-  lastSubtitle = sub;
+  let primaryPlain = "";
+  try {
+    primaryPlain = String(mpv.getString("sub-text") || "");
+  } catch (_) {}
   if (!nativeSubtitleHitLayerMode()) {
+    const sub = readCurrentSubtitle(primaryPlain);
+    lastSubtitle = sub;
     const identity = "legacy:" + sub;
     if (identity === lastSubtitleCueIdentity) return;
     lastSubtitleCueIdentity = identity;
     publishSubtitle(sub, null);
     return;
   }
+  nativeSubtitleLayoutInvalidated = false;
+  let secondaryPlain = "";
+  try {
+    secondaryPlain = String(mpv.getString("secondary-sub-text") || "");
+  } catch (_) {}
+  const sid = mpvStringProp(["sid", "options/sid"], "");
+  const secondarySid = mpvStringProp(
+    ["secondary-sid", "options/secondary-sid"],
+    "",
+  );
+  const pollInputIdentity = JSON.stringify([
+    primaryPlain,
+    secondaryPlain,
+    mpvStringProp(["sub-start"], ""),
+    mpvStringProp(["sub-end"], ""),
+    mpvStringProp(["secondary-sub-start"], ""),
+    mpvStringProp(["secondary-sub-end"], ""),
+    sid,
+    secondarySid,
+  ]);
+  if (
+    lastNativeSnapshotSettled &&
+    pollInputIdentity === lastNativePollInputIdentity
+  )
+    return;
+  lastNativePollInputIdentity = pollInputIdentity;
+  const sub = readCurrentSubtitle(primaryPlain);
+  lastSubtitle = sub;
   let nativeCue =
     typeof nativeSubtitleCombinedCueSnapshot === "function"
-      ? nativeSubtitleCombinedCueSnapshot()
+      ? nativeSubtitleCombinedCueSnapshot({
+          primary: primaryPlain,
+          secondary: secondaryPlain,
+          sid,
+          secondarySid,
+        })
       : nativeSubtitleCueSnapshot(readExperimentalLookupSubtitle());
   if (
     nativeCue &&
@@ -563,9 +609,22 @@ function pollSubtitle() {
   }
   if (typeof reportNativeAssReadiness === "function")
     reportNativeAssReadiness(nativeCue);
+  const nativeSurfaces =
+    nativeCue && Array.isArray(nativeCue.surfaces)
+      ? nativeCue.surfaces
+      : [nativeCue || {}];
+  lastNativeSnapshotSettled =
+    nativeLayoutStablePolls > 0 &&
+    !nativeSurfaces.some(
+      (surface) =>
+        surface.retryScheduled === true ||
+        /(?:pending|awaiting-intent|waits-for-pause)/.test(
+          String(surface.reason || ""),
+        ),
+    );
   const identity = JSON.stringify({
     subtitle: experimentalLookupText,
-    cue: currentSubtitleCueIdentity(nativeCue),
+    cue: currentSubtitleCueIdentity(nativeCue, pollInputIdentity),
     layoutFingerprint,
     stable: nativeLayoutStablePolls > 0,
   });

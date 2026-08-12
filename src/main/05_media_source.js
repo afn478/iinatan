@@ -17,6 +17,8 @@ const FFMPEG_MEDIA_URL_SCHEMES = Object.freeze({
 const IINA_ONLINE_MEDIA_SUBTITLE_EDL_PREFIX =
   "edl://!no_clip;!delay_open,media_type=sub";
 const IINA_ONLINE_MEDIA_SUBTITLE_EDL_MAX_LENGTH = 64 * 1024;
+const IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE_MAX_ENTRIES = 8;
+const IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE = Object.create(null);
 
 function mediaFileUrlPath(value) {
   let path = String(value || "")
@@ -122,6 +124,13 @@ function iinaOnlineMediaSubtitleEdlSource(rawValue) {
     raw.length > IINA_ONLINE_MEDIA_SUBTITLE_EDL_MAX_LENGTH
   )
     return null;
+  if (
+    Object.prototype.hasOwnProperty.call(
+      IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE,
+      raw,
+    )
+  )
+    return IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE[raw];
   let cursor = IINA_ONLINE_MEDIA_SUBTITLE_EDL_PREFIX.length;
   let declaredCodec = "";
   if (raw.startsWith(",codec=", cursor)) {
@@ -141,10 +150,15 @@ function iinaOnlineMediaSubtitleEdlSource(rawValue) {
   const source = mediaSourceDescriptor(locator, "subtitle-track");
   if (source.kind !== "http-url") return null;
   const declaredFormat = subtitleFormatName(declaredCodec);
-  return {
+  const result = {
     format: declaredFormat || subtitleFormatFromHttpUrl(source.locator),
     source,
   };
+  IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE[raw] = result;
+  const cached = Object.keys(IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE);
+  while (cached.length > IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE_MAX_ENTRIES)
+    delete IINA_ONLINE_MEDIA_SUBTITLE_EDL_CACHE[cached.shift()];
+  return result;
 }
 
 function mediaSourceTrackList() {

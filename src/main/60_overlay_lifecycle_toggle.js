@@ -40,13 +40,15 @@ function updateOverlayRuntimeState(reason) {
     setOverlayRuntimeState("starting-helper", reason);
     return;
   }
-  if (!currentMediaSourceSnapshot().primary.raw) {
+  if (!mpvStringProp(["stream-open-filename", "path"], "")) {
     setOverlayRuntimeState("waiting-for-media", reason);
     return;
   }
   const subtitleText = mpvStringProp(["sub-text", "secondary-sub-text"], "");
   const bitmapSubtitleReady =
-    typeof bitmapSubtitleOcrMode === "function" && bitmapSubtitleOcrMode();
+    !subtitleText &&
+    typeof bitmapSubtitleOcrMode === "function" &&
+    bitmapSubtitleOcrMode();
   if (!subtitleText && !bitmapSubtitleReady) {
     setOverlayRuntimeState("waiting-for-subtitle-track", reason);
     return;
@@ -182,6 +184,8 @@ function initializeOverlay() {
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
     nativeLayoutStablePolls = 0;
+    lastNativePollInputIdentity = "";
+    lastNativeSnapshotSettled = false;
     if (enabled) pollSubtitle();
   });
   overlay.onMessage("native-layout-diagnostic", handleNativeLayoutDiagnostic);
@@ -246,12 +250,16 @@ function prepareRuntimeAfterProfileChange(runtimePlan) {
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
     nativeLayoutStablePolls = 0;
+    lastNativePollInputIdentity = "";
+    lastNativeSnapshotSettled = false;
   } else if (plan.hitLayer) {
     invalidateCurrentSubtitleLookupLine();
     lastSubtitle = null;
     lastSubtitleCueIdentity = null;
     lastNativeLayoutFingerprint = "";
     nativeLayoutStablePolls = 0;
+    lastNativePollInputIdentity = "";
+    lastNativeSnapshotSettled = false;
   }
   if (plan.lookupCache) {
     lookupInFlight = Object.create(null);
@@ -361,6 +369,8 @@ function stopPolling() {
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
+  lastNativePollInputIdentity = "";
+  lastNativeSnapshotSettled = false;
   lookupInFlight = Object.create(null);
   invalidateCurrentSubtitleLookupLine();
 }
@@ -449,7 +459,7 @@ function setEnabled(next, options) {
     try {
       nativeSubtitlePlaybackActive =
         nativeSubtitlePlaybackActive ||
-        !!currentMediaSourceSnapshot().primary.raw;
+        !!mpvStringProp(["stream-open-filename", "path"], "");
       if (nativeSubtitlePlaybackActive) {
         acquireNativeSubtitleVisibilityOwnership();
         syncNativeSubtitleVisibility();

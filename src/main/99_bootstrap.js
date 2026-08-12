@@ -21,13 +21,17 @@ event.on("mpv.file-loaded", () => {
     advanceNativeAssGeometryGeneration();
   if (typeof advanceNativeBitmapOcrGeneration === "function")
     advanceNativeBitmapOcrGeneration();
+  nativeExternalSrtGeneration++;
   nativeExternalSrtCache = Object.create(null);
+  nativeExternalSrtInFlight = Object.create(null);
   invalidateCurrentSubtitleLookupLine();
   nativeSubtitlePlaybackActive = true;
   lastSubtitle = null;
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
+  lastNativePollInputIdentity = "";
+  lastNativeSnapshotSettled = false;
   lookupCache = Object.create(null);
   invalidateExperimentalNativeLayout("file-loaded");
   lookupInFlight = Object.create(null);
@@ -43,6 +47,8 @@ event.on("mpv.end-file", () => {
     advanceNativeAssGeometryGeneration();
   if (typeof advanceNativeBitmapOcrGeneration === "function")
     advanceNativeBitmapOcrGeneration();
+  nativeExternalSrtGeneration++;
+  nativeExternalSrtInFlight = Object.create(null);
   nativeSubtitlePlaybackActive = false;
   if (nativeSubtitlePropertyRebuildTimer !== null) {
     clearTimeout(nativeSubtitlePropertyRebuildTimer);
@@ -82,6 +88,10 @@ function invalidateExperimentalNativeLayout(reason) {
   lastSubtitleCueIdentity = null;
   lastNativeLayoutFingerprint = "";
   nativeLayoutStablePolls = 0;
+  lastNativePollInputIdentity = "";
+  lastNativeSnapshotSettled = false;
+  if (nativeSubtitleLayoutInvalidated) return;
+  nativeSubtitleLayoutInvalidated = true;
   postToOverlay("native-layout-invalidate", {
     reason: String(reason || "stale-layout"),
   });
@@ -246,7 +256,19 @@ function scheduleExperimentalNativeLayoutRebuild() {
           advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout("property-change:" + property);
       scheduleExperimentalNativeLayoutRebuild();
-      if (enabled) updateOverlayRuntimeState("property-change:" + property);
+      if (
+        enabled &&
+        [
+          "path",
+          "stream-open-filename",
+          "sub-text",
+          "secondary-sub-text",
+          "track-list",
+          "sid",
+          "secondary-sid",
+        ].indexOf(property) >= 0
+      )
+        updateOverlayRuntimeState("property-change:" + property);
     });
   } catch (_) {}
 });
@@ -262,13 +284,12 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((registration) => {
   try {
     event.on(registration[0], () => {
-      if (registration[1] === "subtitle-track-change")
-        nativeExternalSrtCache = Object.create(null);
       if (typeof advanceNativeBitmapOcrGeneration === "function")
         advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout(registration[1]);
-      if (enabled) pollSubtitle();
-      if (enabled) updateOverlayRuntimeState(registration[1]);
+      if (enabled) scheduleExperimentalNativeLayoutRebuild();
+      if (enabled && registration[1] === "subtitle-track-change")
+        updateOverlayRuntimeState(registration[1]);
     });
   } catch (_) {}
 });

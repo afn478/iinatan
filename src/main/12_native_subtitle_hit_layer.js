@@ -601,49 +601,119 @@ function nativeSubtitleFontMetricSnapshot(options, text) {
   return { reason: "font-metrics-pending" };
 }
 
-function normalizeNativeTrackList(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter(
-      (track) => track && String(track.type || "").toLowerCase() === "sub",
+function normalizeNativeTrack(track) {
+  const value = track && typeof track === "object" ? track : {};
+  const externalFilename = String(
+    value["external-filename"] || value.externalFilename || "",
+  );
+  const reportedCodec = String(value.codec || "")
+    .trim()
+    .toLowerCase();
+  const codecDescription = String(value["codec-desc"] || "")
+    .trim()
+    .toLowerCase();
+  let codec = reportedCodec || codecDescription;
+  const hasConcreteReportedCodec = !!reportedCodec && reportedCodec !== "null";
+  const onlineMediaSubtitle = value.external
+    ? iinaOnlineMediaSubtitleEdlSource(externalFilename)
+    : null;
+  if (
+    !hasConcreteReportedCodec &&
+    onlineMediaSubtitle &&
+    onlineMediaSubtitle.format === "srt"
+  )
+    codec = "srt";
+  return {
+    id: Number(value.id),
+    selected: !!value.selected,
+    mainSelection: Number(
+      value["main-selection"] !== undefined
+        ? value["main-selection"]
+        : value.mainSelection,
+    ),
+    codec,
+    ffIndex: Number(
+      value["ff-index"] !== undefined ? value["ff-index"] : value.ffIndex,
+    ),
+    external: !!value.external,
+    externalFilename,
+    onlineMediaSubtitle,
+    language: String(value.lang || value.language || ""),
+    title: String(value.title || ""),
+  };
+}
+
+function nativeSelectedSubtitleTracks(tracks, sid, secondarySid) {
+  const list = Array.isArray(tracks) ? tracks : [];
+  const selectedId = Number(sid);
+  const selectedSecondaryId = Number(secondarySid);
+  let primaryPreferred = null;
+  let primarySelectedFallback = null;
+  let primaryIdFallback = null;
+  let secondaryPreferred = null;
+  let secondarySelectedFallback = null;
+  let secondaryIdFallback = null;
+  for (const track of list) {
+    if (!track || String(track.type || "").toLowerCase() !== "sub") continue;
+    const id = Number(track.id);
+    const mainSelection = Number(
+      track["main-selection"] !== undefined
+        ? track["main-selection"]
+        : track.mainSelection,
+    );
+    if (
+      !primaryPreferred &&
+      track.selected &&
+      (mainSelection === 0 || id === selectedId)
     )
-    .map((track) => {
-      const externalFilename = String(
-        track["external-filename"] || track.externalFilename || "",
-      );
-      const reportedCodec = String(track.codec || "")
-        .trim()
-        .toLowerCase();
-      const codecDescription = String(track["codec-desc"] || "")
-        .trim()
-        .toLowerCase();
-      let codec = reportedCodec || codecDescription;
-      const hasConcreteReportedCodec =
-        !!reportedCodec && reportedCodec !== "null";
-      if (!hasConcreteReportedCodec && track.external) {
-        const onlineMediaSource =
-          iinaOnlineMediaSubtitleEdlSource(externalFilename);
-        if (onlineMediaSource && onlineMediaSource.format === "srt")
-          codec = "srt";
-      }
-      return {
-        id: Number(track.id),
-        selected: !!track.selected,
-        mainSelection: Number(
-          track["main-selection"] !== undefined
-            ? track["main-selection"]
-            : track.mainSelection,
-        ),
-        codec,
-        ffIndex: Number(
-          track["ff-index"] !== undefined ? track["ff-index"] : track.ffIndex,
-        ),
-        external: !!track.external,
-        externalFilename,
-        language: String(track.lang || track.language || ""),
-        title: String(track.title || ""),
-      };
-    });
+      primaryPreferred = track;
+    if (!primarySelectedFallback && track.selected && mainSelection !== 1)
+      primarySelectedFallback = track;
+    if (!primaryIdFallback && id === selectedId) primaryIdFallback = track;
+    if (
+      !secondaryPreferred &&
+      track.selected &&
+      (mainSelection === 1 || id === selectedSecondaryId)
+    )
+      secondaryPreferred = track;
+    if (!secondaryIdFallback && id === selectedSecondaryId)
+      secondaryIdFallback = track;
+    if (!secondarySelectedFallback && track.selected && mainSelection === 1)
+      secondarySelectedFallback = track;
+  }
+  return {
+    primary:
+      primaryPreferred || primarySelectedFallback || primaryIdFallback || null,
+    secondary:
+      secondaryPreferred ||
+      secondaryIdFallback ||
+      secondarySelectedFallback ||
+      null,
+  };
+}
+
+function nativeSelectedSubtitleTrack(tracks, sid, secondarySid, surfaceName) {
+  const selected = nativeSelectedSubtitleTracks(tracks, sid, secondarySid);
+  return surfaceName === "secondary" ? selected.secondary : selected.primary;
+}
+
+function nativeSubtitleEligibilityForTrack(rawTrack, surfaceName) {
+  const surface = surfaceName === "secondary" ? "secondary" : "primary";
+  if (!rawTrack)
+    return {
+      reason:
+        surface === "secondary"
+          ? "subtitle-track-unavailable"
+          : "unsupported-codec",
+    };
+  const track = normalizeNativeTrack(rawTrack);
+  if (/pgs|hdmv|dvd|vobsub|dvb|bitmap/.test(track.codec))
+    return { reason: "bitmap-subtitle", track, surface };
+  if (/(^|[^a-z])(subrip|srt)([^a-z]|$)/.test(track.codec))
+    return { kind: "srt", track, surface };
+  if (/(^|[^a-z])(ass|ssa)([^a-z]|$)/.test(track.codec))
+    return { kind: "ass", track, surface };
+  return { reason: "unsupported-codec", track, surface };
 }
 
 function nativeSubtitleTrackEligibility(
@@ -652,44 +722,11 @@ function nativeSubtitleTrackEligibility(
   secondarySid,
   surfaceName,
 ) {
-  const list = normalizeNativeTrackList(tracks);
   const surface = surfaceName === "secondary" ? "secondary" : "primary";
-  const selectedId = Number(sid);
-  const selectedSecondaryId = Number(secondarySid);
-  if (surface === "secondary") {
-    const secondary =
-      list.find(
-        (track) =>
-          track.selected &&
-          (track.mainSelection === 1 || track.id === selectedSecondaryId),
-      ) ||
-      list.find((track) => track.id === selectedSecondaryId) ||
-      list.find((track) => track.selected && track.mainSelection === 1);
-    if (!secondary) return { reason: "subtitle-track-unavailable" };
-    if (/pgs|hdmv|dvd|vobsub|dvb|bitmap/.test(secondary.codec))
-      return { reason: "bitmap-subtitle", track: secondary };
-    if (/(^|[^a-z])(subrip|srt)([^a-z]|$)/.test(secondary.codec))
-      return { kind: "srt", track: secondary, surface };
-    if (/(^|[^a-z])(ass|ssa)([^a-z]|$)/.test(secondary.codec))
-      return { kind: "ass", track: secondary, surface };
-    return { reason: "unsupported-codec", track: secondary };
-  }
-  const primary =
-    list.find(
-      (track) =>
-        track.selected &&
-        (track.mainSelection === 0 || track.id === selectedId),
-    ) ||
-    list.find((track) => track.selected && track.mainSelection !== 1) ||
-    list.find((track) => track.id === selectedId);
-  if (!primary) return { reason: "unsupported-codec" };
-  if (/pgs|hdmv|dvd|vobsub|dvb|bitmap/.test(primary.codec))
-    return { reason: "bitmap-subtitle", track: primary };
-  if (/(^|[^a-z])(subrip|srt)([^a-z]|$)/.test(primary.codec))
-    return { kind: "srt", track: primary };
-  if (/(^|[^a-z])(ass|ssa)([^a-z]|$)/.test(primary.codec))
-    return { kind: "ass", track: primary };
-  return { reason: "unsupported-codec", track: primary };
+  return nativeSubtitleEligibilityForTrack(
+    nativeSelectedSubtitleTrack(tracks, sid, secondarySid, surface),
+    surface,
+  );
 }
 
 const NATIVE_BITMAP_OCR_NOTICE_VERSION = 1;
@@ -718,13 +755,18 @@ function nativeBitmapSelectedTrack(surfaceName) {
 }
 
 function bitmapSubtitleOcrMode() {
-  return (
-    prefBool("bitmapSubtitleOcrEnabled", true) &&
-    !!(
-      nativeBitmapSelectedTrack("primary") ||
-      nativeBitmapSelectedTrack("secondary")
-    )
+  if (!prefBool("bitmapSubtitleOcrEnabled", true)) return false;
+  const tracks = nativeSubtitleJsonProperty("track-list", []);
+  const sid = mpvNumberProp(["sid", "options/sid"], 0);
+  const secondarySid = mpvStringProp(
+    ["secondary-sid", "options/secondary-sid"],
+    "no",
   );
+  const selected = nativeSelectedSubtitleTracks(tracks, sid, secondarySid);
+  return [
+    nativeSubtitleEligibilityForTrack(selected.primary, "primary"),
+    nativeSubtitleEligibilityForTrack(selected.secondary, "secondary"),
+  ].some((eligibility) => eligibility.reason === "bitmap-subtitle");
 }
 
 function triggerNativeBitmapOcrFromMouseMovement(source) {
@@ -765,8 +807,10 @@ function handleNativeBitmapOcrMouseInput() {
   return triggerNativeBitmapOcrFromMouseMovement("native");
 }
 
-function observeNativeBitmapOcrMouseActivity() {
-  if (!enabled || !nativeBitmapOcrWindowMain || !bitmapSubtitleOcrMode()) {
+function observeNativeBitmapOcrMouseActivity(bitmapMode) {
+  const active =
+    typeof bitmapMode === "boolean" ? bitmapMode : bitmapSubtitleOcrMode();
+  if (!enabled || !nativeBitmapOcrWindowMain || !active) {
     nativeBitmapOcrMouseActivityCounter = null;
     return false;
   }
@@ -1779,6 +1823,8 @@ function parseNativeSrtCues(raw) {
     return { reason: "srt-file-limit-exceeded" };
   const lines = source.split("\n");
   const cues = [];
+  const maxEndMs = [];
+  let ordered = true;
   let line = 0;
   while (line < lines.length) {
     while (line < lines.length && !lines[line].trim()) line++;
@@ -1809,34 +1855,52 @@ function parseNativeSrtCues(raw) {
       line++;
     }
     if (text.length) {
+      if (cues.length && startMs < cues[cues.length - 1].startMs)
+        ordered = false;
       cues.push({ startMs, endMs, text: text.join("\n") });
+      maxEndMs.push(
+        Math.max(endMs, maxEndMs.length ? maxEndMs[maxEndMs.length - 1] : 0),
+      );
       if (cues.length > 100000) return { reason: "srt-cue-limit-exceeded" };
     }
   }
-  return cues.length ? { cues } : { reason: "empty-subtitle" };
+  return cues.length
+    ? { cues, maxEndMs, ordered }
+    : { reason: "empty-subtitle" };
 }
 
-function nativeExternalSubtitleSource(track) {
+function nativeExternalSubtitleDescriptor(track) {
   const selected = track || {};
   const filename = String(
     selected.externalFilename || selected["external-filename"] || "",
   );
-  const onlineMediaSource = iinaOnlineMediaSubtitleEdlSource(filename);
-  return onlineMediaSource
-    ? onlineMediaSource.source
-    : mediaSourceDescriptor(filename, "subtitle-track");
+  const onlineMediaSubtitle =
+    selected.onlineMediaSubtitle || iinaOnlineMediaSubtitleEdlSource(filename);
+  return {
+    source: onlineMediaSubtitle
+      ? onlineMediaSubtitle.source
+      : mediaSourceDescriptor(filename, "subtitle-track"),
+    playerDeferred: !!onlineMediaSubtitle,
+  };
+}
+
+function nativeExternalSubtitleSource(track) {
+  return nativeExternalSubtitleDescriptor(track).source;
 }
 
 function nativeExternalSrtCues(track) {
   const selected = track || {};
-  const source = nativeExternalSubtitleSource(selected);
+  const descriptor = nativeExternalSubtitleDescriptor(selected);
+  const source = descriptor.source;
   const path = source.locator;
   if (!selected.external || !path)
     return { reason: "srt-event-boundaries-unavailable" };
+  if (descriptor.playerDeferred) return { reason: "srt-player-deferred" };
   if (nativeExternalSrtCache[path]) return nativeExternalSrtCache[path];
   if (source.kind === "http-url") {
     if (!nativeExternalSrtInFlight[path]) {
-      nativeExternalSrtInFlight[path] = Promise.resolve()
+      const generation = nativeExternalSrtGeneration;
+      const request = Promise.resolve()
         .then(() =>
           utils.exec(
             "/usr/bin/curl",
@@ -1858,6 +1922,7 @@ function nativeExternalSrtCues(track) {
           ),
         )
         .then((result) => {
+          if (generation !== nativeExternalSrtGeneration) return;
           const parsed =
             result && result.status === 0
               ? parseNativeSrtCues(String(result.stdout || ""))
@@ -1868,10 +1933,9 @@ function nativeExternalSrtCues(track) {
             parsed,
             NATIVE_EXTERNAL_SRT_CACHE_MAX_ENTRIES,
           );
-          if (typeof scheduleExperimentalNativeLayoutRebuild === "function")
-            scheduleExperimentalNativeLayoutRebuild();
         })
         .catch(() => {
+          if (generation !== nativeExternalSrtGeneration) return;
           putBoundedCache(
             nativeExternalSrtCache,
             path,
@@ -1880,8 +1944,15 @@ function nativeExternalSrtCues(track) {
           );
         })
         .finally(() => {
-          delete nativeExternalSrtInFlight[path];
+          if (nativeExternalSrtInFlight[path] === request)
+            delete nativeExternalSrtInFlight[path];
+          if (
+            generation === nativeExternalSrtGeneration &&
+            typeof scheduleExperimentalNativeLayoutRebuild === "function"
+          )
+            scheduleExperimentalNativeLayoutRebuild();
         });
+      nativeExternalSrtInFlight[path] = request;
     }
     return { reason: "srt-read-pending" };
   }
@@ -1902,28 +1973,33 @@ function nativeExternalSrtCues(track) {
   return parsed;
 }
 
-function nativeExternalSrtEventBlocks(
-  track,
-  surface,
+function nativeActiveSrtCues(parsed, timeMs) {
+  const value = parsed && typeof parsed === "object" ? parsed : {};
+  const cues = Array.isArray(value.cues) ? value.cues : [];
+  const maxEndMs = Array.isArray(value.maxEndMs) ? value.maxEndMs : [];
+  if (!value.ordered || maxEndMs.length !== cues.length)
+    return cues.filter((cue) => cue.startMs <= timeMs && cue.endMs > timeMs);
+  let low = 0;
+  let high = cues.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (cues[middle].startMs <= timeMs) low = middle + 1;
+    else high = middle;
+  }
+  const active = [];
+  for (let index = low - 1; index >= 0; index--) {
+    if (maxEndMs[index] <= timeMs) break;
+    if (cues[index].endMs > timeMs) active.push(cues[index]);
+  }
+  return active.reverse();
+}
+
+function nativeSrtEventBlocksFromCues(
+  active,
   displayText,
   lookupText,
   lookupStart,
 ) {
-  const parsed = nativeExternalSrtCues(track);
-  if (parsed.reason) return { reason: parsed.reason };
-  let timeMs = Math.round(
-    mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
-  );
-  const delayNames =
-    surface === "secondary"
-      ? ["options/secondary-sub-delay", "secondary-sub-delay"]
-      : ["options/sub-delay", "sub-delay"];
-  timeMs -= Math.round(mpvNumberProp(delayNames, 0) * 1000);
-  if (!Number.isFinite(timeMs) || timeMs < 0)
-    return { reason: "cue-timing-unavailable" };
-  const active = parsed.cues.filter(
-    (cue) => cue.startMs <= timeMs && cue.endMs > timeMs,
-  );
   if (active.length <= 1) return { eventBlocks: [] };
   if (active.length > 32) return { reason: "srt-active-cue-limit-exceeded" };
   const displays = active.map((cue) => cleanNativeDisplayText(cue.text));
@@ -1959,6 +2035,73 @@ function nativeExternalSrtEventBlocks(
       Array.from(lookups[index]).length + Array.from(lookupSeparator).length;
   }
   return { eventBlocks };
+}
+
+function nativeObservedSrtEventBlocks(
+  observedAss,
+  displayText,
+  lookupText,
+  lookupStart,
+) {
+  const observed = String(observedAss || "").replace(/\r/g, "");
+  if (!observed || observed.indexOf("\n") < 0) return { eventBlocks: [] };
+  const events = observed.split("\n");
+  if (events.length > 32) return { reason: "srt-active-cue-limit-exceeded" };
+  const active = events.map((text) => ({
+    text: text
+      .replace(/\{[^{}]*\}/g, "")
+      .replace(/\\[Nn]/g, "\n")
+      .replace(/\\h/g, " "),
+  }));
+  const blocks = nativeSrtEventBlocksFromCues(
+    active,
+    displayText,
+    lookupText,
+    lookupStart,
+  );
+  return blocks.reason ? { reason: "srt-observation-ambiguous" } : blocks;
+}
+
+function nativeExternalSrtEventBlocks(
+  track,
+  surface,
+  displayText,
+  lookupText,
+  lookupStart,
+  observedAss,
+) {
+  const descriptor = nativeExternalSubtitleDescriptor(track);
+  if (descriptor.playerDeferred) {
+    const observed = nativeObservedSrtEventBlocks(
+      observedAss,
+      displayText,
+      lookupText,
+      lookupStart,
+    );
+    if (!observed.reason) return observed;
+    // Online Media intentionally marks these captions !delay_open so they do
+    // not compete with initial playback. Ambiguous live observations retain a
+    // safe single-block hit layer instead of downloading the full URL again.
+    return { eventBlocks: [] };
+  }
+  const parsed = nativeExternalSrtCues(track);
+  if (parsed.reason) return { reason: parsed.reason };
+  let timeMs = Math.round(
+    mpvNumberProp(["time-pos", "playback-time"], -1) * 1000,
+  );
+  const delayNames =
+    surface === "secondary"
+      ? ["options/secondary-sub-delay", "secondary-sub-delay"]
+      : ["options/sub-delay", "sub-delay"];
+  timeMs -= Math.round(mpvNumberProp(delayNames, 0) * 1000);
+  if (!Number.isFinite(timeMs) || timeMs < 0)
+    return { reason: "cue-timing-unavailable" };
+  return nativeSrtEventBlocksFromCues(
+    nativeActiveSrtCues(parsed, timeMs),
+    displayText,
+    lookupText,
+    lookupStart,
+  );
 }
 
 function normalizeNativeAssGeometryResponse(response, request) {
@@ -2295,52 +2438,59 @@ function advanceNativeAssGeometryGeneration() {
 }
 
 function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
+  const snapshotOptions =
+    surfaceOptions && typeof surfaceOptions === "object" ? surfaceOptions : {};
   const surface =
-    surfaceOptions && surfaceOptions.surface === "secondary"
-      ? "secondary"
-      : "primary";
-  const tracks = nativeSubtitleJsonProperty("track-list", []);
-  const sid = mpvNumberProp(["sid", "options/sid"], 0);
-  const secondarySid = mpvStringProp(
-    ["secondary-sid", "options/secondary-sid"],
-    "no",
-  );
-  const eligibility = nativeSubtitleTrackEligibility(
-    tracks,
-    sid,
-    secondarySid,
-    surface,
-  );
+    snapshotOptions.surface === "secondary" ? "secondary" : "primary";
+  const eligibility = snapshotOptions.eligibility
+    ? snapshotOptions.eligibility
+    : nativeSubtitleTrackEligibility(
+        nativeSubtitleJsonProperty("track-list", []),
+        mpvNumberProp(["sid", "options/sid"], 0),
+        mpvStringProp(["secondary-sid", "options/secondary-sid"], "no"),
+        surface,
+      );
   if (eligibility.reason === "bitmap-subtitle")
     return nativeBitmapSubtitleCueSnapshot(eligibility.track, {
       surface,
-      lookupStart: Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+      lookupStart: Number(snapshotOptions.lookupStart || 0),
     });
   if (eligibility.reason) return { reason: eligibility.reason };
   let plain = "";
   let ass = "";
   let assFull = "";
   let assExtradata = "";
-  try {
-    plain = String(
-      mpv.getString(
-        surface === "secondary" ? "secondary-sub-text" : "sub-text",
-      ) || "",
-    );
-  } catch (_) {}
-  try {
-    ass = String(
-      mpv.getString(
-        surface === "secondary" ? "secondary-sub-text" : "sub-text-ass",
-      ) || "",
-    );
-  } catch (_) {}
-  if (surface === "primary") {
+  if (Object.prototype.hasOwnProperty.call(snapshotOptions, "plain"))
+    plain = String(snapshotOptions.plain || "");
+  else {
+    try {
+      plain = String(
+        mpv.getString(
+          surface === "secondary" ? "secondary-sub-text" : "sub-text",
+        ) || "",
+      );
+    } catch (_) {}
+  }
+  const onlineMediaSrt =
+    eligibility.kind === "srt" &&
+    eligibility.track.external &&
+    !!eligibility.track.onlineMediaSubtitle;
+  if (
+    eligibility.kind === "ass" ||
+    (surface === "primary" && onlineMediaSrt && /[\r\n]/.test(plain))
+  )
+    try {
+      ass = String(
+        mpv.getString(
+          surface === "secondary" ? "secondary-sub-text" : "sub-text-ass",
+        ) || "",
+      );
+    } catch (_) {}
+  if (eligibility.kind === "ass" && surface === "primary")
     try {
       assFull = String(mpv.getString("sub-text/ass-full") || "");
       assExtradata = String(mpv.getString("sub-ass-extradata") || "");
     } catch (_) {}
-  }
   let displayText = "";
   if (eligibility.kind === "srt") {
     displayText = cleanNativeDisplayText(plain);
@@ -2375,13 +2525,18 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
   if (!displayText || !lookupText)
     return { reason: "empty-subtitle", displayText };
   let srtEventBlocks = [];
-  if (eligibility.kind === "srt" && eligibility.track.external) {
+  if (
+    eligibility.kind === "srt" &&
+    eligibility.track.external &&
+    displayText.indexOf("\n") >= 0
+  ) {
     const segmented = nativeExternalSrtEventBlocks(
       eligibility.track,
       surface,
       displayText,
       lookupText,
-      Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+      Number(snapshotOptions.lookupStart || 0),
+      ass,
     );
     if (segmented.reason) return { reason: segmented.reason, displayText };
     srtEventBlocks = segmented.eventBlocks;
@@ -2447,8 +2602,7 @@ function nativeSubtitleCueSnapshot(normalizedText, surfaceOptions) {
       ).map((unit) =>
         Object.assign({}, unit, {
           position:
-            Number(unit.position) +
-            Number((surfaceOptions && surfaceOptions.lookupStart) || 0),
+            Number(unit.position) + Number(snapshotOptions.lookupStart || 0),
         }),
       );
       if (!units.length) return { reason: "text-index-map-failed" };
@@ -2637,17 +2791,23 @@ function nativeSubtitleVisibilityTarget(state) {
   return value.original;
 }
 
-function currentSubtitleCueIdentity(snapshot) {
+function currentSubtitleCueIdentity(snapshot, prefetchedTimingIdentity) {
+  const timingIdentity =
+    arguments.length > 1
+      ? String(prefetchedTimingIdentity || "")
+      : JSON.stringify({
+          start: mpvStringProp(["sub-start"], ""),
+          end: mpvStringProp(["sub-end"], ""),
+          secondaryStart: mpvStringProp(["secondary-sub-start"], ""),
+          secondaryEnd: mpvStringProp(["secondary-sub-end"], ""),
+          secondaryDelay: mpvStringProp(
+            ["options/secondary-sub-delay", "secondary-sub-delay"],
+            "",
+          ),
+        });
   return JSON.stringify({
     trackId: snapshot && snapshot.trackId,
-    start: mpvStringProp(["sub-start"], ""),
-    end: mpvStringProp(["sub-end"], ""),
-    secondaryStart: mpvStringProp(["secondary-sub-start"], ""),
-    secondaryEnd: mpvStringProp(["secondary-sub-end"], ""),
-    secondaryDelay: mpvStringProp(
-      ["options/secondary-sub-delay", "secondary-sub-delay"],
-      "",
-    ),
+    timingIdentity,
     displayText: snapshot && snapshot.displayText,
     surfaces:
       snapshot && Array.isArray(snapshot.surfaces)
@@ -2661,12 +2821,49 @@ function currentSubtitleCueIdentity(snapshot) {
   });
 }
 
-function nativeSubtitleCombinedCueSnapshot() {
-  observeNativeBitmapOcrMouseActivity();
+function nativeSubtitleCombinedCueSnapshot(prefetchedText) {
+  const prefetched =
+    prefetchedText && typeof prefetchedText === "object" ? prefetchedText : {};
+  const tracks = nativeSubtitleJsonProperty("track-list", []);
+  const sid = Object.prototype.hasOwnProperty.call(prefetched, "sid")
+    ? Number(prefetched.sid)
+    : mpvNumberProp(["sid", "options/sid"], 0);
+  const secondarySid = Object.prototype.hasOwnProperty.call(
+    prefetched,
+    "secondarySid",
+  )
+    ? String(prefetched.secondarySid || "no")
+    : mpvStringProp(["secondary-sid", "options/secondary-sid"], "no");
+  const selectedTracks = nativeSelectedSubtitleTracks(
+    tracks,
+    sid,
+    secondarySid,
+  );
   const definitions = [
-    { surface: "primary", textProperty: "sub-text" },
-    { surface: "secondary", textProperty: "secondary-sub-text" },
+    {
+      surface: "primary",
+      textProperty: "sub-text",
+      prefetchedProperty: "primary",
+      eligibility: nativeSubtitleEligibilityForTrack(
+        selectedTracks.primary,
+        "primary",
+      ),
+    },
+    {
+      surface: "secondary",
+      textProperty: "secondary-sub-text",
+      prefetchedProperty: "secondary",
+      eligibility: nativeSubtitleEligibilityForTrack(
+        selectedTracks.secondary,
+        "secondary",
+      ),
+    },
   ];
+  observeNativeBitmapOcrMouseActivity(
+    definitions.some(
+      (definition) => definition.eligibility.reason === "bitmap-subtitle",
+    ),
+  );
   const surfaces = [];
   let nextLookupStart = 0;
   for (const definition of definitions) {
@@ -2678,10 +2875,28 @@ function nativeSubtitleCombinedCueSnapshot() {
       )
     )
       continue;
-    const bitmapTrack = nativeBitmapSelectedTrack(definition.surface);
+    const bitmapTrack =
+      definition.eligibility.reason === "bitmap-subtitle"
+        ? definition.eligibility.track
+        : null;
+    if (
+      Object.prototype.hasOwnProperty.call(
+        prefetched,
+        definition.prefetchedProperty,
+      )
+    )
+      definition.plain = String(
+        prefetched[definition.prefetchedProperty] || "",
+      );
+    else
+      try {
+        definition.plain = String(mpv.getString(definition.textProperty) || "");
+      } catch (_) {
+        definition.plain = "";
+      }
     let lookupText = bitmapTrack
       ? ""
-      : readExperimentalLookupSubtitleProperty(definition.textProperty);
+      : normalizeExperimentalSubtitleText(definition.plain);
     if (!lookupText && !bitmapTrack) continue;
     definition.lookupStart = nextLookupStart;
     const snapshot = nativeSubtitleCueSnapshot(lookupText, definition);
@@ -2694,9 +2909,7 @@ function nativeSubtitleCombinedCueSnapshot() {
         lookupLength: Array.from(lookupText).length,
         displayText: bitmapTrack
           ? ""
-          : cleanNativeDisplayText(
-              mpvStringProp([definition.textProperty], ""),
-            ),
+          : cleanNativeDisplayText(definition.plain),
         lookupSpans: [],
         reason: (snapshot && snapshot.reason) || "unsupported-codec",
         retryScheduled: snapshot && snapshot.retryScheduled === true,
@@ -2797,20 +3010,34 @@ function reportNativeAssReadiness(snapshot) {
     lastNativeAssReadinessDiagnosticKey = "";
     return;
   }
+  if (rejected.reason === "empty-subtitle") {
+    lastNativeAssReadinessDiagnosticKey = "";
+    return;
+  }
   const surface = rejected.surface === "secondary" ? "secondary" : "primary";
-  const tracks = normalizeNativeTrackList(
-    nativeSubtitleJsonProperty("track-list", []),
+  const tracks = nativeSubtitleJsonProperty("track-list", []);
+  const sid = mpvNumberProp(["sid", "options/sid"], -1);
+  const secondarySid = mpvStringProp(
+    ["secondary-sid", "options/secondary-sid"],
+    "no",
   );
-  const selectedId =
-    surface === "secondary"
-      ? mpvNumberProp(["secondary-sid", "options/secondary-sid"], -1)
-      : mpvNumberProp(["sid", "options/sid"], -1);
-  const track = tracks.find((candidate) => candidate.id === selectedId) || null;
+  const eligibility = nativeSubtitleTrackEligibility(
+    tracks,
+    sid,
+    secondarySid,
+    surface,
+  );
+  const track = eligibility.track || null;
+  const selectedId = surface === "secondary" ? Number(secondarySid) : sid;
+  if (track && track.codec !== "ass") {
+    lastNativeAssReadinessDiagnosticKey = "";
+    return;
+  }
   const assObserved = mpvStringProp(
     [surface === "secondary" ? "secondary-sub-text" : "sub-text-ass"],
     "",
   );
-  if ((!track || track.codec !== "ass") && !assObserved) {
+  if (!track && !assObserved) {
     lastNativeAssReadinessDiagnosticKey = "";
     return;
   }
@@ -2826,7 +3053,6 @@ function reportNativeAssReadiness(snapshot) {
     "cue-timing-unavailable": true,
     "missing-osd-dimensions": true,
     "missing-video-dimensions": true,
-    "srt-read-pending": true,
     "subtitle-track-unavailable": true,
     "unsupported-codec": true,
     "unsafe-media-path": true,

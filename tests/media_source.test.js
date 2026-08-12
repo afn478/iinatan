@@ -78,6 +78,11 @@ assert(
     youtubeSrt.source.locator === youtubeSrtUrl,
   "the exact Online Media subtitle EDL unwraps its length-delimited HTTPS SRT URL",
 );
+assert(
+  context.iinaOnlineMediaSubtitleEdlSource(onlineSubtitleEdl(youtubeSrtUrl)) ===
+    youtubeSrt,
+  "validated Online Media subtitle EDLs are cached for the polling path",
+);
 const declaredSrt = context.iinaOnlineMediaSubtitleEdlSource(
   onlineSubtitleEdl("https://media.example/subtitle", "subrip"),
 );
