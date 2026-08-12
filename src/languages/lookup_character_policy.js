@@ -70,17 +70,25 @@ const IINATAN_LOOKUP_CHARACTER_POLICY = (() => {
   }
 
   function matches(value, character) {
-    const policy = normalize(value);
-    const chars = Array.from(String(character || ""));
-    if (!policy || chars.length !== 1) return false;
-    const codePoint = chars[0].codePointAt(0);
-    if (
-      policy.ranges.some(
-        (range) => codePoint >= range.start && codePoint <= range.end,
-      )
-    )
-      return true;
-    return Array.from(policy.additionalCharacters).includes(chars[0]);
+    if (!value || typeof value !== "object" || !Array.isArray(value.ranges))
+      return false;
+    const text = String(character || "");
+    if (!text) return false;
+    const codePoint = text.codePointAt(0);
+    if (String.fromCodePoint(codePoint) !== text) return false;
+    let rangeMatched = false;
+    for (let index = 0; index < value.ranges.length; index++) {
+      const range = normalizedRange(value.ranges[index]);
+      if (!range) return false;
+      if (codePoint >= range.start && codePoint <= range.end)
+        rangeMatched = true;
+    }
+    const additionalCharacters =
+      typeof value.additionalCharacters === "string"
+        ? value.additionalCharacters
+        : "";
+    if (!value.ranges.length && !additionalCharacters) return false;
+    return rangeMatched || additionalCharacters.includes(text);
   }
 
   return { policies, normalize, matches };

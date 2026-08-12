@@ -409,13 +409,15 @@ function prepareNativeSubtitlePrivateCueDirectory() {
   if (nativeSubtitlePrivateCueDirectoryPromise)
     return nativeSubtitlePrivateCueDirectoryPromise;
   nativeSubtitlePrivateCueDirectoryPromise = ensureBundledBackendInstalled()
-    .then(() =>
-      utils.exec(
+    .then(() => {
+      if (file.exists(nativeSubtitlePrivateCueDirectory()))
+        return { status: 0 };
+      return utils.exec(
         "/bin/mkdir",
         ["-p", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
-      ),
-    )
+      );
+    })
     .then((result) => {
       if (!result || Number(result.status) !== 0)
         throw new Error("font-metrics-private-directory-failed");

@@ -1,4 +1,11 @@
 const MANIFEST_SCHEMA_VERSION = 1;
+const ACTIVE_DICTIONARY_CACHE_TTL_MS = 5000;
+const normalizedManifestShapes = new WeakSet();
+let activeDictionaryRuntimeCache = null;
+
+function invalidateActiveDictionaryRuntimeCache() {
+  activeDictionaryRuntimeCache = null;
+}
 
 function emptyManifest() {
   return {
@@ -143,10 +150,15 @@ function normalizeManifestShape(manifest) {
   const active = profiles[out.activeProfileId] || profiles[DEFAULT_PROFILE_ID];
   out.disabled = normalizeDisabledMap(active.disabled);
   out.dictionaryOrder = normalizeDictionaryOrder(active.dictionaryOrder);
+  normalizedManifestShapes.add(out);
   return out;
 }
+function asNormalizedManifestShape(manifest) {
+  if (manifest && normalizedManifestShapes.has(manifest)) return manifest;
+  return normalizeManifestShape(manifest || readManifest());
+}
 function activeDictionaryProfile(manifest) {
-  const normalized = normalizeManifestShape(manifest || readManifest());
+  const normalized = asNormalizedManifestShape(manifest);
   return (
     normalized.profiles[normalized.activeProfileId] ||
     normalized.profiles[DEFAULT_PROFILE_ID] ||
@@ -185,7 +197,7 @@ function activeProfilePreferenceBool(key, fallback) {
   }
 }
 function profileSummaries(manifest) {
-  const normalized = normalizeManifestShape(manifest || readManifest());
+  const normalized = asNormalizedManifestShape(manifest);
   return Object.keys(normalized.profiles)
     .sort((a, b) => {
       if (a === normalized.activeProfileId) return -1;
@@ -348,6 +360,7 @@ function writeManifest(manifest) {
           compactError(backupError),
       );
     }
+    invalidateActiveDictionaryRuntimeCache();
     return committed;
   } catch (error) {
     safeDelete(manifestPath() + ".next");
@@ -463,9 +476,9 @@ function unorderedDictionaryDirs() {
     return [];
   }
 }
-function dictionaryDirs() {
-  const manifest = readManifest();
-  return orderedDictionaryDirs(unorderedDictionaryDirs(), manifest);
+function dictionaryDirs(manifest) {
+  const current = manifest || readManifest();
+  return orderedDictionaryDirs(unorderedDictionaryDirs(), current);
 }
 function recommendedDictionariesByLanguage() {
   if (
@@ -618,8 +631,14 @@ function languageCompatibleDictionaries(language, installed) {
   return dictionaryCompatibilityDetails(language, installed).compatible;
 }
 function activeDictionaryEntries(language) {
-  const installed = dictionaryDirs();
-  const disabled = disabledDictionaryMap();
+  if (
+    activeDictionaryRuntimeCache &&
+    Date.now() < activeDictionaryRuntimeCache.expiresAt
+  )
+    return activeDictionaryRuntimeCache.entries.slice();
+  const manifest = readManifest();
+  const installed = dictionaryDirs(manifest);
+  const disabled = disabledDictionaryMap(manifest);
   const seen = Object.create(null);
   const out = [];
   installed
@@ -631,12 +650,16 @@ function activeDictionaryEntries(language) {
         out.push(d);
       }
     });
+  activeDictionaryRuntimeCache = {
+    entries: out.slice(),
+    paths: out.map((d) => pathJoin(dictRoot(), d.name)),
+    expiresAt: Date.now() + ACTIVE_DICTIONARY_CACHE_TTL_MS,
+  };
   return out;
 }
 function activeDictionaryPaths(language) {
-  return activeDictionaryEntries(language).map((d) =>
-    pathJoin(dictRoot(), d.name),
-  );
+  activeDictionaryEntries(language);
+  return activeDictionaryRuntimeCache.paths.slice();
 }
 function dictionarySetupMessage(language, dicts) {
   const lang = language || selectedLanguageModule();

@@ -22,6 +22,7 @@ const files = [
 ];
 
 const dictRootPath = "/data/dictionaries";
+let dictionaryListReads = 0;
 const dictMeta = {
   [dictRootPath + "/Jitendex.org [2026-06-06]/index.json"]: {
     title: "Jitendex.org [2026-06-06]",
@@ -93,6 +94,7 @@ const context = {
     },
     list(p) {
       if (p !== dictRootPath) return [];
+      dictionaryListReads++;
       return [
         "Jitendex.org [2026-06-06]",
         "wty-en-de",
@@ -133,6 +135,18 @@ context.selectedLanguage = "ja";
 assert(
   context.activeDictionaryPaths(ja).length === 6,
   "Japanese should preserve all enabled dictionaries",
+);
+const listReadsAfterFirstLookup = dictionaryListReads;
+context.activeDictionaryPaths(ja);
+assert(
+  dictionaryListReads === listReadsAfterFirstLookup,
+  "repeated active dictionary lookups should reuse directory discovery",
+);
+context.invalidateActiveDictionaryRuntimeCache();
+context.activeDictionaryPaths(ja);
+assert(
+  dictionaryListReads === listReadsAfterFirstLookup + 1,
+  "invalidating the active dictionary cache should refresh directory discovery",
 );
 
 const enPaths = context.activeDictionaryPaths(en);

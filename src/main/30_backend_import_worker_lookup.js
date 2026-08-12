@@ -26,6 +26,7 @@ function backendInstalled() {
     return false;
   }
 }
+let bundledBackendInstallPromise = null;
 async function backendBinaryMatchesBundled() {
   if (!backendInstalled()) return false;
   try {
@@ -39,7 +40,7 @@ async function backendBinaryMatchesBundled() {
     return false;
   }
 }
-async function ensureBundledBackendInstalled() {
+async function installBundledBackendIfNeeded() {
   await ensureDataDirs();
   if (!file.exists(bundledBinPath())) {
     if (backendInstalled()) return;
@@ -73,6 +74,16 @@ async function ensureBundledBackendInstalled() {
         ((moved && (moved.stderr || moved.stdout)) || "move failed"),
     );
   }
+}
+function ensureBundledBackendInstalled() {
+  if (bundledBackendInstallPromise) return bundledBackendInstallPromise;
+  bundledBackendInstallPromise = installBundledBackendIfNeeded().catch(
+    (error) => {
+      bundledBackendInstallPromise = null;
+      throw error;
+    },
+  );
+  return bundledBackendInstallPromise;
 }
 async function extractFirstJsonObject(raw) {
   const s = String(raw || "").trim();

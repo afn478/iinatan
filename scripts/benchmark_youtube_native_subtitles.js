@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const path = require("path");
 const vm = require("vm");
 const { execFile, execFileSync } = require("child_process");
 const { performance } = require("perf_hooks");
@@ -15,10 +16,16 @@ function git(args) {
 }
 
 function source(ref, file) {
+  if (ref === "WORKTREE")
+    return fs.readFileSync(path.resolve(__dirname, "..", file), "utf8");
   return execFileSync("git", ["show", `${ref}:${file}`], {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
+}
+
+function revision(ref) {
+  return ref === "WORKTREE" ? ref : git(["rev-parse", ref]);
 }
 
 function medianBenchmark(run) {
@@ -300,7 +307,7 @@ async function measure(ref, live) {
   const pollUs = medianBenchmark(runPolls);
   runPolls();
   return {
-    commit: git(["rev-parse", "--short=12", ref]),
+    commit: ref === "WORKTREE" ? ref : git(["rev-parse", "--short=12", ref]),
     startup: await startupMetrics(
       native,
       live ? track(0, true, live.url) : tracks[0],
@@ -316,7 +323,7 @@ function reduction(baseline, candidate) {
 }
 
 (async () => {
-  if (git(["rev-parse", baselineRef]) === git(["rev-parse", candidateRef]))
+  if (revision(baselineRef) === revision(candidateRef))
     throw new Error("baseline and candidate revisions must differ");
   const live = videoUrl ? liveCaption(videoUrl) : null;
   const baseline = await measure(baselineRef, live);

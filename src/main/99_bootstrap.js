@@ -1,11 +1,13 @@
 registerShortcut();
 rebuildMenu();
 scheduleIINAAppearanceHintRefresh(true);
+let pluginShuttingDown = false;
 prepareNativeSubtitlePrivateCueDirectory().catch((error) => {
   debugWarn("lookup engine install check failed: " + compactError(error));
 });
 
 event.on("iina.window-loaded", () => {
+  if (pluginShuttingDown) return;
   initializeOverlay();
   setEnabled(prefBool("enabledByDefault", true), {
     trigger: "persisted-startup",
@@ -16,6 +18,9 @@ event.on("iina.window-main.changed", (status) => {
   nativeBitmapOcrMouseActivityCounter = null;
 });
 event.on("mpv.file-loaded", () => {
+  if (pluginShuttingDown) return;
+  if (typeof invalidateActiveDictionaryRuntimeCache === "function")
+    invalidateActiveDictionaryRuntimeCache();
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
@@ -42,6 +47,7 @@ event.on("mpv.file-loaded", () => {
   }
 });
 event.on("mpv.end-file", () => {
+  if (pluginShuttingDown) return;
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
@@ -65,6 +71,8 @@ event.on("mpv.end-file", () => {
   }
 });
 event.on("iina.window-will-close", () => {
+  if (pluginShuttingDown) return;
+  pluginShuttingDown = true;
   overlayLifecycleGeneration++;
   setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
@@ -97,10 +105,11 @@ function invalidateExperimentalNativeLayout(reason) {
   });
 }
 function scheduleExperimentalNativeLayoutRebuild() {
-  if (nativeSubtitlePropertyRebuildTimer !== null) return;
+  if (pluginShuttingDown || nativeSubtitlePropertyRebuildTimer !== null) return;
   nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
     nativeSubtitlePropertyRebuildTimer = null;
-    if (enabled && nativeSubtitleHitLayerMode()) pollSubtitle();
+    if (!pluginShuttingDown && enabled && nativeSubtitleHitLayerMode())
+      pollSubtitle();
   }, 0);
 }
 [
@@ -203,6 +212,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((property) => {
   try {
     event.on("mpv." + property + ".changed", () => {
+      if (pluginShuttingDown) return;
       if (
         [
           "options/sub-font",
@@ -284,6 +294,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((registration) => {
   try {
     event.on(registration[0], () => {
+      if (pluginShuttingDown) return;
       if (typeof advanceNativeBitmapOcrGeneration === "function")
         advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout(registration[1]);
@@ -294,7 +305,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
   } catch (_) {}
 });
 try {
-  if (core.window.loaded) {
+  if (!pluginShuttingDown && core.window.loaded) {
     initializeOverlay();
     setEnabled(prefBool("enabledByDefault", true), {
       trigger: "persisted-startup",

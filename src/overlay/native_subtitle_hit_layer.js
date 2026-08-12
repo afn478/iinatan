@@ -245,25 +245,26 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
 
   function resolveHitBoxOverlaps(rectangles, padding) {
     const pad = Math.max(0, Math.min(3, finiteNumber(padding, 2)));
-    const boxes = (rectangles || [])
-      .filter(
-        (rect) =>
-          rect &&
-          finiteNumber(rect.width, 0) > 0 &&
-          finiteNumber(rect.height, 0) > 0,
+    const source = rectangles || [];
+    const boxes = [];
+    for (let index = 0; index < source.length; index++) {
+      const rect = source[index];
+      if (
+        !rect ||
+        finiteNumber(rect.width, 0) <= 0 ||
+        finiteNumber(rect.height, 0) <= 0
       )
-      .map((rect) =>
-        Object.assign(
-          {
-            left: finiteNumber(rect.left, 0) - pad,
-            top: finiteNumber(rect.top, 0) - pad,
-            right: finiteNumber(rect.right, 0) + pad,
-            bottom: finiteNumber(rect.bottom, 0) + pad,
-            position: rect.position,
-          },
-          rect.surface === undefined ? {} : { surface: rect.surface },
-        ),
-      );
+        continue;
+      const box = {
+        left: finiteNumber(rect.left, 0) - pad,
+        top: finiteNumber(rect.top, 0) - pad,
+        right: finiteNumber(rect.right, 0) + pad,
+        bottom: finiteNumber(rect.bottom, 0) + pad,
+        position: rect.position,
+      };
+      if (rect.surface !== undefined) box.surface = rect.surface;
+      boxes.push(box);
+    }
     boxes.sort((a, b) => {
       const centerDelta = (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2;
       if (centerDelta) return centerDelta;
@@ -272,12 +273,14 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       return 0;
     });
     const rows = [];
-    boxes.forEach((box) => {
+    for (let boxIndex = 0; boxIndex < boxes.length; boxIndex++) {
+      const box = boxes[boxIndex];
       const height = box.bottom - box.top;
       const center = (box.top + box.bottom) / 2;
       let selected = null;
       let selectedScore = -1;
-      rows.forEach((row) => {
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        const row = rows[rowIndex];
         const overlap = Math.max(
           0,
           Math.min(box.bottom, row.bottom) - Math.max(box.top, row.top),
@@ -288,12 +291,12 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         const centerMatch =
           centerDistance <=
           Math.max(2, Math.min(height, row.averageHeight) * 0.35);
-        if (overlapRatio < 0.3 && !centerMatch) return;
+        if (overlapRatio < 0.3 && !centerMatch) continue;
         const score = overlapRatio * 1000 - centerDistance;
-        if (score <= selectedScore) return;
+        if (score <= selectedScore) continue;
         selected = row;
         selectedScore = score;
-      });
+      }
       if (!selected) {
         rows.push({
           boxes: [box],
@@ -302,7 +305,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           center,
           averageHeight: height,
         });
-        return;
+        continue;
       }
       selected.boxes.push(box);
       const count = selected.boxes.length;
@@ -311,10 +314,11 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         (selected.averageHeight * (count - 1) + height) / count;
       selected.top = Math.min(selected.top, box.top);
       selected.bottom = Math.max(selected.bottom, box.bottom);
-    });
+    }
     rows.sort((a, b) => a.center - b.center || a.top - b.top);
-    const ordered = [];
-    rows.forEach((row) => {
+    const output = [];
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const row = rows[rowIndex];
       row.boxes.sort((a, b) => a.left - b.left || a.right - b.right);
       for (let index = 1; index < row.boxes.length; index++) {
         const previous = row.boxes[index - 1];
@@ -329,22 +333,23 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         previous.right = boundary;
         current.left = boundary;
       }
-      ordered.push(...row.boxes);
-    });
-    return ordered
-      .map((box) =>
-        Object.assign(
-          {
-            left: box.left,
-            top: box.top,
-            width: Math.max(0, box.right - box.left),
-            height: Math.max(0, box.bottom - box.top),
-            position: box.position,
-          },
-          box.surface === undefined ? {} : { surface: box.surface },
-        ),
-      )
-      .filter((box) => box.width > 0 && box.height > 0);
+      for (let boxIndex = 0; boxIndex < row.boxes.length; boxIndex++) {
+        const box = row.boxes[boxIndex];
+        const width = Math.max(0, box.right - box.left);
+        const height = Math.max(0, box.bottom - box.top);
+        if (width <= 0 || height <= 0) continue;
+        const resolved = {
+          left: box.left,
+          top: box.top,
+          width,
+          height,
+          position: box.position,
+        };
+        if (box.surface !== undefined) resolved.surface = box.surface;
+        output.push(resolved);
+      }
+    }
+    return output;
   }
 
   return {

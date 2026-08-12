@@ -271,11 +271,16 @@ function prepareRuntimeAfterProfileChange(runtimePlan) {
 function warmActiveProfileBackend() {
   if (!enabled) return;
   const generation = overlayLifecycleGeneration;
+  if (
+    activeProfileBackendWarm &&
+    activeProfileBackendWarm.generation === generation
+  )
+    return activeProfileBackendWarm.promise;
   const startedAt = Date.now();
   setOverlayRuntimeState("starting-helper", "backend-warm");
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
-  prepareLookupBackendForEnabledOverlay(language, dicts)
+  const promise = prepareLookupBackendForEnabledOverlay(language, dicts)
     .then(() => {
       if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = true;
@@ -313,7 +318,16 @@ function warmActiveProfileBackend() {
           compactError(error),
       );
       setOverlayStatus(compactError(error), "error", 14000);
+    })
+    .finally(() => {
+      if (
+        activeProfileBackendWarm &&
+        activeProfileBackendWarm.promise === promise
+      )
+        activeProfileBackendWarm = null;
     });
+  activeProfileBackendWarm = { generation, promise };
+  return promise;
 }
 function pushOverlayConfigForProfileChange(runtimePlan) {
   const plan = prepareRuntimeAfterProfileChange(runtimePlan);

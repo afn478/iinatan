@@ -259,6 +259,7 @@ let workerProcessDestructionCount = 0;
 let activeWorkerFingerprint = null;
 let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;
+let activeProfileBackendWarm = null;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
 let experimentalSubtitleLookupBinding = null;
@@ -286,6 +287,7 @@ let dictionaryManagerActionInFlight = false;
 let debugLogSnapshot = null;
 let debugLogPending = "";
 let debugLogFlushTimer = null;
+let dataDirsReadyPromise = null;
 let iinaAppearanceHint = "";
 let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
@@ -370,37 +372,32 @@ function formatDebugMessage(message, level) {
 }
 function emitToIinaLogViewer(message, level) {
   const formatted = formatDebugMessage(message, level || "debug");
+  const loggers = [];
   try {
-    const logger = iina && iina.console ? iina.console : null;
-    if (logger) {
+    if (iina && iina.console) loggers.push(iina.console);
+  } catch (_) {}
+  try {
+    if (
+      globalThis &&
+      globalThis.console &&
+      loggers.indexOf(globalThis.console) < 0
+    )
+      loggers.push(globalThis.console);
+  } catch (_) {}
+  try {
+    if (typeof console !== "undefined" && loggers.indexOf(console) < 0)
+      loggers.push(console);
+  } catch (_) {}
+  loggers.forEach((logger) => {
+    try {
       if (level === "error" && typeof logger.error === "function")
         logger.error(formatted);
       else if (level === "warn" && typeof logger.warn === "function")
         logger.warn(formatted);
       else if (typeof logger.log === "function") logger.log(formatted);
       else if (typeof logger.info === "function") logger.info(formatted);
-    }
-  } catch (_) {}
-  try {
-    const gconsole =
-      globalThis && globalThis.console ? globalThis.console : null;
-    if (gconsole) {
-      if (level === "error" && typeof gconsole.error === "function")
-        gconsole.error(formatted);
-      else if (level === "warn" && typeof gconsole.warn === "function")
-        gconsole.warn(formatted);
-      else if (typeof gconsole.log === "function") gconsole.log(formatted);
-    }
-  } catch (_) {}
-  try {
-    if (typeof console !== "undefined") {
-      if (level === "error" && typeof console.error === "function")
-        console.error(formatted);
-      else if (level === "warn" && typeof console.warn === "function")
-        console.warn(formatted);
-      else if (typeof console.log === "function") console.log(formatted);
-    }
-  } catch (_) {}
+    } catch (_) {}
+  });
 }
 function debugLog(message, level) {
   if (!logEnabled()) return;
@@ -809,9 +806,9 @@ async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
   }
   return result;
 }
-async function ensureDataDirs() {
-  await execChecked("/bin/mkdir", [
-    "-p",
+function ensureDataDirs() {
+  if (dataDirsReadyPromise) return dataDirsReadyPromise;
+  const directories = [
     dataRoot(),
     pathJoin(dataRoot(), "bin"),
     dictRoot(),
@@ -821,7 +818,23 @@ async function ensureDataDirs() {
     workerQueueDir(),
     workerResponseDir(),
     workerStateDir(),
-  ]);
+  ];
+  let directoriesExist = false;
+  try {
+    directoriesExist = directories.every((directory) => file.exists(directory));
+  } catch (_) {}
+  if (directoriesExist) {
+    dataDirsReadyPromise = Promise.resolve();
+    return dataDirsReadyPromise;
+  }
+  dataDirsReadyPromise = execChecked("/bin/mkdir", [
+    "-p",
+    ...directories,
+  ]).catch((error) => {
+    dataDirsReadyPromise = null;
+    throw error;
+  });
+  return dataDirsReadyPromise;
 }
 function safeDelete(path) {
   try {
@@ -1162,17 +1175,25 @@ const IINATAN_LOOKUP_CHARACTER_POLICY = (() => {
   }
 
   function matches(value, character) {
-    const policy = normalize(value);
-    const chars = Array.from(String(character || ""));
-    if (!policy || chars.length !== 1) return false;
-    const codePoint = chars[0].codePointAt(0);
-    if (
-      policy.ranges.some(
-        (range) => codePoint >= range.start && codePoint <= range.end,
-      )
-    )
-      return true;
-    return Array.from(policy.additionalCharacters).includes(chars[0]);
+    if (!value || typeof value !== "object" || !Array.isArray(value.ranges))
+      return false;
+    const text = String(character || "");
+    if (!text) return false;
+    const codePoint = text.codePointAt(0);
+    if (String.fromCodePoint(codePoint) !== text) return false;
+    let rangeMatched = false;
+    for (let index = 0; index < value.ranges.length; index++) {
+      const range = normalizedRange(value.ranges[index]);
+      if (!range) return false;
+      if (codePoint >= range.start && codePoint <= range.end)
+        rangeMatched = true;
+    }
+    const additionalCharacters =
+      typeof value.additionalCharacters === "string"
+        ? value.additionalCharacters
+        : "";
+    if (!value.ranges.length && !additionalCharacters) return false;
+    return rangeMatched || additionalCharacters.includes(text);
   }
 
   return { policies, normalize, matches };
@@ -1416,9 +1437,51 @@ const IINATAN_DEINFLECTION = (() => {
     return [];
   }
 
+  function addRuleIndex(index, key, ruleIndex) {
+    if (!key) return;
+    if (!index[key]) index[key] = [];
+    index[key].push(ruleIndex);
+  }
+
+  function createRuleIndex(rules) {
+    const suffixes = Object.create(null);
+    const prefixes = Object.create(null);
+    const wholeWords = Object.create(null);
+    const custom = [];
+    for (let index = 0; index < rules.length; index++) {
+      const rule = rules[index];
+      if (!rule) continue;
+      if (rule.type === "suffix") addRuleIndex(suffixes, rule.inflected, index);
+      else if (rule.type === "prefix")
+        addRuleIndex(prefixes, rule.inflected, index);
+      else if (rule.type === "whole")
+        addRuleIndex(wholeWords, rule.inflected, index);
+      else if (rule.type === "custom" && typeof rule.apply === "function")
+        custom.push(index);
+    }
+    return { suffixes, prefixes, wholeWords, custom };
+  }
+
+  function applicableRuleIndices(text, index) {
+    const out = index.custom.slice();
+    const whole = index.wholeWords[text];
+    if (whole) out.push(...whole);
+    for (let offset = 0; offset < text.length; offset++) {
+      const suffix = index.suffixes[text.slice(offset)];
+      if (suffix) out.push(...suffix);
+    }
+    for (let length = 1; length <= text.length; length++) {
+      const prefix = index.prefixes[text.slice(0, length)];
+      if (prefix) out.push(...prefix);
+    }
+    out.sort((left, right) => left - right);
+    return out;
+  }
+
   function createTransformer(descriptor) {
     const defaults = conditionDefaults(descriptor || {});
     const rules = (descriptor && descriptor.rules) || [];
+    const ruleIndex = createRuleIndex(rules);
     const maxResults = Math.max(1, (descriptor && descriptor.maxResults) || 96);
     const maxDepth = Math.max(1, (descriptor && descriptor.maxDepth) || 4);
 
@@ -1437,8 +1500,13 @@ const IINATAN_DEINFLECTION = (() => {
       for (let i = 0; i < results.length && results.length < maxResults; i++) {
         const current = results[i];
         if (current.trace.length >= maxDepth) continue;
-        for (let r = 0; r < rules.length && results.length < maxResults; r++) {
-          const rule = rules[r];
+        const applicable = applicableRuleIndices(current.text, ruleIndex);
+        for (
+          let r = 0;
+          r < applicable.length && results.length < maxResults;
+          r++
+        ) {
+          const rule = rules[applicable[r]];
           if (!conditionsMatch(current.conditions, rule.conditionsIn)) continue;
           const applied = applyRule(current.text, rule);
           for (
@@ -6550,13 +6618,15 @@ function prepareNativeSubtitlePrivateCueDirectory() {
   if (nativeSubtitlePrivateCueDirectoryPromise)
     return nativeSubtitlePrivateCueDirectoryPromise;
   nativeSubtitlePrivateCueDirectoryPromise = ensureBundledBackendInstalled()
-    .then(() =>
-      utils.exec(
+    .then(() => {
+      if (file.exists(nativeSubtitlePrivateCueDirectory()))
+        return { status: 0 };
+      return utils.exec(
         "/bin/mkdir",
         ["-p", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
-      ),
-    )
+      );
+    })
     .then((result) => {
       if (!result || Number(result.status) !== 0)
         throw new Error("font-metrics-private-directory-failed");
@@ -9561,6 +9631,13 @@ function normalizeProfilePreferences(prefs) {
 }
 
 const MANIFEST_SCHEMA_VERSION = 1;
+const ACTIVE_DICTIONARY_CACHE_TTL_MS = 5000;
+const normalizedManifestShapes = new WeakSet();
+let activeDictionaryRuntimeCache = null;
+
+function invalidateActiveDictionaryRuntimeCache() {
+  activeDictionaryRuntimeCache = null;
+}
 
 function emptyManifest() {
   return {
@@ -9705,10 +9782,15 @@ function normalizeManifestShape(manifest) {
   const active = profiles[out.activeProfileId] || profiles[DEFAULT_PROFILE_ID];
   out.disabled = normalizeDisabledMap(active.disabled);
   out.dictionaryOrder = normalizeDictionaryOrder(active.dictionaryOrder);
+  normalizedManifestShapes.add(out);
   return out;
 }
+function asNormalizedManifestShape(manifest) {
+  if (manifest && normalizedManifestShapes.has(manifest)) return manifest;
+  return normalizeManifestShape(manifest || readManifest());
+}
 function activeDictionaryProfile(manifest) {
-  const normalized = normalizeManifestShape(manifest || readManifest());
+  const normalized = asNormalizedManifestShape(manifest);
   return (
     normalized.profiles[normalized.activeProfileId] ||
     normalized.profiles[DEFAULT_PROFILE_ID] ||
@@ -9747,7 +9829,7 @@ function activeProfilePreferenceBool(key, fallback) {
   }
 }
 function profileSummaries(manifest) {
-  const normalized = normalizeManifestShape(manifest || readManifest());
+  const normalized = asNormalizedManifestShape(manifest);
   return Object.keys(normalized.profiles)
     .sort((a, b) => {
       if (a === normalized.activeProfileId) return -1;
@@ -9910,6 +9992,7 @@ function writeManifest(manifest) {
           compactError(backupError),
       );
     }
+    invalidateActiveDictionaryRuntimeCache();
     return committed;
   } catch (error) {
     safeDelete(manifestPath() + ".next");
@@ -10025,9 +10108,9 @@ function unorderedDictionaryDirs() {
     return [];
   }
 }
-function dictionaryDirs() {
-  const manifest = readManifest();
-  return orderedDictionaryDirs(unorderedDictionaryDirs(), manifest);
+function dictionaryDirs(manifest) {
+  const current = manifest || readManifest();
+  return orderedDictionaryDirs(unorderedDictionaryDirs(), current);
 }
 function recommendedDictionariesByLanguage() {
   if (
@@ -10180,8 +10263,14 @@ function languageCompatibleDictionaries(language, installed) {
   return dictionaryCompatibilityDetails(language, installed).compatible;
 }
 function activeDictionaryEntries(language) {
-  const installed = dictionaryDirs();
-  const disabled = disabledDictionaryMap();
+  if (
+    activeDictionaryRuntimeCache &&
+    Date.now() < activeDictionaryRuntimeCache.expiresAt
+  )
+    return activeDictionaryRuntimeCache.entries.slice();
+  const manifest = readManifest();
+  const installed = dictionaryDirs(manifest);
+  const disabled = disabledDictionaryMap(manifest);
   const seen = Object.create(null);
   const out = [];
   installed
@@ -10193,12 +10282,16 @@ function activeDictionaryEntries(language) {
         out.push(d);
       }
     });
+  activeDictionaryRuntimeCache = {
+    entries: out.slice(),
+    paths: out.map((d) => pathJoin(dictRoot(), d.name)),
+    expiresAt: Date.now() + ACTIVE_DICTIONARY_CACHE_TTL_MS,
+  };
   return out;
 }
 function activeDictionaryPaths(language) {
-  return activeDictionaryEntries(language).map((d) =>
-    pathJoin(dictRoot(), d.name),
-  );
+  activeDictionaryEntries(language);
+  return activeDictionaryRuntimeCache.paths.slice();
 }
 function dictionarySetupMessage(language, dicts) {
   const lang = language || selectedLanguageModule();
@@ -11337,6 +11430,7 @@ function backendInstalled() {
     return false;
   }
 }
+let bundledBackendInstallPromise = null;
 async function backendBinaryMatchesBundled() {
   if (!backendInstalled()) return false;
   try {
@@ -11350,7 +11444,7 @@ async function backendBinaryMatchesBundled() {
     return false;
   }
 }
-async function ensureBundledBackendInstalled() {
+async function installBundledBackendIfNeeded() {
   await ensureDataDirs();
   if (!file.exists(bundledBinPath())) {
     if (backendInstalled()) return;
@@ -11384,6 +11478,16 @@ async function ensureBundledBackendInstalled() {
         ((moved && (moved.stderr || moved.stdout)) || "move failed"),
     );
   }
+}
+function ensureBundledBackendInstalled() {
+  if (bundledBackendInstallPromise) return bundledBackendInstallPromise;
+  bundledBackendInstallPromise = installBundledBackendIfNeeded().catch(
+    (error) => {
+      bundledBackendInstallPromise = null;
+      throw error;
+    },
+  );
+  return bundledBackendInstallPromise;
 }
 async function extractFirstJsonObject(raw) {
   const s = String(raw || "").trim();
@@ -14256,15 +14360,19 @@ function ankiToArray(value) {
       ? []
       : [value];
 }
+let ankiCardBuildCache = null;
 function ankiParseGlossaryJson(value) {
   if (typeof value !== "string") return null;
   const text = value.trim();
   if (!text || (text.charAt(0) !== "[" && text.charAt(0) !== "{")) return null;
+  if (ankiCardBuildCache && ankiCardBuildCache.parsedJson.has(text))
+    return ankiCardBuildCache.parsedJson.get(text);
+  let parsed = null;
   try {
-    return JSON.parse(text);
-  } catch (_) {
-    return null;
-  }
+    parsed = JSON.parse(text);
+  } catch (_) {}
+  if (ankiCardBuildCache) ankiCardBuildCache.parsedJson.set(text, parsed);
+  return parsed;
 }
 function ankiAttr(value) {
   return ankiEscapeHtml(value);
@@ -14897,12 +15005,13 @@ function ankiGlossaryScopedStylesHtml(items) {
 }
 function ankiGlossaryPlain(entry) {
   return ankiGlossaryItems(entry)
-    .map((item) => {
-      return ankiGlossaryContentList(item && item.glossary)
-        .map(ankiFormatGlossaryPlainText)
-        .filter(Boolean)
-        .join("\n");
-    })
+    .map(ankiGlossaryItemPlain)
+    .filter(Boolean)
+    .join("\n");
+}
+function ankiGlossaryItemPlain(item) {
+  return ankiGlossaryContentList(item && item.glossary)
+    .map(ankiFormatGlossaryPlainText)
     .filter(Boolean)
     .join("\n");
 }
@@ -14936,6 +15045,14 @@ function ankiGlossaryMetaLabel(item) {
 }
 function ankiGlossarySingleHtml(item, options) {
   const opts = options || {};
+  if (
+    !opts.brief &&
+    item &&
+    typeof item === "object" &&
+    ankiCardBuildCache &&
+    ankiCardBuildCache.singleGlossaryHtml.has(item)
+  )
+    return ankiCardBuildCache.singleGlossaryHtml.get(item);
   const dict = ankiNormalizeWhitespace(item && item.dict);
   const contents = ankiGlossaryContentList(item && item.glossary);
   const bodyItems = contents
@@ -14952,9 +15069,11 @@ function ankiGlossarySingleHtml(item, options) {
       bodyItems.map((html) => "<li>" + html + "</li>").join("") +
       "</ul>";
   }
-  return (
-    (meta ? "<i>(" + ankiYomitanEscapeExpression(meta) + ")</i> " : "") + body
-  );
+  const html =
+    (meta ? "<i>(" + ankiYomitanEscapeExpression(meta) + ")</i> " : "") + body;
+  if (!opts.brief && item && typeof item === "object" && ankiCardBuildCache)
+    ankiCardBuildCache.singleGlossaryHtml.set(item, html);
+  return html;
 }
 function ankiGlossaryEntryHtml(item) {
   const dict = ankiNormalizeWhitespace(item && item.dict);
@@ -15132,7 +15251,10 @@ function ankiPitchPositions(term) {
   return out.join(", ");
 }
 function ankiPitchCategories(term) {
-  const positions = ankiPitchPositions(term)
+  return ankiPitchCategoriesFromPositions(ankiPitchPositions(term));
+}
+function ankiPitchCategoriesFromPositions(positionText) {
+  const positions = String(positionText || "")
     .split(/,\s*/)
     .map((v) => Number(v))
     .filter((v) => Number.isFinite(v));
@@ -15237,7 +15359,7 @@ function ankiClozeForSentence(sentence, surface, position) {
     suffix: chars.slice(end).join(""),
   };
 }
-function ankiBuildCardContext(payload, host) {
+function ankiBuildCardContextUncached(payload, host) {
   const runtime = host && typeof host === "object" ? host : {};
   const raw =
     payload && payload.context && typeof payload.context === "object"
@@ -15284,13 +15406,29 @@ function ankiBuildCardContext(payload, host) {
   const sourcePath = allowCurrentMedia ? String(runtime.sourcePath || "") : "";
   const timePos = allowCurrentMedia ? Number(runtime.timePos || 0) : 0;
   const selectedDictionary = ankiSelectedGlossaryDictionary(entry, raw);
+  const glossaryItems = ankiGlossaryItems(entry);
+  const glossaryPlainItems = glossaryItems.map(ankiGlossaryItemPlain);
+  const firstGlossaryItem = glossaryItems[0];
   const glossaryFirst = ankiFirstGlossary(entry);
+  const selectedGlossaryIndex = selectedDictionary
+    ? glossaryItems.findIndex((item) =>
+        ankiDictionaryMarkerMatches(item && item.dict, selectedDictionary),
+      )
+    : -1;
   const selectedGlossary =
-    (selectedDictionary
-      ? ankiGlossaryPlainForDictionary(entry, selectedDictionary)
+    (selectedGlossaryIndex >= 0
+      ? glossaryPlainItems[selectedGlossaryIndex]
       : "") || glossaryFirst;
-  const glossaryFirstHtml = ankiFirstGlossaryHtml(entry);
-  const selectedGlossaryHtml = ankiSelectedGlossaryHtml(entry, raw);
+  const glossaryFirstHtml = firstGlossaryItem
+    ? ankiGlossaryItemsHtml([firstGlossaryItem])
+    : "";
+  const selectedGlossaryHtml =
+    selectedGlossaryIndex < 0
+      ? glossaryFirstHtml
+      : ankiGlossaryItemsHtml([glossaryItems[selectedGlossaryIndex]], {
+          forceList: true,
+        }) || glossaryFirstHtml;
+  const pitchAccentPositions = ankiPitchPositions(term);
   return {
     requestId: String((payload && payload.requestId) || ""),
     entry,
@@ -15306,8 +15444,8 @@ function ankiBuildCardContext(payload, host) {
     clozePrefix: cloze.prefix,
     clozeBody: cloze.body,
     clozeSuffix: cloze.suffix,
-    glossary: ankiGlossaryHtml(entry),
-    glossaryPlain: ankiGlossaryPlain(entry),
+    glossary: ankiGlossaryItemsHtml(glossaryItems, { forceList: true }),
+    glossaryPlain: glossaryPlainItems.filter(Boolean).join("\n"),
     glossaryFirst,
     glossaryFirstHtml,
     selectedGlossary,
@@ -15318,8 +15456,9 @@ function ankiBuildCardContext(payload, host) {
     tags: ankiEntryTags(entry),
     frequencies: ankiFormatFrequencies(term),
     frequencyHarmonicRank: ankiFrequencyHarmonicRank(term),
-    pitchAccentPositions: ankiPitchPositions(term),
-    pitchAccentCategories: ankiPitchCategories(term),
+    pitchAccentPositions,
+    pitchAccentCategories:
+      ankiPitchCategoriesFromPositions(pitchAccentPositions),
     phoneticTranscriptions: ankiPhoneticTranscriptions(term),
     documentTitle: title,
     sourcePath,
@@ -15328,6 +15467,18 @@ function ankiBuildCardContext(payload, host) {
     audioTerm: expression,
     audioReading: reading,
   };
+}
+function ankiBuildCardContext(payload, host) {
+  const previousCache = ankiCardBuildCache;
+  ankiCardBuildCache = {
+    parsedJson: new Map(),
+    singleGlossaryHtml: new Map(),
+  };
+  try {
+    return ankiBuildCardContextUncached(payload, host);
+  } finally {
+    ankiCardBuildCache = previousCache;
+  }
 }
 
 function ankiMarkerDefinitions(language) {
@@ -16870,11 +17021,16 @@ function prepareRuntimeAfterProfileChange(runtimePlan) {
 function warmActiveProfileBackend() {
   if (!enabled) return;
   const generation = overlayLifecycleGeneration;
+  if (
+    activeProfileBackendWarm &&
+    activeProfileBackendWarm.generation === generation
+  )
+    return activeProfileBackendWarm.promise;
   const startedAt = Date.now();
   setOverlayRuntimeState("starting-helper", "backend-warm");
   const language = selectedLanguageModule();
   const dicts = activeDictionaryPaths(language);
-  prepareLookupBackendForEnabledOverlay(language, dicts)
+  const promise = prepareLookupBackendForEnabledOverlay(language, dicts)
     .then(() => {
       if (!enabled || generation !== overlayLifecycleGeneration) return;
       lookupBackendReadyForNativeHide = true;
@@ -16912,7 +17068,16 @@ function warmActiveProfileBackend() {
           compactError(error),
       );
       setOverlayStatus(compactError(error), "error", 14000);
+    })
+    .finally(() => {
+      if (
+        activeProfileBackendWarm &&
+        activeProfileBackendWarm.promise === promise
+      )
+        activeProfileBackendWarm = null;
     });
+  activeProfileBackendWarm = { generation, promise };
+  return promise;
 }
 function pushOverlayConfigForProfileChange(runtimePlan) {
   const plan = prepareRuntimeAfterProfileChange(runtimePlan);
@@ -17142,9 +17307,10 @@ function postToDictionaryManager(name, data) {
   }
 }
 function dictionaryManagerState() {
+  invalidateActiveDictionaryRuntimeCache();
   const manifest = readManifest();
   const disabled = disabledDictionaryMap(manifest);
-  const dicts = dictionaryDirs();
+  const dicts = dictionaryDirs(manifest);
   const activeProfile = activeDictionaryProfile(manifest);
   const profilePreferences = normalizeProfilePreferences(
     activeProfile.preferences,
@@ -17778,11 +17944,13 @@ function rebuildMenu() {
 registerShortcut();
 rebuildMenu();
 scheduleIINAAppearanceHintRefresh(true);
+let pluginShuttingDown = false;
 prepareNativeSubtitlePrivateCueDirectory().catch((error) => {
   debugWarn("lookup engine install check failed: " + compactError(error));
 });
 
 event.on("iina.window-loaded", () => {
+  if (pluginShuttingDown) return;
   initializeOverlay();
   setEnabled(prefBool("enabledByDefault", true), {
     trigger: "persisted-startup",
@@ -17793,6 +17961,9 @@ event.on("iina.window-main.changed", (status) => {
   nativeBitmapOcrMouseActivityCounter = null;
 });
 event.on("mpv.file-loaded", () => {
+  if (pluginShuttingDown) return;
+  if (typeof invalidateActiveDictionaryRuntimeCache === "function")
+    invalidateActiveDictionaryRuntimeCache();
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
@@ -17819,6 +17990,7 @@ event.on("mpv.file-loaded", () => {
   }
 });
 event.on("mpv.end-file", () => {
+  if (pluginShuttingDown) return;
   advanceNativeSubtitleFontMetricGeneration();
   if (typeof advanceNativeAssGeometryGeneration === "function")
     advanceNativeAssGeometryGeneration();
@@ -17842,6 +18014,8 @@ event.on("mpv.end-file", () => {
   }
 });
 event.on("iina.window-will-close", () => {
+  if (pluginShuttingDown) return;
+  pluginShuttingDown = true;
   overlayLifecycleGeneration++;
   setOverlayRuntimeState("shutting-down", "window-will-close");
   nativeSubtitlePlaybackActive = false;
@@ -17874,10 +18048,11 @@ function invalidateExperimentalNativeLayout(reason) {
   });
 }
 function scheduleExperimentalNativeLayoutRebuild() {
-  if (nativeSubtitlePropertyRebuildTimer !== null) return;
+  if (pluginShuttingDown || nativeSubtitlePropertyRebuildTimer !== null) return;
   nativeSubtitlePropertyRebuildTimer = setTimeout(() => {
     nativeSubtitlePropertyRebuildTimer = null;
-    if (enabled && nativeSubtitleHitLayerMode()) pollSubtitle();
+    if (!pluginShuttingDown && enabled && nativeSubtitleHitLayerMode())
+      pollSubtitle();
   }, 0);
 }
 [
@@ -17980,6 +18155,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((property) => {
   try {
     event.on("mpv." + property + ".changed", () => {
+      if (pluginShuttingDown) return;
       if (
         [
           "options/sub-font",
@@ -18061,6 +18237,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
 ].forEach((registration) => {
   try {
     event.on(registration[0], () => {
+      if (pluginShuttingDown) return;
       if (typeof advanceNativeBitmapOcrGeneration === "function")
         advanceNativeBitmapOcrGeneration();
       invalidateExperimentalNativeLayout(registration[1]);
@@ -18071,7 +18248,7 @@ function scheduleExperimentalNativeLayoutRebuild() {
   } catch (_) {}
 });
 try {
-  if (core.window.loaded) {
+  if (!pluginShuttingDown && core.window.loaded) {
     initializeOverlay();
     setEnabled(prefBool("enabledByDefault", true), {
       trigger: "persisted-startup",

@@ -5,6 +5,8 @@
 ### Improved
 
 - Restored fast YouTube startup with native subtitle lookup by keeping Online Media caption URLs delayed until mpv needs them, reusing mpv's decoded SRT events instead of downloading captions twice, and avoiding repeated work for unselected tracks and unchanged cues.
+- Reduced plugin-wide startup and interaction overhead by deduplicating cold-start filesystem/backend work, caching active dictionary discovery, indexing deinflection rules, avoiding repeated overlay lookup scans and debug formatting, streamlining subtitle hit-box layout and Anki card formatting, and preventing teardown events from restarting plugin work.
+- Added a reproducible plugin-wide benchmark covering startup, six-language lookup, media/subtitle handling, native geometry, overlay rendering, Anki cards, and dictionary/profile settings, including comparisons against an untouched Git revision.
 
 ## 2.1.1 - 2026-08-10
 

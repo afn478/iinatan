@@ -74,14 +74,14 @@ interfaces, event buses, factories, or compatibility adapters.
 | Overlay and Settings mix many responsibilities | Confirmed. Their 44 and 36 listener sites and large source sizes remain; no unmeasured DOM rewrite was attempted. |
 | Settings/version metadata drift | Confirmed. Plugin version generation and all duplicated default checks now fail the build on disagreement; targeted runtime effects have one table. |
 | Manifest parse failure silently loses apparent state | Confirmed and fixed with corrupt-byte preservation and backup recovery. |
-| Repeated manifest reads are a material hot-path cost | Confirmed structurally but not demonstrated as significant by the worker/lookup fixtures. A long-lived snapshot was rejected because it would add invalidation state for externally replaceable user data; logical operations continue to pass an already-read manifest where they currently do so. |
+| Repeated manifest reads are a material hot-path cost | A later plugin-wide benchmark demonstrated a 4.97 ms active-dictionary scan. Active paths now use a five-second cache that is invalidated on manifest writes, media loads, and Settings refreshes, while other reads still consult the authoritative on-disk manifest. |
 | Worker can observe partial JavaScript JSON | Confirmed by an intermittent benchmark failure and fixed by body-plus-marker publication. |
 | Worker idle scan rate is unnecessarily high | Confirmed and reduced with active/idle backoff. |
 | Lookup/geometry contention requires another process | Not demonstrated by the available fixtures. The single-request worker model remains documented and no deployment split was added. |
 | Native helper is one undivided implementation | Partly outdated at HEAD: protocol parsing, media demux, and ASS geometry already have focused translation units. The remaining CLI/lookup/worker unit was not split without an independent ownership or performance gain. |
 | Production ships substantial tests | Confirmed; 493 lines were removed from the generated runtime while standalone coverage was retained. |
 | Dictionary metadata needs another cache | Not demonstrated at expected dictionary counts, so no cache was added. |
-| Generated language rules need runtime optimisation | No regression or disproportionate cost appeared in language/performance fixtures. Provenance/generation cleanup remains separate work. |
+| Generated language rules need runtime optimisation | A broader six-language benchmark later exposed French deinflection at 9.64 ms per request. Rules are now indexed by applicable affix while preserving original rule order and outputs. |
 | Broad empty catches hide important failures | Confirmed for profile/global preference writes and fixed there. Capability probes around optional IINA/mpv APIs remain intentionally best-effort. |
 
 The pass inspected language routing/deinflection, dictionary formatting,
@@ -186,8 +186,10 @@ the final result and therefore is not counted as a baseline reduction.
 | Anki model fields | 32 FIFO entries |
 | Passive Anki duplicate status | 80 entries, 5 s TTL (pre-existing) |
 | AnkiConnect version | one entry, 30 s TTL (pre-existing) |
+| Active dictionary paths | one entry, 5 s TTL; invalidated by manifest writes, media loads, and Settings refreshes |
 
-No cache was added. Five previously unbounded caches received limits. Subtitle
+The original audit added no cache and bounded five existing caches; the later
+performance sweep added the active-dictionary cache shown above. Subtitle
 polling remains because IINA/mpv property events are not sufficient for every
 subtitle transition; the native worker's unnecessary idle work was reduced
 instead.

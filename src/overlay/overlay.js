@@ -1194,9 +1194,12 @@
         popupThemeHintQuery.addListener(handler);
     } catch (_) {}
   }
+  function overlayDebugEnabled() {
+    return !!state.config && state.config.debugLogVerbose !== false;
+  }
   function overlayDebug(message) {
     try {
-      if (!state.config || state.config.debugLogVerbose === false) return;
+      if (!overlayDebugEnabled()) return;
       sendBridgeMessage({
         type: "overlay-log",
         message: String(message || ""),
@@ -1228,11 +1231,8 @@
 
   function isLookupableChar(ch) {
     const lang = activeLanguage();
-    const configuredPolicy = IINATAN_LOOKUP_CHARACTER_POLICY.normalize(
-      lang.lookupCharacterPolicy,
-    );
     const policy =
-      configuredPolicy ||
+      lang.lookupCharacterPolicy ||
       (lang.id === "ja"
         ? IINATAN_LOOKUP_CHARACTER_POLICY.policies.japanese
         : null);
@@ -1272,9 +1272,13 @@
   }
 
   function lookupUnitForPosition(pos) {
-    const preview = lookupPreviewForPosition(pos);
     const run = findLookupRun(pos);
     const canonicalPos = run ? run.start : pos;
+    const preview = run || {
+      start: pos,
+      end: Math.min(state.chars.length, pos + 1),
+      text: state.chars.slice(pos, pos + 1).join(""),
+    };
     return {
       pos: canonicalPos,
       key: run
@@ -3109,14 +3113,15 @@
     state.text = state.config.flattenSubtitleLineBreaks
       ? flattenSubtitleText(text)
       : String(text || "");
-    overlayDebug(
-      "renderSubtitle lineId=" +
-        state.lineId +
-        " chars=" +
-        Array.from(state.text || "").length +
-        " text=" +
-        JSON.stringify(String(state.text || "").slice(0, 80)),
-    );
+    if (overlayDebugEnabled())
+      overlayDebug(
+        "renderSubtitle lineId=" +
+          state.lineId +
+          " chars=" +
+          Array.from(state.text || "").length +
+          " text=" +
+          JSON.stringify(String(state.text || "").slice(0, 80)),
+      );
     state.chars = Array.from(state.text);
     state.lineId = Number(lineId || 0);
     state.nativeSurfaces = Array.isArray(nativeSurfaces)
@@ -6444,7 +6449,7 @@
       dictName: String((glossaryItem && glossaryItem.dict) || ""),
       sourceKind: detectDictionarySource(glossaryItem, parsed),
     };
-    if (ctx.sourceKind !== "generic")
+    if (ctx.sourceKind !== "generic" && overlayDebugEnabled())
       overlayDebug(
         "detected dictionary source/type dict=" +
           JSON.stringify(ctx.dictName) +
@@ -6535,12 +6540,13 @@
         .filter(Boolean)
         .join(", ");
       if (!dict && !display) return;
-      overlayDebug(
-        "frequency metadata detected dict=" +
-          JSON.stringify(dict) +
-          " values=" +
-          values.length,
-      );
+      if (overlayDebugEnabled())
+        overlayDebug(
+          "frequency metadata detected dict=" +
+            JSON.stringify(dict) +
+            " values=" +
+            values.length,
+        );
       chips.push(
         '<span class="freq-chip" title="' +
           escapeHtml((dict || "Frequency") + (display ? " " + display : "")) +
@@ -6601,14 +6607,15 @@
         ? positions.map((v) => String(v)).join(", ")
         : bits.filter(Boolean).join(" · ");
       if (!dict && !display) return;
-      overlayDebug(
-        "pitch accent metadata detected dict=" +
-          JSON.stringify(dict) +
-          " positions=" +
-          positions.length +
-          " transcriptions=" +
-          transcriptions.length,
-      );
+      if (overlayDebugEnabled())
+        overlayDebug(
+          "pitch accent metadata detected dict=" +
+            JSON.stringify(dict) +
+            " positions=" +
+            positions.length +
+            " transcriptions=" +
+            transcriptions.length,
+        );
       chips.push(
         '<span class="pitch-group" title="' +
           escapeHtml(
@@ -6678,14 +6685,15 @@
       surface && compareTextKey(surface) !== compareTextKey(heading)
         ? "looked up from: " + surface
         : "";
-    overlayDebug(
-      "display headword selected heading=" +
-        JSON.stringify(heading) +
-        " surface=" +
-        JSON.stringify(surface) +
-        " secondary=" +
-        JSON.stringify(secondary),
-    );
+    if (overlayDebugEnabled())
+      overlayDebug(
+        "display headword selected heading=" +
+          JSON.stringify(heading) +
+          " surface=" +
+          JSON.stringify(surface) +
+          " secondary=" +
+          JSON.stringify(secondary),
+      );
     return { heading, reading, secondary };
   }
   function audioDataForEntry(entry) {

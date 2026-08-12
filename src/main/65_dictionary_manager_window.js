@@ -18,9 +18,10 @@ function postToDictionaryManager(name, data) {
   }
 }
 function dictionaryManagerState() {
+  invalidateActiveDictionaryRuntimeCache();
   const manifest = readManifest();
   const disabled = disabledDictionaryMap(manifest);
-  const dicts = dictionaryDirs();
+  const dicts = dictionaryDirs(manifest);
   const activeProfile = activeDictionaryProfile(manifest);
   const profilePreferences = normalizeProfilePreferences(
     activeProfile.preferences,

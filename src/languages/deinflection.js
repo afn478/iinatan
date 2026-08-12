@@ -118,9 +118,51 @@ const IINATAN_DEINFLECTION = (() => {
     return [];
   }
 
+  function addRuleIndex(index, key, ruleIndex) {
+    if (!key) return;
+    if (!index[key]) index[key] = [];
+    index[key].push(ruleIndex);
+  }
+
+  function createRuleIndex(rules) {
+    const suffixes = Object.create(null);
+    const prefixes = Object.create(null);
+    const wholeWords = Object.create(null);
+    const custom = [];
+    for (let index = 0; index < rules.length; index++) {
+      const rule = rules[index];
+      if (!rule) continue;
+      if (rule.type === "suffix") addRuleIndex(suffixes, rule.inflected, index);
+      else if (rule.type === "prefix")
+        addRuleIndex(prefixes, rule.inflected, index);
+      else if (rule.type === "whole")
+        addRuleIndex(wholeWords, rule.inflected, index);
+      else if (rule.type === "custom" && typeof rule.apply === "function")
+        custom.push(index);
+    }
+    return { suffixes, prefixes, wholeWords, custom };
+  }
+
+  function applicableRuleIndices(text, index) {
+    const out = index.custom.slice();
+    const whole = index.wholeWords[text];
+    if (whole) out.push(...whole);
+    for (let offset = 0; offset < text.length; offset++) {
+      const suffix = index.suffixes[text.slice(offset)];
+      if (suffix) out.push(...suffix);
+    }
+    for (let length = 1; length <= text.length; length++) {
+      const prefix = index.prefixes[text.slice(0, length)];
+      if (prefix) out.push(...prefix);
+    }
+    out.sort((left, right) => left - right);
+    return out;
+  }
+
   function createTransformer(descriptor) {
     const defaults = conditionDefaults(descriptor || {});
     const rules = (descriptor && descriptor.rules) || [];
+    const ruleIndex = createRuleIndex(rules);
     const maxResults = Math.max(1, (descriptor && descriptor.maxResults) || 96);
     const maxDepth = Math.max(1, (descriptor && descriptor.maxDepth) || 4);
 
@@ -139,8 +181,13 @@ const IINATAN_DEINFLECTION = (() => {
       for (let i = 0; i < results.length && results.length < maxResults; i++) {
         const current = results[i];
         if (current.trace.length >= maxDepth) continue;
-        for (let r = 0; r < rules.length && results.length < maxResults; r++) {
-          const rule = rules[r];
+        const applicable = applicableRuleIndices(current.text, ruleIndex);
+        for (
+          let r = 0;
+          r < applicable.length && results.length < maxResults;
+          r++
+        ) {
+          const rule = rules[applicable[r]];
           if (!conditionsMatch(current.conditions, rule.conditionsIn)) continue;
           const applied = applyRule(current.text, rule);
           for (

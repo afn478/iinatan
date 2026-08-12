@@ -49,6 +49,7 @@ function lifecycleContext(options) {
     activeWorkerReady: null,
     workerStartInFlight: null,
     lookupBackendReadyForNativeHide: false,
+    activeProfileBackendWarm: null,
     lastSubtitleCueIdentity: null,
     lastNativeLayoutFingerprint: "",
     nativeLayoutStablePolls: 0,
@@ -232,6 +233,7 @@ async function testPersistedStartupAndIdempotence() {
   assert.strictEqual(harness.context.overlayRuntimeState, "starting-helper");
   assert.strictEqual(harness.loadCalls, 1);
   assert.strictEqual(harness.backendCalls, 1);
+  harness.context.setOverlayRuntimeState("enabling", "readiness-event");
   harness.context.lifecycleApi.setEnabled(true, {
     trigger: "duplicate-startup-event",
   });
@@ -296,6 +298,11 @@ async function testPersistedStartupReadinessOrdering() {
     prepareNativeSubtitlePrivateCueDirectory() {
       return Promise.resolve();
     },
+    requestBackendWorkerStop() {},
+    stopBackendWorker() {
+      return Promise.resolve();
+    },
+    flushDebugLogBuffer() {},
     experimentalNativeSubtitleMode() {
       return true;
     },
@@ -357,6 +364,18 @@ async function testPersistedStartupReadinessOrdering() {
     harness.preferenceWrites.length,
     0,
     "startup recovery never invokes or persists the toggle path",
+  );
+
+  const pollCallsBeforeClose = harness.pollCalls;
+  eventHandlers["iina.window-will-close"]();
+  eventHandlers["mpv.track-list.changed"]();
+  eventHandlers["mpv.file-loaded"]();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(harness.context.overlayRuntimeState, "shutting-down");
+  assert.strictEqual(
+    harness.pollCalls,
+    pollCallsBeforeClose,
+    "late mpv events must not restart polling during window teardown",
   );
 }
 

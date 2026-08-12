@@ -258,6 +258,7 @@ let workerProcessDestructionCount = 0;
 let activeWorkerFingerprint = null;
 let activeWorkerReady = null;
 let lookupBackendReadyForNativeHide = false;
+let activeProfileBackendWarm = null;
 let subtitleLineSerial = 0;
 let currentSubtitleLineId = 0;
 let experimentalSubtitleLookupBinding = null;
@@ -285,6 +286,7 @@ let dictionaryManagerActionInFlight = false;
 let debugLogSnapshot = null;
 let debugLogPending = "";
 let debugLogFlushTimer = null;
+let dataDirsReadyPromise = null;
 let iinaAppearanceHint = "";
 let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
@@ -369,37 +371,32 @@ function formatDebugMessage(message, level) {
 }
 function emitToIinaLogViewer(message, level) {
   const formatted = formatDebugMessage(message, level || "debug");
+  const loggers = [];
   try {
-    const logger = iina && iina.console ? iina.console : null;
-    if (logger) {
+    if (iina && iina.console) loggers.push(iina.console);
+  } catch (_) {}
+  try {
+    if (
+      globalThis &&
+      globalThis.console &&
+      loggers.indexOf(globalThis.console) < 0
+    )
+      loggers.push(globalThis.console);
+  } catch (_) {}
+  try {
+    if (typeof console !== "undefined" && loggers.indexOf(console) < 0)
+      loggers.push(console);
+  } catch (_) {}
+  loggers.forEach((logger) => {
+    try {
       if (level === "error" && typeof logger.error === "function")
         logger.error(formatted);
       else if (level === "warn" && typeof logger.warn === "function")
         logger.warn(formatted);
       else if (typeof logger.log === "function") logger.log(formatted);
       else if (typeof logger.info === "function") logger.info(formatted);
-    }
-  } catch (_) {}
-  try {
-    const gconsole =
-      globalThis && globalThis.console ? globalThis.console : null;
-    if (gconsole) {
-      if (level === "error" && typeof gconsole.error === "function")
-        gconsole.error(formatted);
-      else if (level === "warn" && typeof gconsole.warn === "function")
-        gconsole.warn(formatted);
-      else if (typeof gconsole.log === "function") gconsole.log(formatted);
-    }
-  } catch (_) {}
-  try {
-    if (typeof console !== "undefined") {
-      if (level === "error" && typeof console.error === "function")
-        console.error(formatted);
-      else if (level === "warn" && typeof console.warn === "function")
-        console.warn(formatted);
-      else if (typeof console.log === "function") console.log(formatted);
-    }
-  } catch (_) {}
+    } catch (_) {}
+  });
 }
 function debugLog(message, level) {
   if (!logEnabled()) return;
@@ -808,9 +805,9 @@ async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
   }
   return result;
 }
-async function ensureDataDirs() {
-  await execChecked("/bin/mkdir", [
-    "-p",
+function ensureDataDirs() {
+  if (dataDirsReadyPromise) return dataDirsReadyPromise;
+  const directories = [
     dataRoot(),
     pathJoin(dataRoot(), "bin"),
     dictRoot(),
@@ -820,7 +817,23 @@ async function ensureDataDirs() {
     workerQueueDir(),
     workerResponseDir(),
     workerStateDir(),
-  ]);
+  ];
+  let directoriesExist = false;
+  try {
+    directoriesExist = directories.every((directory) => file.exists(directory));
+  } catch (_) {}
+  if (directoriesExist) {
+    dataDirsReadyPromise = Promise.resolve();
+    return dataDirsReadyPromise;
+  }
+  dataDirsReadyPromise = execChecked("/bin/mkdir", [
+    "-p",
+    ...directories,
+  ]).catch((error) => {
+    dataDirsReadyPromise = null;
+    throw error;
+  });
+  return dataDirsReadyPromise;
 }
 function safeDelete(path) {
   try {

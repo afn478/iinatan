@@ -493,6 +493,7 @@ async function runOverlayPass(worker, cases, scanLength) {
     maxGlossesPerEntry: 4,
     scanLength,
     debugLogVerbose: false,
+    experimentalNativeSubtitleHitLayer: false,
   });
   context.__handlers.enabled({ enabled: true });
   const samples = [];
@@ -546,6 +547,15 @@ async function runOverlayPass(worker, cases, scanLength) {
   }
   const summary = summarize("overlay-to-render simulated", samples);
   printSummary(summary);
+  samples
+    .filter((sample) => !sample.ok)
+    .slice(0, 5)
+    .forEach((sample) => {
+      console.error(
+        "overlay-to-render simulated failure: " +
+          String(sample.error || "unknown error"),
+      );
+    });
   return { summary, samples };
 }
 
@@ -613,6 +623,9 @@ async function main() {
 
     if (backend.summary.failed || prefix.summary.failed) {
       throw new Error("backend performance pass contained failed requests");
+    }
+    if (overlay.summary.failed) {
+      throw new Error("simulated overlay performance pass contained failures");
     }
     if (backend.summary.ok && backend.summary.p95 > 1000) {
       throw new Error(`backend p95 exceeded 1000ms (${backend.summary.p95}ms)`);

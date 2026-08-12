@@ -601,23 +601,19 @@ function makeOverlayContext(options) {
 
 function loadOverlayForTest(exportList, options) {
   const context = makeOverlayContext(options);
+  const readSource =
+    options && typeof options.readSource === "function"
+      ? options.readSource
+      : (relativePath) =>
+          fs.readFileSync(path.join(root, relativePath), "utf8");
   const exports = Array.isArray(exportList)
     ? exportList.join(", ")
     : String(exportList || "");
-  let source = fs.readFileSync(
-    path.join(root, "src/overlay/overlay.js"),
-    "utf8",
-  );
+  let source = readSource("src/overlay/overlay.js");
   source =
-    fs.readFileSync(
-      path.join(root, "src/languages/lookup_character_policy.js"),
-      "utf8",
-    ) +
+    readSource("src/languages/lookup_character_policy.js") +
     "\n" +
-    fs.readFileSync(
-      path.join(root, "src/overlay/native_subtitle_hit_layer.js"),
-      "utf8",
-    ) +
+    readSource("src/overlay/native_subtitle_hit_layer.js") +
     "\n" +
     source;
   source = source.replace(

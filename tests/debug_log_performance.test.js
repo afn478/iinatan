@@ -7,6 +7,22 @@ let reads = 0;
 let writes = 0;
 let timers = [];
 let logText = "existing\n";
+let viewerLogs = 0;
+let processLaunches = 0;
+const sharedConsole = {
+  log() {
+    viewerLogs++;
+  },
+  warn() {
+    viewerLogs++;
+  },
+  error() {
+    viewerLogs++;
+  },
+  info() {
+    viewerLogs++;
+  },
+};
 
 const context = {
   iina: {
@@ -18,10 +34,10 @@ const context = {
     input: {},
     ws: {},
     preferences: { get: (key) => (key === "debugLogEnabled" ? true : false) },
-    console: { log() {}, warn() {}, error() {}, info() {} },
+    console: sharedConsole,
     file: {
       exists(p) {
-        return p === "/data/debug.log";
+        return p === "/data" || String(p).startsWith("/data/");
       },
       read(p) {
         if (p === "/data/debug.log") {
@@ -41,6 +57,10 @@ const context = {
     utils: {
       resolvePath: (value) =>
         value === "@data/" ? "/data/" : String(value || ""),
+      async exec() {
+        processLaunches++;
+        return { status: 0, stdout: "", stderr: "" };
+      },
     },
     standaloneWindow: {},
   },
@@ -51,7 +71,7 @@ const context = {
   },
   clearTimeout() {},
   URL,
-  console: { log() {}, warn() {}, error() {}, info() {} },
+  console: sharedConsole,
 };
 context.globalThis = context;
 vm.createContext(context);
@@ -60,7 +80,8 @@ const source =
   fs.readFileSync(
     path.join(root, "src/main/00_context_state_paths.js"),
     "utf8",
-  ) + "\nglobalThis.__debugLogTest = { debugLog, flushDebugLogBuffer };";
+  ) +
+  "\nglobalThis.__debugLogTest = { debugLog, flushDebugLogBuffer, ensureDataDirs };";
 vm.runInContext(source, context, { filename: "00_context_state_paths.js" });
 
 function assert(condition, message) {
@@ -71,8 +92,19 @@ context.__debugLogTest.debugLog("first hover log");
 context.__debugLogTest.debugLog("second hover log");
 context.__debugLogTest.debugLog("third hover log");
 
+assert(viewerLogs === 3, "each log should reach an aliased IINA console once");
 assert(reads === 0, "debugLog should not synchronously read debug.log");
 assert(writes === 0, "debugLog should not synchronously write debug.log");
+const firstDirectoryCheck = context.__debugLogTest.ensureDataDirs();
+const secondDirectoryCheck = context.__debugLogTest.ensureDataDirs();
+assert(
+  firstDirectoryCheck === secondDirectoryCheck,
+  "concurrent data-directory checks should share one promise",
+);
+assert(
+  processLaunches === 0,
+  "existing data directories should not launch mkdir",
+);
 
 context.__debugLogTest.flushDebugLogBuffer();
 assert(reads === 1, "first flush should read the previous log once");

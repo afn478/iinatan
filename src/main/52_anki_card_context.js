@@ -26,15 +26,19 @@ function ankiToArray(value) {
       ? []
       : [value];
 }
+let ankiCardBuildCache = null;
 function ankiParseGlossaryJson(value) {
   if (typeof value !== "string") return null;
   const text = value.trim();
   if (!text || (text.charAt(0) !== "[" && text.charAt(0) !== "{")) return null;
+  if (ankiCardBuildCache && ankiCardBuildCache.parsedJson.has(text))
+    return ankiCardBuildCache.parsedJson.get(text);
+  let parsed = null;
   try {
-    return JSON.parse(text);
-  } catch (_) {
-    return null;
-  }
+    parsed = JSON.parse(text);
+  } catch (_) {}
+  if (ankiCardBuildCache) ankiCardBuildCache.parsedJson.set(text, parsed);
+  return parsed;
 }
 function ankiAttr(value) {
   return ankiEscapeHtml(value);
@@ -667,12 +671,13 @@ function ankiGlossaryScopedStylesHtml(items) {
 }
 function ankiGlossaryPlain(entry) {
   return ankiGlossaryItems(entry)
-    .map((item) => {
-      return ankiGlossaryContentList(item && item.glossary)
-        .map(ankiFormatGlossaryPlainText)
-        .filter(Boolean)
-        .join("\n");
-    })
+    .map(ankiGlossaryItemPlain)
+    .filter(Boolean)
+    .join("\n");
+}
+function ankiGlossaryItemPlain(item) {
+  return ankiGlossaryContentList(item && item.glossary)
+    .map(ankiFormatGlossaryPlainText)
     .filter(Boolean)
     .join("\n");
 }
@@ -706,6 +711,14 @@ function ankiGlossaryMetaLabel(item) {
 }
 function ankiGlossarySingleHtml(item, options) {
   const opts = options || {};
+  if (
+    !opts.brief &&
+    item &&
+    typeof item === "object" &&
+    ankiCardBuildCache &&
+    ankiCardBuildCache.singleGlossaryHtml.has(item)
+  )
+    return ankiCardBuildCache.singleGlossaryHtml.get(item);
   const dict = ankiNormalizeWhitespace(item && item.dict);
   const contents = ankiGlossaryContentList(item && item.glossary);
   const bodyItems = contents
@@ -722,9 +735,11 @@ function ankiGlossarySingleHtml(item, options) {
       bodyItems.map((html) => "<li>" + html + "</li>").join("") +
       "</ul>";
   }
-  return (
-    (meta ? "<i>(" + ankiYomitanEscapeExpression(meta) + ")</i> " : "") + body
-  );
+  const html =
+    (meta ? "<i>(" + ankiYomitanEscapeExpression(meta) + ")</i> " : "") + body;
+  if (!opts.brief && item && typeof item === "object" && ankiCardBuildCache)
+    ankiCardBuildCache.singleGlossaryHtml.set(item, html);
+  return html;
 }
 function ankiGlossaryEntryHtml(item) {
   const dict = ankiNormalizeWhitespace(item && item.dict);
@@ -902,7 +917,10 @@ function ankiPitchPositions(term) {
   return out.join(", ");
 }
 function ankiPitchCategories(term) {
-  const positions = ankiPitchPositions(term)
+  return ankiPitchCategoriesFromPositions(ankiPitchPositions(term));
+}
+function ankiPitchCategoriesFromPositions(positionText) {
+  const positions = String(positionText || "")
     .split(/,\s*/)
     .map((v) => Number(v))
     .filter((v) => Number.isFinite(v));
@@ -1007,7 +1025,7 @@ function ankiClozeForSentence(sentence, surface, position) {
     suffix: chars.slice(end).join(""),
   };
 }
-function ankiBuildCardContext(payload, host) {
+function ankiBuildCardContextUncached(payload, host) {
   const runtime = host && typeof host === "object" ? host : {};
   const raw =
     payload && payload.context && typeof payload.context === "object"
@@ -1054,13 +1072,29 @@ function ankiBuildCardContext(payload, host) {
   const sourcePath = allowCurrentMedia ? String(runtime.sourcePath || "") : "";
   const timePos = allowCurrentMedia ? Number(runtime.timePos || 0) : 0;
   const selectedDictionary = ankiSelectedGlossaryDictionary(entry, raw);
+  const glossaryItems = ankiGlossaryItems(entry);
+  const glossaryPlainItems = glossaryItems.map(ankiGlossaryItemPlain);
+  const firstGlossaryItem = glossaryItems[0];
   const glossaryFirst = ankiFirstGlossary(entry);
+  const selectedGlossaryIndex = selectedDictionary
+    ? glossaryItems.findIndex((item) =>
+        ankiDictionaryMarkerMatches(item && item.dict, selectedDictionary),
+      )
+    : -1;
   const selectedGlossary =
-    (selectedDictionary
-      ? ankiGlossaryPlainForDictionary(entry, selectedDictionary)
+    (selectedGlossaryIndex >= 0
+      ? glossaryPlainItems[selectedGlossaryIndex]
       : "") || glossaryFirst;
-  const glossaryFirstHtml = ankiFirstGlossaryHtml(entry);
-  const selectedGlossaryHtml = ankiSelectedGlossaryHtml(entry, raw);
+  const glossaryFirstHtml = firstGlossaryItem
+    ? ankiGlossaryItemsHtml([firstGlossaryItem])
+    : "";
+  const selectedGlossaryHtml =
+    selectedGlossaryIndex < 0
+      ? glossaryFirstHtml
+      : ankiGlossaryItemsHtml([glossaryItems[selectedGlossaryIndex]], {
+          forceList: true,
+        }) || glossaryFirstHtml;
+  const pitchAccentPositions = ankiPitchPositions(term);
   return {
     requestId: String((payload && payload.requestId) || ""),
     entry,
@@ -1076,8 +1110,8 @@ function ankiBuildCardContext(payload, host) {
     clozePrefix: cloze.prefix,
     clozeBody: cloze.body,
     clozeSuffix: cloze.suffix,
-    glossary: ankiGlossaryHtml(entry),
-    glossaryPlain: ankiGlossaryPlain(entry),
+    glossary: ankiGlossaryItemsHtml(glossaryItems, { forceList: true }),
+    glossaryPlain: glossaryPlainItems.filter(Boolean).join("\n"),
     glossaryFirst,
     glossaryFirstHtml,
     selectedGlossary,
@@ -1088,8 +1122,9 @@ function ankiBuildCardContext(payload, host) {
     tags: ankiEntryTags(entry),
     frequencies: ankiFormatFrequencies(term),
     frequencyHarmonicRank: ankiFrequencyHarmonicRank(term),
-    pitchAccentPositions: ankiPitchPositions(term),
-    pitchAccentCategories: ankiPitchCategories(term),
+    pitchAccentPositions,
+    pitchAccentCategories:
+      ankiPitchCategoriesFromPositions(pitchAccentPositions),
     phoneticTranscriptions: ankiPhoneticTranscriptions(term),
     documentTitle: title,
     sourcePath,
@@ -1098,4 +1133,16 @@ function ankiBuildCardContext(payload, host) {
     audioTerm: expression,
     audioReading: reading,
   };
+}
+function ankiBuildCardContext(payload, host) {
+  const previousCache = ankiCardBuildCache;
+  ankiCardBuildCache = {
+    parsedJson: new Map(),
+    singleGlossaryHtml: new Map(),
+  };
+  try {
+    return ankiBuildCardContextUncached(payload, host);
+  } finally {
+    ankiCardBuildCache = previousCache;
+  }
 }
