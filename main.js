@@ -366,6 +366,32 @@ function scheduleOneShot(callback, delayMs) {
 function cancelOneShot(task) {
   if (task) task.cancelled = true;
 }
+// IINA's JavaScript interval registry is mutated on whichever queue invokes
+// clearInterval. WebSocket handlers run on a private server queue, so cancelling
+// an interval from one can race the main-queue timer callback and crash IINA.
+// Mark cancellation synchronously, then remove the native interval from a
+// self-cleaning main-queue timeout. The interval itself remains long-lived so
+// fast worker polling does not allocate a native timer on every tick.
+function scheduleRepeating(callback, delayMs) {
+  const task = {
+    cancelled: false,
+    nativeId: null,
+  };
+  task.nativeId = setInterval(
+    () => {
+      if (!task.cancelled) callback();
+    },
+    Math.max(0, Number(delayMs) || 0),
+  );
+  return task;
+}
+function cancelRepeating(task) {
+  if (!task || task.cancelled) return;
+  task.cancelled = true;
+  const nativeId = task.nativeId;
+  task.nativeId = null;
+  if (nativeId !== null) scheduleOneShot(() => clearInterval(nativeId), 0);
+}
 function sleep(ms) {
   return new Promise((resolve) => scheduleOneShot(resolve, ms));
 }
@@ -12480,7 +12506,7 @@ let directWorkerPollTimer = null;
 let directWorkerPollWaiters = [];
 function flushDirectWorkerPollWaiters() {
   if (!directWorkerPollWaiters.length) {
-    if (directWorkerPollTimer !== null) clearInterval(directWorkerPollTimer);
+    if (directWorkerPollTimer !== null) cancelRepeating(directWorkerPollTimer);
     directWorkerPollTimer = null;
     return;
   }
@@ -12492,7 +12518,7 @@ function waitForDirectWorkerPoll() {
   return new Promise((resolve) => {
     directWorkerPollWaiters.push(resolve);
     if (directWorkerPollTimer !== null) return;
-    directWorkerPollTimer = setInterval(
+    directWorkerPollTimer = scheduleRepeating(
       flushDirectWorkerPollWaiters,
       Math.max(1, prefNumber("directIpcPollMs", 2)),
     );
@@ -14182,15 +14208,6 @@ function safeAnkiConnectUrl(rawUrl) {
   } catch (_) {}
   return /^https?:\/\/[^\s<>"']+$/i.test(value) ? value : "";
 }
-function ankiRequestPath() {
-  return dataPath(
-    "anki-connect-request-" +
-      String(Date.now()) +
-      "-" +
-      String(Math.random()).slice(2) +
-      ".json",
-  );
-}
 function ankiConnectTransportError(message) {
   const error = new Error(message);
   error.ankiConnectRetryable = true;
@@ -14280,55 +14297,44 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
     if (timer) cancelOneShot(timer);
   }
 }
-async function ankiConnectInvokeCurlOnce(payload, url, timeout) {
-  const requestPath = ankiRequestPath();
-  file.write(requestPath, JSON.stringify(payload));
-  let result = null;
+function ankiConnectHttpError(error) {
+  if (error && error.ankiConnectRetryable) return error;
+  const status = Number(error && error.statusCode);
+  if (Number.isFinite(status) && status > 0)
+    return ankiConnectTransportError(
+      "AnkiConnect HTTP request failed with status " + String(status),
+    );
+  const detail =
+    (error && (error.reason || error.text || error.message)) || error;
+  return ankiConnectTransportError(
+    "AnkiConnect request failed: " +
+      String(detail || "network error").slice(0, 500),
+  );
+}
+async function ankiConnectInvokeOnce(payload, url, timeout) {
+  if (typeof http !== "object" || !http || typeof http.post !== "function")
+    throw ankiConnectTransportError("IINA's HTTP API is unavailable.");
+  let response = null;
   try {
-    result = await ankiConnectWithTimeout(
-      utils.exec(
-        "/usr/bin/curl",
-        [
-          "--silent",
-          "--show-error",
-          "--location",
-          "--connect-timeout",
-          String(timeout),
-          "--max-time",
-          String(timeout),
-          "--header",
-          "Content-Type: application/json",
-          "--data-binary",
-          "@" + requestPath,
-          url,
-        ],
-        dataRoot(),
-      ),
+    response = await ankiConnectWithTimeout(
+      http.post(url, {
+        headers: { "Content-Type": "application/json" },
+        data: payload,
+      }),
       payload && payload.action,
       timeout,
     );
-  } finally {
-    try {
-      if (typeof file.delete === "function" && file.exists(requestPath))
-        file.delete(requestPath);
-    } catch (_) {}
+  } catch (error) {
+    throw ankiConnectHttpError(error);
   }
-  if (!result || result.status !== 0) {
-    throw ankiConnectTransportError(
-      "AnkiConnect request failed: " +
-        String(
-          (result && (result.stderr || result.stdout)) || "curl failed",
-        ).slice(0, 500),
-    );
-  }
-  return ankiConnectParseResponse(result.stdout, 200);
-}
-async function ankiConnectInvokeOnce(payload, url, timeout) {
-  return ankiConnectInvokeCurlOnce(payload, url, timeout);
+  if (!response || typeof response !== "object")
+    throw ankiConnectTransportError("AnkiConnect returned no HTTP response.");
+  const body = response.data !== undefined ? response.data : response.text;
+  return ankiConnectParseResponse(body, Number(response.statusCode) || 0);
 }
 async function ankiConnectInvoke(action, params, options) {
   const opts = options || {};
-  const prefs = ankiActiveProfilePreferences();
+  const prefs = opts.preferences || ankiActiveProfilePreferences();
   const url = safeAnkiConnectUrl(opts.url || prefs.ankiConnectUrl);
   if (!url) throw new Error("Invalid AnkiConnect URL.");
   const payload = {
@@ -14387,17 +14393,22 @@ async function ankiCachedConnectVersion(prefs) {
     return ankiConnectVersionCache.version;
   if (ankiConnectVersionCache.key === key && ankiConnectVersionCache.promise)
     return ankiConnectVersionCache.promise;
-  const promise = ankiConnectInvoke("version", {}, { url: key }).then(
-    (version) => {
-      ankiConnectVersionCache = {
-        key,
-        version,
-        expiresAt: Date.now() + ANKI_CONNECT_VERSION_CACHE_MS,
-        promise: null,
-      };
-      return version;
+  const promise = ankiConnectInvoke(
+    "version",
+    {},
+    {
+      url: key,
+      preferences: prefs,
     },
-  );
+  ).then((version) => {
+    ankiConnectVersionCache = {
+      key,
+      version,
+      expiresAt: Date.now() + ANKI_CONNECT_VERSION_CACHE_MS,
+      promise: null,
+    };
+    return version;
+  });
   ankiConnectVersionCache = {
     key,
     version: null,
@@ -15842,7 +15853,7 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     const result = await ankiConnectInvoke(
       "canAddNotesWithErrorDetail",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     );
     const first = Array.isArray(result) ? result[0] : null;
     if (first && typeof first === "object")
@@ -15855,12 +15866,12 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [allowedNote || blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     ),
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     ),
   ]);
   const withDuplicatesAllowed = Array.isArray(results[0])
@@ -15877,7 +15888,7 @@ async function ankiFindNotesByDuplicateQuery(prefs, fields, fieldNames) {
   const result = await ankiConnectInvoke(
     "findNotes",
     { query },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+    { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
   );
   return Array.isArray(result) ? result : [];
 }
@@ -15915,7 +15926,7 @@ function ankiOpenDuplicateNotes(prefs, noteIds) {
       ankiConnectInvoke(
         "guiBrowse",
         { query },
-        { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+        { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
       ),
     ).catch((error) => {
       debugWarn(
@@ -15956,8 +15967,12 @@ let ankiStatusCache = Object.create(null);
 let ankiStatusInFlight = Object.create(null);
 let ankiStatusQueueTail = Promise.resolve();
 let ankiStatusQueuedCount = 0;
+let ankiMediaRootReady = false;
+let ankiMediaRootPromise = null;
+let ankiFfmpegPathCache = "";
 
 const ANKI_MEDIA_MAX_AUDIO_SECONDS = 35;
+const ANKI_MEDIA_MAX_CACHE_PREROLL_SECONDS = 30;
 const ANKI_MODEL_FIELD_CACHE_LIMIT = 32;
 const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
 const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
@@ -15973,8 +15988,9 @@ function ankiActiveProfilePreferences(overrides) {
 function ankiFieldTemplatesFromPrefs(prefs) {
   return normalizeAnkiFieldTemplates(prefs && prefs.ankiFieldTemplatesJson);
 }
-function ankiProfileConfigured(prefs) {
-  const templates = ankiFieldTemplatesFromPrefs(prefs || {});
+function ankiProfileConfigured(prefs, preparedTemplates) {
+  const templates =
+    preparedTemplates || ankiFieldTemplatesFromPrefs(prefs || {});
   const hasTemplate = Object.keys(templates).some((field) =>
     String(templates[field] || "").trim(),
   );
@@ -16066,14 +16082,16 @@ function refreshDictionaryManagerAnkiState(overrides) {
   postDictionaryManagerAnkiState();
   (async () => {
     try {
-      const invokeOptions = { url: prefs.ankiConnectUrl, timeoutSeconds: 4 };
-      const version = await ankiConnectInvoke("version", {}, invokeOptions);
-      const deckNames = await ankiConnectInvoke("deckNames", {}, invokeOptions);
-      const modelNames = await ankiConnectInvoke(
-        "modelNames",
-        {},
-        invokeOptions,
-      );
+      const invokeOptions = {
+        url: prefs.ankiConnectUrl,
+        timeoutSeconds: 4,
+        preferences: prefs,
+      };
+      const [version, deckNames, modelNames] = await Promise.all([
+        ankiConnectInvoke("version", {}, invokeOptions),
+        ankiConnectInvoke("deckNames", {}, invokeOptions),
+        ankiConnectInvoke("modelNames", {}, invokeOptions),
+      ]);
       let fields = [];
       if (
         prefs.ankiModelName &&
@@ -16186,7 +16204,7 @@ async function ankiStoreMediaFile(filename, path, prefs) {
       path,
       deleteExisting: true,
     },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 20 },
+    { url: prefs.ankiConnectUrl, timeoutSeconds: 20, preferences: prefs },
   );
   return String(stored || filename);
 }
@@ -16199,17 +16217,13 @@ async function ankiStoreMediaUrl(filename, url, prefs) {
       url,
       deleteExisting: true,
     },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 20 },
+    { url: prefs.ankiConnectUrl, timeoutSeconds: 20, preferences: prefs },
   );
   return String(stored || filename);
 }
 async function ankiMediaFileHashHex(path) {
   try {
-    const result = await utils.exec(
-      "/usr/bin/shasum",
-      ["-a", "1", path],
-      dataRoot(),
-    );
+    const result = await utils.exec("/sbin/md5", ["-q", path], dataRoot());
     const match =
       result && result.status === 0
         ? String(result.stdout || "").match(/\b([0-9a-f]{8,40})\b/i)
@@ -16224,7 +16238,21 @@ function ankiMediaPath(filename) {
   return dataPath("anki-media", filename);
 }
 async function ensureAnkiMediaRoot() {
-  await utils.exec("/bin/mkdir", ["-p", dataPath("anki-media")], dataRoot());
+  if (ankiMediaRootReady) return;
+  if (ankiMediaRootPromise) return ankiMediaRootPromise;
+  const promise = utils
+    .exec("/bin/mkdir", ["-p", dataPath("anki-media")], dataRoot())
+    .then((result) => {
+      if (!result || result.status !== 0)
+        throw new Error("Could not create the Anki media directory.");
+      ankiMediaRootReady = true;
+    });
+  ankiMediaRootPromise = promise;
+  try {
+    await promise;
+  } finally {
+    if (ankiMediaRootPromise === promise) ankiMediaRootPromise = null;
+  }
 }
 function ankiMpvGetProperty(name) {
   try {
@@ -16245,6 +16273,50 @@ function ankiMpvSetProperty(name, value) {
     return true;
   } catch (_) {}
   return false;
+}
+function ankiAlignedCacheAudioWindow(start, end) {
+  const previousA = ankiMpvGetProperty("ab-loop-a");
+  const previousB = ankiMpvGetProperty("ab-loop-b");
+  let changedA = false;
+  let changedB = false;
+  try {
+    changedA = ankiMpvSetProperty("ab-loop-a", start);
+    changedB = ankiMpvSetProperty("ab-loop-b", end);
+    if (!changedA || !changedB) return null;
+    mpv.command("ab-loop-align-cache", []);
+    const alignedStart = Number(ankiMpvGetProperty("ab-loop-a"));
+    const seek = start - alignedStart;
+    if (
+      !Number.isFinite(alignedStart) ||
+      alignedStart < 0 ||
+      seek < -0.001 ||
+      seek > ANKI_MEDIA_MAX_CACHE_PREROLL_SECONDS
+    )
+      return null;
+    return {
+      dumpStart: start,
+      dumpEnd: end,
+      seek: Math.max(0, seek),
+    };
+  } catch (error) {
+    debugVerbose("Anki cache audio alignment failed: " + compactError(error));
+    return null;
+  } finally {
+    if (changedA)
+      ankiMpvSetProperty(
+        "ab-loop-a",
+        previousA !== undefined && previousA !== null && previousA !== ""
+          ? previousA
+          : "no",
+      );
+    if (changedB)
+      ankiMpvSetProperty(
+        "ab-loop-b",
+        previousB !== undefined && previousB !== null && previousB !== ""
+          ? previousB
+          : "no",
+      );
+  }
 }
 async function ankiCaptureScreenshot(context, prefs) {
   await ensureAnkiMediaRoot();
@@ -16272,12 +16344,13 @@ async function ankiCaptureScreenshot(context, prefs) {
             await ankiMediaFileHashHex(path),
             "jpg",
           );
-          return ankiStoreMediaFile(filename, path, prefs);
+          return await ankiStoreMediaFile(filename, path, prefs);
         }
       } catch (_) {}
       await sleep(40);
     }
   } finally {
+    safeDelete(path);
     if (
       didSetQuality &&
       previousQuality !== undefined &&
@@ -16290,6 +16363,7 @@ async function ankiCaptureScreenshot(context, prefs) {
   throw new Error("Screenshot file was not created.");
 }
 async function ankiFindFfmpegPath() {
+  if (ankiFfmpegPathCache) return ankiFfmpegPathCache;
   const candidates = [
     "/opt/homebrew/bin/ffmpeg",
     "/usr/local/bin/ffmpeg",
@@ -16298,7 +16372,10 @@ async function ankiFindFfmpegPath() {
   ];
   for (let i = 0; i < candidates.length; i++) {
     try {
-      if (file.exists(candidates[i])) return candidates[i];
+      if (file.exists(candidates[i])) {
+        ankiFfmpegPathCache = candidates[i];
+        return candidates[i];
+      }
     } catch (_) {}
   }
   try {
@@ -16306,7 +16383,10 @@ async function ankiFindFfmpegPath() {
     const path = String((result && result.stdout) || "")
       .trim()
       .split(/\r?\n/)[0];
-    if (result && result.status === 0 && path) return path;
+    if (result && result.status === 0 && path) {
+      ankiFfmpegPathCache = path;
+      return path;
+    }
   } catch (_) {}
   return "";
 }
@@ -16345,81 +16425,87 @@ async function ankiCaptureSentenceAudio(context, prefs) {
     ankiMediaFilename(documentName, ankiRandomHex(12), "mkv"),
   );
   await ensureAnkiMediaRoot();
-  const codecArgs =
-    format === "opus"
-      ? ["-c:a", "libopus", "-b:a", String(bitrate) + "k"]
-      : ["-codec:a", "libmp3lame", "-b:a", String(bitrate) + "k"];
-  const ffmpegArgs = (input, seek) =>
-    [
-      "-nostdin",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-y",
-      "-ss",
-      String(seek.toFixed(3)),
-      "-i",
-      input,
-      "-t",
-      String(duration.toFixed(3)),
-      "-map",
-      "0:a:0",
-      "-vn",
-      "-sn",
-      "-dn",
-      "-threads",
-      "2",
-    ].concat(codecArgs, [outPath]);
-  let result = null;
-  if (
-    source.kind !== "local-file" &&
-    source.origin !== "selected-audio-track"
-  ) {
-    try {
-      mpv.command("dump-cache", [
-        String(start.toFixed(3)),
-        String(end.toFixed(3)),
-        cachedPath,
-      ]);
-      if (file.exists(cachedPath))
-        result = await utils.exec(
-          ffmpegPath,
-          ffmpegArgs(cachedPath, 0),
-          dataRoot(),
+  try {
+    const codecArgs =
+      format === "opus"
+        ? ["-c:a", "libopus", "-b:a", String(bitrate) + "k"]
+        : ["-codec:a", "libmp3lame", "-b:a", String(bitrate) + "k"];
+    const ffmpegArgs = (input, seek) =>
+      [
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        String(seek.toFixed(3)),
+        "-i",
+        input,
+        "-t",
+        String(duration.toFixed(3)),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-threads",
+        "2",
+      ].concat(codecArgs, [outPath]);
+    let result = null;
+    if (source.origin !== "selected-audio-track") {
+      try {
+        const cacheWindow = ankiAlignedCacheAudioWindow(start, end);
+        if (cacheWindow) {
+          mpv.command("dump-cache", [
+            String(cacheWindow.dumpStart.toFixed(3)),
+            String(cacheWindow.dumpEnd.toFixed(3)),
+            cachedPath,
+          ]);
+        }
+        if (cacheWindow && file.exists(cachedPath))
+          result = await utils.exec(
+            ffmpegPath,
+            ffmpegArgs(cachedPath, cacheWindow.seek),
+            dataRoot(),
+          );
+      } catch (error) {
+        debugVerbose(
+          "Anki cache audio fallback failed: " + compactError(error),
         );
-    } catch (error) {
-      debugVerbose("Anki cache audio fallback failed: " + compactError(error));
-    } finally {
-      safeDelete(cachedPath);
+      } finally {
+        safeDelete(cachedPath);
+      }
     }
-  }
-  if (
-    (!result || result.status !== 0 || !file.exists(outPath)) &&
-    source.ffmpegReadable
-  ) {
-    result = await utils.exec(
-      ffmpegPath,
-      ffmpegArgs(source.locator, start),
-      dataRoot(),
+    if (
+      (!result || result.status !== 0 || !file.exists(outPath)) &&
+      source.ffmpegReadable
+    ) {
+      result = await utils.exec(
+        ffmpegPath,
+        ffmpegArgs(source.locator, start),
+        dataRoot(),
+      );
+    }
+    if (!result || result.status !== 0 || !file.exists(outPath)) {
+      const limitation = source.ffmpegReadable
+        ? "ffmpeg failed"
+        : "source is only readable by mpv and its current cache had no usable audio";
+      throw new Error(
+        "Sentence audio capture failed: " +
+          String(
+            (result && (result.stderr || result.stdout)) || limitation,
+          ).slice(0, 500),
+      );
+    }
+    const filename = ankiMediaFilename(
+      documentName,
+      await ankiMediaFileHashHex(outPath),
+      ext,
     );
+    return await ankiStoreMediaFile(filename, outPath, prefs);
+  } finally {
+    safeDelete(outPath);
   }
-  if (!result || result.status !== 0 || !file.exists(outPath)) {
-    const limitation = source.ffmpegReadable
-      ? "ffmpeg failed"
-      : "source is only readable by mpv and its current cache had no usable audio";
-    throw new Error(
-      "Sentence audio capture failed: " +
-        String(
-          (result && (result.stderr || result.stdout)) || limitation,
-        ).slice(0, 500),
-    );
-  }
-  const filename = ankiMediaFilename(
-    documentName,
-    await ankiMediaFileHashHex(outPath),
-    ext,
-  );
-  return ankiStoreMediaFile(filename, outPath, prefs);
 }
 function ankiAudioUrlFromTemplate(template, context, prefs) {
   const values = {
@@ -16522,7 +16608,7 @@ async function ankiConfiguredFieldNames(prefs) {
     const fields = await ankiConnectInvoke(
       "modelFieldNames",
       { modelName: prefs.ankiModelName },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     );
     const out = Array.isArray(fields) ? fields : [];
     putBoundedCache(
@@ -16598,6 +16684,23 @@ function ankiCachedPassiveStatus(key) {
   }
   return ankiCloneStatusPayload(cached.payload);
 }
+async function ankiDuplicateNotesForAdd(prefs, fields) {
+  const cacheKey = ankiPassiveStatusCacheKey(prefs, fields);
+  let status = ankiCachedPassiveStatus(cacheKey);
+  if (status && status.duplicate) status = null;
+  if (!status && ankiStatusInFlight[cacheKey])
+    status = await ankiStatusInFlight[cacheKey];
+  if (status && status.ok !== false)
+    return {
+      cacheKey,
+      noteIds: status.duplicate ? ankiNormalizeNoteIds(status.noteIds) : [],
+    };
+  const fieldNames = await ankiConfiguredFieldNames(prefs);
+  return {
+    cacheKey,
+    noteIds: await ankiFindDuplicateNotes(prefs, fields, fieldNames),
+  };
+}
 function ankiPassiveStatusQueueBusyPayload() {
   return {
     ok: true,
@@ -16617,13 +16720,13 @@ function ankiRunQueuedPassiveStatus(task) {
 }
 async function ankiCardStatusForContext(payload) {
   const prefs = ankiActiveProfilePreferences();
-  if (!ankiProfileConfigured(prefs))
+  const templates = ankiFieldTemplatesFromPrefs(prefs);
+  if (!ankiProfileConfigured(prefs, templates))
     return {
       ok: false,
       state: "disabled",
       message: "Anki export is not configured.",
     };
-  const templates = ankiFieldTemplatesFromPrefs(prefs);
   const context = ankiCardContextFromPayload(payload);
   const fields = renderAnkiFields(templates, context, {});
   const cacheKey = ankiPassiveStatusCacheKey(prefs, fields);
@@ -16634,9 +16737,13 @@ async function ankiCardStatusForContext(payload) {
   if (ankiStatusQueuedCount >= ANKI_PASSIVE_STATUS_QUEUE_LIMIT)
     return ankiPassiveStatusQueueBusyPayload();
   const task = ankiRunQueuedPassiveStatus(async () => {
-    await ankiRequireConnectable(prefs);
-    const fieldNames = await ankiConfiguredFieldNames(prefs);
-    const duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
+    let duplicates = [];
+    if (prefs.ankiDuplicateCheck) {
+      const fieldNames = await ankiConfiguredFieldNames(prefs);
+      duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
+    } else {
+      await ankiRequireConnectable(prefs);
+    }
     if (duplicates.length)
       return {
         ok: true,
@@ -16784,16 +16891,17 @@ function handleBridgeAnkiCardAdd(payload) {
   (async () => {
     try {
       const prefs = ankiActiveProfilePreferences();
-      if (!ankiProfileConfigured(prefs))
-        throw new Error("Anki export is not configured.");
-      await ankiRequireConnectable(prefs);
       const templates = ankiFieldTemplatesFromPrefs(prefs);
+      if (!ankiProfileConfigured(prefs, templates))
+        throw new Error("Anki export is not configured.");
       const context = ankiCardContextFromPayload(payload);
       let fields = renderAnkiFields(templates, context, {});
       let duplicates = [];
-      if (prefs.ankiDuplicateCheck) {
-        const fieldNames = await ankiConfiguredFieldNames(prefs);
-        duplicates = await ankiFindDuplicateNotes(prefs, fields, fieldNames);
+      let statusCacheKey = "";
+      if (prefs.ankiDuplicateCheck && prefs.ankiDuplicateMode !== "allow") {
+        const duplicateStatus = await ankiDuplicateNotesForAdd(prefs, fields);
+        statusCacheKey = duplicateStatus.cacheKey;
+        duplicates = duplicateStatus.noteIds;
       }
       if (duplicates.length && prefs.ankiDuplicateMode !== "allow") {
         const openedIds = ankiOpenDuplicateNotes(prefs, duplicates);
@@ -16816,13 +16924,49 @@ function handleBridgeAnkiCardAdd(payload) {
         options: ankiDuplicateOptions(prefs),
         tags: ankiNoteTags(prefs),
       };
-      const noteId = await ankiConnectInvoke(
-        "addNote",
-        { note },
-        { url: prefs.ankiConnectUrl, timeoutSeconds: 20 },
-      );
+      let noteId = null;
+      try {
+        noteId = await ankiConnectInvoke(
+          "addNote",
+          { note },
+          { url: prefs.ankiConnectUrl, timeoutSeconds: 20, preferences: prefs },
+        );
+      } catch (error) {
+        if (
+          prefs.ankiDuplicateCheck &&
+          prefs.ankiDuplicateMode !== "allow" &&
+          ankiErrorLooksDuplicate(compactError(error))
+        ) {
+          const fieldNames = await ankiConfiguredFieldNames(prefs);
+          const lateDuplicates = await ankiFindNotesByDuplicateQuery(
+            prefs,
+            fields,
+            fieldNames,
+          );
+          if (lateDuplicates.length) {
+            const openedIds = ankiOpenDuplicateNotes(prefs, lateDuplicates);
+            postAnkiCardStateForBridgePayload(payload, {
+              ok: true,
+              state: "opened",
+              duplicate: true,
+              noteIds: openedIds,
+              message: "Reveal sent to Anki.",
+            });
+            return;
+          }
+        }
+        throw error;
+      }
       if (!ankiValidAddedNoteId(noteId))
         throw new Error("AnkiConnect did not return a note ID.");
+      if (statusCacheKey)
+        ankiRememberPassiveStatus(statusCacheKey, {
+          ok: true,
+          state: "duplicate",
+          duplicate: true,
+          noteIds: [noteId],
+          message: "Duplicate found.",
+        });
       postAnkiCardStateForBridgePayload(payload, {
         ok: true,
         state: "added",
@@ -17210,9 +17354,9 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
   debugLog("startPolling subtitlePollMs=" + nextMs);
-  if (pollTimer !== null) clearInterval(pollTimer);
+  if (pollTimer !== null) cancelRepeating(pollTimer);
   activeSubtitlePollMs = nextMs;
-  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
+  pollTimer = scheduleRepeating(pollSubtitle, activeSubtitlePollMs);
   pollSubtitle();
 }
 function configuredSubtitlePollMs() {
@@ -17223,13 +17367,13 @@ function refreshPollingInterval() {
   const nextMs = configuredSubtitlePollMs();
   if (nextMs === activeSubtitlePollMs) return;
   debugLog("subtitlePollMs changed " + activeSubtitlePollMs + " -> " + nextMs);
-  clearInterval(pollTimer);
+  cancelRepeating(pollTimer);
   activeSubtitlePollMs = nextMs;
-  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
+  pollTimer = scheduleRepeating(pollSubtitle, activeSubtitlePollMs);
 }
 function stopPolling() {
   debugLog("stopPolling");
-  if (pollTimer !== null) clearInterval(pollTimer);
+  if (pollTimer !== null) cancelRepeating(pollTimer);
   pollTimer = null;
   activeSubtitlePollMs = 0;
   lastSubtitle = null;

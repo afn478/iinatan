@@ -17,15 +17,6 @@ function safeAnkiConnectUrl(rawUrl) {
   } catch (_) {}
   return /^https?:\/\/[^\s<>"']+$/i.test(value) ? value : "";
 }
-function ankiRequestPath() {
-  return dataPath(
-    "anki-connect-request-" +
-      String(Date.now()) +
-      "-" +
-      String(Math.random()).slice(2) +
-      ".json",
-  );
-}
 function ankiConnectTransportError(message) {
   const error = new Error(message);
   error.ankiConnectRetryable = true;
@@ -115,55 +106,44 @@ async function ankiConnectWithTimeout(promise, action, timeout) {
     if (timer) cancelOneShot(timer);
   }
 }
-async function ankiConnectInvokeCurlOnce(payload, url, timeout) {
-  const requestPath = ankiRequestPath();
-  file.write(requestPath, JSON.stringify(payload));
-  let result = null;
+function ankiConnectHttpError(error) {
+  if (error && error.ankiConnectRetryable) return error;
+  const status = Number(error && error.statusCode);
+  if (Number.isFinite(status) && status > 0)
+    return ankiConnectTransportError(
+      "AnkiConnect HTTP request failed with status " + String(status),
+    );
+  const detail =
+    (error && (error.reason || error.text || error.message)) || error;
+  return ankiConnectTransportError(
+    "AnkiConnect request failed: " +
+      String(detail || "network error").slice(0, 500),
+  );
+}
+async function ankiConnectInvokeOnce(payload, url, timeout) {
+  if (typeof http !== "object" || !http || typeof http.post !== "function")
+    throw ankiConnectTransportError("IINA's HTTP API is unavailable.");
+  let response = null;
   try {
-    result = await ankiConnectWithTimeout(
-      utils.exec(
-        "/usr/bin/curl",
-        [
-          "--silent",
-          "--show-error",
-          "--location",
-          "--connect-timeout",
-          String(timeout),
-          "--max-time",
-          String(timeout),
-          "--header",
-          "Content-Type: application/json",
-          "--data-binary",
-          "@" + requestPath,
-          url,
-        ],
-        dataRoot(),
-      ),
+    response = await ankiConnectWithTimeout(
+      http.post(url, {
+        headers: { "Content-Type": "application/json" },
+        data: payload,
+      }),
       payload && payload.action,
       timeout,
     );
-  } finally {
-    try {
-      if (typeof file.delete === "function" && file.exists(requestPath))
-        file.delete(requestPath);
-    } catch (_) {}
+  } catch (error) {
+    throw ankiConnectHttpError(error);
   }
-  if (!result || result.status !== 0) {
-    throw ankiConnectTransportError(
-      "AnkiConnect request failed: " +
-        String(
-          (result && (result.stderr || result.stdout)) || "curl failed",
-        ).slice(0, 500),
-    );
-  }
-  return ankiConnectParseResponse(result.stdout, 200);
-}
-async function ankiConnectInvokeOnce(payload, url, timeout) {
-  return ankiConnectInvokeCurlOnce(payload, url, timeout);
+  if (!response || typeof response !== "object")
+    throw ankiConnectTransportError("AnkiConnect returned no HTTP response.");
+  const body = response.data !== undefined ? response.data : response.text;
+  return ankiConnectParseResponse(body, Number(response.statusCode) || 0);
 }
 async function ankiConnectInvoke(action, params, options) {
   const opts = options || {};
-  const prefs = ankiActiveProfilePreferences();
+  const prefs = opts.preferences || ankiActiveProfilePreferences();
   const url = safeAnkiConnectUrl(opts.url || prefs.ankiConnectUrl);
   if (!url) throw new Error("Invalid AnkiConnect URL.");
   const payload = {
@@ -222,17 +202,22 @@ async function ankiCachedConnectVersion(prefs) {
     return ankiConnectVersionCache.version;
   if (ankiConnectVersionCache.key === key && ankiConnectVersionCache.promise)
     return ankiConnectVersionCache.promise;
-  const promise = ankiConnectInvoke("version", {}, { url: key }).then(
-    (version) => {
-      ankiConnectVersionCache = {
-        key,
-        version,
-        expiresAt: Date.now() + ANKI_CONNECT_VERSION_CACHE_MS,
-        promise: null,
-      };
-      return version;
+  const promise = ankiConnectInvoke(
+    "version",
+    {},
+    {
+      url: key,
+      preferences: prefs,
     },
-  );
+  ).then((version) => {
+    ankiConnectVersionCache = {
+      key,
+      version,
+      expiresAt: Date.now() + ANKI_CONNECT_VERSION_CACHE_MS,
+      promise: null,
+    };
+    return version;
+  });
   ankiConnectVersionCache = {
     key,
     version: null,

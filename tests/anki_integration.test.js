@@ -77,6 +77,11 @@ const context = {
   },
   postToDictionaryManager() {},
   debugWarn() {},
+  http: {
+    async post() {
+      return { statusCode: 200, data: { result: null, error: null } };
+    },
+  },
   normalizePopupThemePreference(value) {
     return value;
   },
@@ -109,6 +114,7 @@ const context = {
       if (name === "time-pos") return 83.4;
       return 0;
     },
+    set() {},
     command() {},
   },
 };
@@ -217,7 +223,7 @@ async function testNestedCardSkipsCurrentMediaCapture() {
 }
 
 async function testAnkiBridgeRecoversAfterConnectTimeout() {
-  const previousExec = context.utils.exec;
+  const previousPost = context.http.post;
   setActiveAnkiPrefs(
     makeConfiguredAnkiPrefs({
       ankiConnectTimeoutSeconds: 1,
@@ -226,12 +232,8 @@ async function testAnkiBridgeRecoversAfterConnectTimeout() {
   );
   context.__overlayMessages.length = 0;
   fastTimers = true;
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      return new Promise(() => {});
-    }
-    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
-    return previousExec(cmd, args);
+  context.http.post = async () => {
+    return new Promise(() => {});
   };
   context.handleBridgeAnkiCardAdd({
     requestId: "recover-timeout",
@@ -255,34 +257,20 @@ async function testAnkiBridgeRecoversAfterConnectTimeout() {
 
   fastTimers = false;
   context.__overlayMessages.length = 0;
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/bin/rm") return { status: 0, stdout: "", stderr: "" };
-    if (cmd === "/usr/bin/curl") {
-      const dataIndex = args.indexOf("--data-binary");
-      const requestRef =
-        dataIndex >= 0 ? String(args[dataIndex + 1] || "") : "";
-      const requestPath =
-        requestRef.charAt(0) === "@" ? requestRef.slice(1) : "";
-      const body = JSON.parse(filesByPath[requestPath] || "{}");
-      if (body.action === "version")
-        return {
-          status: 0,
-          stdout: JSON.stringify({ result: 6, error: null }),
-          stderr: "",
-        };
-      if (body.action === "addNote")
-        return {
-          status: 0,
-          stdout: JSON.stringify({ result: 67890, error: null }),
-          stderr: "",
-        };
-      return {
-        status: 0,
-        stdout: JSON.stringify({ result: null, error: null }),
-        stderr: "",
-      };
-    }
-    return previousExec(cmd, args);
+  context.http.post = async (_url, options) => {
+    const body = options.data || {};
+    return {
+      statusCode: 200,
+      data: {
+        result:
+          body.action === "version"
+            ? 6
+            : body.action === "addNote"
+              ? 67890
+              : null,
+        error: null,
+      },
+    };
   };
   context.handleBridgeAnkiCardAdd({
     requestId: "recover-success",
@@ -303,7 +291,7 @@ async function testAnkiBridgeRecoversAfterConnectTimeout() {
     ),
     "Anki add requests should recover after a previous AnkiConnect timeout",
   );
-  context.utils.exec = previousExec;
+  context.http.post = previousPost;
 }
 
 async function testAnkiBridgeActions() {
@@ -597,12 +585,181 @@ async function testPassiveAnkiStatusCoalesces() {
   context.ankiConnectInvoke = previousInvoke;
 }
 
+async function testExportFastPathsPreserveDuplicateHandling() {
+  const previousInvoke = context.ankiConnectInvoke;
+  const cardContext = {
+    expression: "速い",
+    entry: { term: { expression: "速い", glossaries: [{ glossary: "fast" }] } },
+  };
+  try {
+    setActiveAnkiPrefs(
+      makeConfiguredAnkiPrefs({ ankiConnectUrl: "http://127.0.0.1:28765" }),
+    );
+    let calls = [];
+    context.ankiConnectInvoke = async (action) => {
+      calls.push(action);
+      if (action === "version") return 6;
+      if (action === "canAddNotesWithErrorDetail")
+        return [{ canAdd: true, error: null }];
+      if (action === "addNote") return 60001;
+      return null;
+    };
+    await context.ankiCardStatusForContext({ context: cardContext });
+    context.__overlayMessages.length = 0;
+    context.handleBridgeAnkiCardAdd({
+      requestId: "cached-ready-add",
+      popupSessionId: "performance",
+      context: cardContext,
+    });
+    await flushAsyncWork();
+    assert(
+      calls.filter((action) => action === "canAddNotesWithErrorDetail")
+        .length === 1 &&
+        calls.filter((action) => action === "addNote").length === 1,
+      "A recent ready preflight should not repeat the same duplicate probe on add",
+    );
+
+    setActiveAnkiPrefs(
+      makeConfiguredAnkiPrefs({
+        ankiConnectUrl: "http://127.0.0.1:28766",
+        ankiDuplicateMode: "allow",
+      }),
+    );
+    calls = [];
+    context.ankiConnectInvoke = async (action) => {
+      calls.push(action);
+      if (action === "addNote") return 60002;
+      return null;
+    };
+    context.handleBridgeAnkiCardAdd({
+      requestId: "allow-add",
+      popupSessionId: "performance",
+      context: cardContext,
+    });
+    await flushAsyncWork();
+    assert(
+      calls.includes("addNote") &&
+        !calls.includes("canAddNotesWithErrorDetail") &&
+        !calls.includes("findNotes"),
+      "Allow-duplicate exports should go directly to Anki's authoritative addNote check",
+    );
+
+    setActiveAnkiPrefs(
+      makeConfiguredAnkiPrefs({ ankiConnectUrl: "http://127.0.0.1:28767" }),
+    );
+    calls = [];
+    let adding = false;
+    context.ankiConnectInvoke = async (action) => {
+      calls.push(action);
+      if (action === "version") return 6;
+      if (action === "canAddNotesWithErrorDetail")
+        return [{ canAdd: true, error: null }];
+      if (action === "addNote") {
+        adding = true;
+        throw new Error("cannot create note because it is a duplicate");
+      }
+      if (action === "findNotes" && adding) return [60003];
+      if (action === "guiBrowse") return new Promise(() => {});
+      return null;
+    };
+    await context.ankiCardStatusForContext({ context: cardContext });
+    context.__overlayMessages.length = 0;
+    context.handleBridgeAnkiCardAdd({
+      requestId: "late-duplicate",
+      popupSessionId: "performance",
+      context: cardContext,
+    });
+    await flushAsyncWork();
+    assert(
+      calls.includes("findNotes") &&
+        calls.includes("guiBrowse") &&
+        context.__overlayMessages.some(
+          (message) =>
+            message.payload &&
+            message.payload.requestId === "late-duplicate" &&
+            message.payload.state === "opened" &&
+            message.payload.noteIds[0] === 60003,
+        ),
+      "An addNote duplicate race should still find and reveal the newly created duplicate",
+    );
+  } finally {
+    context.ankiConnectInvoke = previousInvoke;
+  }
+}
+
+async function testAnkiMediaSetupCachesProcessWork() {
+  const previousExec = context.utils.exec;
+  const previousExists = context.file.exists;
+  let mkdirCalls = 0;
+  let md5Calls = 0;
+  let ffmpegChecks = 0;
+  let releaseMkdir = null;
+  const mkdirPending = new Promise((resolve) => {
+    releaseMkdir = resolve;
+  });
+  vm.runInContext(
+    'ankiMediaRootReady = false; ankiMediaRootPromise = null; ankiFfmpegPathCache = "";',
+    context,
+  );
+  context.file.exists = (filePath) => {
+    if (filePath === "/opt/homebrew/bin/ffmpeg") {
+      ffmpegChecks++;
+      return true;
+    }
+    return false;
+  };
+  context.utils.exec = async (command) => {
+    if (command === "/bin/mkdir") {
+      mkdirCalls++;
+      await mkdirPending;
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (command === "/sbin/md5") {
+      md5Calls++;
+      return { status: 0, stdout: "abcdef0123456789\n", stderr: "" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  try {
+    const setupA = context.ensureAnkiMediaRoot();
+    const setupB = context.ensureAnkiMediaRoot();
+    await flushAsyncWork();
+    assert(
+      mkdirCalls === 1,
+      "Concurrent media jobs should share one mkdir process",
+    );
+    releaseMkdir();
+    await Promise.all([setupA, setupB]);
+    await context.ensureAnkiMediaRoot();
+    assert(
+      mkdirCalls === 1,
+      "The existing Anki media directory should remain cached",
+    );
+    assert(
+      (await context.ankiFindFfmpegPath()) === "/opt/homebrew/bin/ffmpeg" &&
+        (await context.ankiFindFfmpegPath()) === "/opt/homebrew/bin/ffmpeg" &&
+        ffmpegChecks === 1,
+      "FFmpeg discovery should be cached after its first successful lookup",
+    );
+    assert(
+      (await context.ankiMediaFileHashHex("/fixture/frame.jpg")) ===
+        "abcdef012345" && md5Calls === 1,
+      "Media hashing should use macOS's native md5 utility once per file",
+    );
+  } finally {
+    context.utils.exec = previousExec;
+    context.file.exists = previousExists;
+  }
+}
+
 async function testStreamingSentenceAudioSources() {
   const previous = {
     exec: context.utils.exec,
     exists: context.file.exists,
     safeDelete: context.safeDelete,
     command: context.mpv.command,
+    getString: context.mpv.getString,
+    set: context.mpv.set,
     currentMediaSourceSnapshot: context.currentMediaSourceSnapshot,
     ankiFindFfmpegPath: context.ankiFindFfmpegPath,
     ensureAnkiMediaRoot: context.ensureAnkiMediaRoot,
@@ -619,12 +776,45 @@ async function testStreamingSentenceAudioSources() {
   let existing = new Set();
   let execCalls = [];
   let mpvCommands = [];
+  let mpvProperties = {
+    "ab-loop-a": "no",
+    "ab-loop-b": "no",
+  };
+  function installCacheCommand(options) {
+    const settings = options || {};
+    mpvProperties = {
+      "ab-loop-a": "no",
+      "ab-loop-b": "no",
+    };
+    context.mpv.command = (name, args) => {
+      mpvCommands.push({ name, args: Array.from(args || []) });
+      if (name === "ab-loop-align-cache") {
+        if (settings.alignmentError) throw new Error("alignment unavailable");
+        mpvProperties["ab-loop-a"] = String(
+          settings.alignedStart === undefined ? 5.314 : settings.alignedStart,
+        );
+        mpvProperties["ab-loop-b"] = String(
+          settings.alignedEnd === undefined ? 12.5 : settings.alignedEnd,
+        );
+      }
+      if (name === "dump-cache" && settings.cacheHit)
+        existing.add(String(args[2] || ""));
+    };
+  }
   try {
     context.ankiFindFfmpegPath = async () => "/usr/local/bin/ffmpeg";
     context.ensureAnkiMediaRoot = async () => {};
     context.ankiStoreMediaFile = async (filename) => filename;
     context.ankiMediaFileHashHex = async () => "0123456789ab";
     context.ankiSubtitleBoundary = (name) => (name === "sub-start" ? 10 : 12);
+    context.mpv.getString = (name) => {
+      if (Object.prototype.hasOwnProperty.call(mpvProperties, name))
+        return mpvProperties[name];
+      return previous.getString.call(context.mpv, name);
+    };
+    context.mpv.set = (name, value) => {
+      mpvProperties[name] = String(value);
+    };
     context.file.exists = (filePath) => existing.has(String(filePath));
     context.safeDelete = (filePath) => existing.delete(String(filePath));
     context.utils.exec = async (command, args) => {
@@ -632,9 +822,7 @@ async function testStreamingSentenceAudioSources() {
       existing.add(String(args[args.length - 1] || ""));
       return { status: 0, stdout: "", stderr: "" };
     };
-    context.mpv.command = (name, args) => {
-      mpvCommands.push({ name, args: Array.from(args || []) });
-    };
+    installCacheCommand({ cacheHit: false });
 
     context.currentMediaSourceSnapshot = () =>
       context.mediaSourceSnapshot({
@@ -643,9 +831,30 @@ async function testStreamingSentenceAudioSources() {
       });
     await context.ankiCaptureSentenceAudio(cardContext, prefs);
     assert(
-      mpvCommands.length === 0 &&
+      mpvCommands.some((item) => item.name === "dump-cache") &&
         execCalls[0].args.includes("/Volumes/Media/video.mkv"),
-      "Local sentence audio keeps direct FFmpeg extraction without cache dumping",
+      "Local sentence audio falls back to direct FFmpeg extraction after a cache miss",
+    );
+
+    existing = new Set();
+    execCalls = [];
+    mpvCommands = [];
+    installCacheCommand({ cacheHit: true });
+    await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    const cachedInput = execCalls[0].args[execCalls[0].args.indexOf("-i") + 1];
+    const encodedOutput = execCalls[0].args[execCalls[0].args.length - 1];
+    const cachedSeek = execCalls[0].args[execCalls[0].args.indexOf("-ss") + 1];
+    assert(
+      mpvCommands.some((item) => item.name === "ab-loop-align-cache") &&
+        mpvCommands.some((item) => item.name === "dump-cache") &&
+        cachedSeek === "4.686" &&
+        execCalls[0].args.some((value) => /\.mkv$/.test(value)) &&
+        !execCalls[0].args.includes("/Volumes/Media/video.mkv") &&
+        !existing.has(cachedInput) &&
+        !existing.has(encodedOutput) &&
+        mpvProperties["ab-loop-a"] === "no" &&
+        mpvProperties["ab-loop-b"] === "no",
+      "Local sentence audio should trim cache pre-roll and restore loop state before deleting temporary files",
     );
 
     existing = new Set();
@@ -656,13 +865,10 @@ async function testStreamingSentenceAudioSources() {
         path: "https://video.example/watch/123",
         streamOpenFilename: "https://cdn.example/master.m3u8?sig=resolved",
       });
-    context.mpv.command = (name, args) => {
-      mpvCommands.push({ name, args: Array.from(args || []) });
-      existing.add(String(args[2] || ""));
-    };
+    installCacheCommand({ cacheHit: true });
     await context.ankiCaptureSentenceAudio(cardContext, prefs);
     assert(
-      mpvCommands[0].name === "dump-cache" &&
+      mpvCommands.some((item) => item.name === "dump-cache") &&
         execCalls[0].args.some((value) => /\.mkv$/.test(value)) &&
         !execCalls[0].args.includes("https://video.example/watch/123"),
       "Resolved streams prefer a bounded mpv cache excerpt over reopening a webpage URL",
@@ -702,23 +908,48 @@ async function testStreamingSentenceAudioSources() {
         path: "https://video.example/watch/123",
         streamOpenFilename: "https://cdn.example/video.mp4?sig=resolved",
       });
-    context.mpv.command = (name, args) => {
-      mpvCommands.push({ name, args: Array.from(args || []) });
-    };
+    installCacheCommand({ cacheHit: false });
     await context.ankiCaptureSentenceAudio(cardContext, prefs);
     assert(
-      mpvCommands[0].name === "dump-cache" &&
+      mpvCommands.some((item) => item.name === "dump-cache") &&
         execCalls[0].args.includes(
           "https://cdn.example/video.mp4?sig=resolved",
         ) &&
         !execCalls[0].args.includes("https://video.example/watch/123"),
       "A cache miss falls back to mpv's resolved media URL, never the webpage URL",
     );
+
+    existing = new Set();
+    execCalls = [];
+    context.currentMediaSourceSnapshot = () =>
+      context.mediaSourceSnapshot({
+        path: "/Volumes/Media/video.mkv",
+        streamOpenFilename: "/Volumes/Media/video.mkv",
+      });
+    context.mpv.command = () => {};
+    context.utils.exec = async (command, args) => {
+      execCalls.push({ command, args: Array.from(args || []) });
+      existing.add(String(args[args.length - 1] || ""));
+      return { status: 1, stdout: "", stderr: "fixture failure" };
+    };
+    try {
+      await context.ankiCaptureSentenceAudio(cardContext, prefs);
+      assert(false, "A failed FFmpeg extraction should reject");
+    } catch (error) {
+      const failedOutput = execCalls[0].args[execCalls[0].args.length - 1];
+      assert(
+        /Sentence audio capture failed/.test(String(error && error.message)) &&
+          !existing.has(failedOutput),
+        "Failed sentence-audio extraction should delete its partial output",
+      );
+    }
   } finally {
     context.utils.exec = previous.exec;
     context.file.exists = previous.exists;
     context.safeDelete = previous.safeDelete;
     context.mpv.command = previous.command;
+    context.mpv.getString = previous.getString;
+    context.mpv.set = previous.set;
     context.currentMediaSourceSnapshot = previous.currentMediaSourceSnapshot;
     context.ankiFindFfmpegPath = previous.ankiFindFfmpegPath;
     context.ensureAnkiMediaRoot = previous.ensureAnkiMediaRoot;
@@ -913,6 +1144,8 @@ testNestedCardSkipsCurrentMediaCapture()
   .then(testAnkiBridgeRecoversAfterConnectTimeout)
   .then(testAnkiBridgeActions)
   .then(testPassiveAnkiStatusCoalesces)
+  .then(testExportFastPathsPreserveDuplicateHandling)
+  .then(testAnkiMediaSetupCachesProcessWork)
   .then(testStreamingSentenceAudioSources)
   .then(() => {
     console.log("anki integration tests passed");

@@ -4,12 +4,15 @@
 
 ### Improved
 
+- Accelerated Anki card export, especially from videos on mounted drives, by extracting sentence audio from mpv's already-open cache before reopening the source, using IINA's native HTTP transport for AnkiConnect, reusing recent duplicate preflights, coalescing media setup, and reducing native hashing and temporary-file overhead. Added a reproducible end-to-end Anki export benchmark covering cold, preflighted, media-heavy, text-only, allow-duplicate, and prevented-duplicate paths.
 - Restored fast YouTube startup with native subtitle lookup by keeping Online Media caption URLs delayed until mpv needs them, reusing mpv's decoded SRT events instead of downloading captions twice, and avoiding repeated work for unselected tracks and unchanged cues.
 - Reduced plugin-wide startup and interaction overhead by deduplicating cold-start filesystem/backend work, caching active dictionary discovery, indexing deinflection rules, avoiding repeated overlay lookup scans and debug formatting, streamlining subtitle hit-box layout and Anki card formatting, and preventing teardown events from restarting plugin work.
 - Added a reproducible plugin-wide benchmark covering startup, six-language lookup, media/subtitle handling, native geometry, overlay rendering, Anki cards, and dictionary/profile settings, including comparisons against an untouched Git revision.
 
 ### Fixed
 
+- Kept Anki sentence audio on the requested subtitle line when mpv cache dumps include video-keyframe or container-cluster pre-roll; cached extraction now trims from mpv's actual aligned dump boundary instead of assuming the temporary file starts at the requested timestamp.
+- Prevented an IINA native crash during overlay startup and subtitle processing by replacing the remaining cross-queue interval cancellation paths with bounded, main-queue-cleaned repeating tasks while preserving fast subtitle and worker polling.
 - Prevented rapid subtitle lookups, including Chinese lookup thrashing, from leaking IINA native timers or racing its WebSocket timer bookkeeping; direct worker responses retain their fast polling cadence through one shared active-lookup interval.
 - Kept dictionary lookups responsive when opening overlapping player windows or loading subtitles manually by giving each player its own bridge and worker runtime, recovering rare bridge-port conflicts, and retaining a native-message fallback if the socket is unavailable.
 - Prevented lookup-owned pauses from rebuilding text-subtitle hit targets under a stationary pointer, which could repeatedly reopen one word and rapidly alternate pause and resume; bitmap-subtitle OCR still rebuilds when pausing requires a fresh frame.

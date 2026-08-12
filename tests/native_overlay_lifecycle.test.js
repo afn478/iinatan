@@ -79,14 +79,14 @@ function lifecycleContext(options) {
     cancelOneShot(timer) {
       clearTimeout(timer);
     },
-    setInterval(callback) {
+    scheduleRepeating(callback) {
       intervalCalls++;
       const timer = { callback, id: intervalCalls };
       activeIntervals.add(timer);
       maxActiveIntervals = Math.max(maxActiveIntervals, activeIntervals.size);
       return timer;
     },
-    clearInterval(timer) {
+    cancelRepeating(timer) {
       activeIntervals.delete(timer);
     },
     preferences: {

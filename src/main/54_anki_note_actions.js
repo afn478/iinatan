@@ -10,7 +10,7 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     const result = await ankiConnectInvoke(
       "canAddNotesWithErrorDetail",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     );
     const first = Array.isArray(result) ? result[0] : null;
     if (first && typeof first === "object")
@@ -23,12 +23,12 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [allowedNote || blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     ),
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
     ),
   ]);
   const withDuplicatesAllowed = Array.isArray(results[0])
@@ -45,7 +45,7 @@ async function ankiFindNotesByDuplicateQuery(prefs, fields, fieldNames) {
   const result = await ankiConnectInvoke(
     "findNotes",
     { query },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+    { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
   );
   return Array.isArray(result) ? result : [];
 }
@@ -83,7 +83,7 @@ function ankiOpenDuplicateNotes(prefs, noteIds) {
       ankiConnectInvoke(
         "guiBrowse",
         { query },
-        { url: prefs.ankiConnectUrl, timeoutSeconds: 8 },
+        { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
       ),
     ).catch((error) => {
       debugWarn(

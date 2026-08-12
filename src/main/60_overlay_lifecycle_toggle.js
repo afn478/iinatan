@@ -366,9 +366,9 @@ function pushOverlayConfigForProfileChange(runtimePlan) {
 function startPolling() {
   const nextMs = configuredSubtitlePollMs();
   debugLog("startPolling subtitlePollMs=" + nextMs);
-  if (pollTimer !== null) clearInterval(pollTimer);
+  if (pollTimer !== null) cancelRepeating(pollTimer);
   activeSubtitlePollMs = nextMs;
-  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
+  pollTimer = scheduleRepeating(pollSubtitle, activeSubtitlePollMs);
   pollSubtitle();
 }
 function configuredSubtitlePollMs() {
@@ -379,13 +379,13 @@ function refreshPollingInterval() {
   const nextMs = configuredSubtitlePollMs();
   if (nextMs === activeSubtitlePollMs) return;
   debugLog("subtitlePollMs changed " + activeSubtitlePollMs + " -> " + nextMs);
-  clearInterval(pollTimer);
+  cancelRepeating(pollTimer);
   activeSubtitlePollMs = nextMs;
-  pollTimer = setInterval(pollSubtitle, activeSubtitlePollMs);
+  pollTimer = scheduleRepeating(pollSubtitle, activeSubtitlePollMs);
 }
 function stopPolling() {
   debugLog("stopPolling");
-  if (pollTimer !== null) clearInterval(pollTimer);
+  if (pollTimer !== null) cancelRepeating(pollTimer);
   pollTimer = null;
   activeSubtitlePollMs = 0;
   lastSubtitle = null;

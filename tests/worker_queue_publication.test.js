@@ -27,13 +27,13 @@ const context = {
   prefNumber() {
     return 2;
   },
-  setInterval(callback, ms) {
+  scheduleRepeating(callback, ms) {
     intervalStarts++;
     activeInterval = { id: nextIntervalId++, callback, ms };
-    return activeInterval.id;
+    return activeInterval;
   },
-  clearInterval(id) {
-    if (activeInterval && activeInterval.id === id) activeInterval = null;
+  cancelRepeating(task) {
+    if (activeInterval === task) activeInterval = null;
     intervalClears++;
   },
 };

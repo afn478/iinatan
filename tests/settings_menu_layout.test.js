@@ -734,10 +734,10 @@ assert(
   "Anki duplicate settings should be shaped separately and passed to addNote",
 );
 assert(
-  /if\s*\(prefs\.ankiDuplicateCheck\)\s*\{\s*const fieldNames = await ankiConfiguredFieldNames/.test(
-    ankiSource,
-  ),
-  "Anki add requests should perform a fresh duplicate check before adding",
+  /function ankiDuplicateNotesForAdd/.test(ankiSource) &&
+    /ankiCachedPassiveStatus/.test(ankiSource) &&
+    /ankiErrorLooksDuplicate/.test(ankiSource),
+  "Anki add requests should reuse ready preflights and recover authoritative duplicate races",
 );
 assert(
   /ankiActiveBridgeRequests/.test(ankiSource),
@@ -746,8 +746,9 @@ assert(
 assert(
   /ANKI_CONNECT_RECONNECT_ATTEMPTS\s*=\s*3/.test(ankiConnectSource) &&
     /Promise\.race/.test(ankiConnectSource) &&
-    /--connect-timeout/.test(ankiConnectSource),
-  "AnkiConnect requests should retry bounded curl requests with a JS watchdog",
+    /http\.post/.test(ankiConnectSource) &&
+    !/\/usr\/bin\/curl/.test(ankiConnectSource),
+  "AnkiConnect requests should retry IINA-native HTTP requests with a JS watchdog",
 );
 assert(
   /ack:\s*true/.test(ankiSource),

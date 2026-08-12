@@ -52,6 +52,16 @@ function clearFakeTimeout(id) {
   timers.delete(id);
 }
 
+function setFakeInterval(fn, ms) {
+  const id = nextTimerId++;
+  timers.set(id, { fn, ms, repeating: true });
+  return id;
+}
+
+function clearFakeInterval(id) {
+  timers.delete(id);
+}
+
 function runTimers() {
   const pending = Array.from(timers.entries());
   pending.forEach(([id, timer]) => {
@@ -135,6 +145,8 @@ const context = {
   Date,
   setTimeout: setFakeTimeout,
   clearTimeout: clearFakeTimeout,
+  setInterval: setFakeInterval,
+  clearInterval: clearFakeInterval,
   URL,
   console: { log() {}, warn() {}, error() {}, info() {} },
 };
@@ -163,6 +175,50 @@ runTimers();
 assert(
   firedOneShots === 1000 && pendingTimerCount() === 0,
   "cancelled one-shot timers should self-remove without running callbacks",
+);
+let recurringTicks = 0;
+const recurringTask = context.scheduleRepeating(() => recurringTicks++, 2);
+runTimers();
+assert(
+  recurringTicks === 1 && pendingTimerCount() === 1,
+  "repeating work should retain one shared native interval",
+);
+context.cancelRepeating(recurringTask);
+assert(
+  pendingTimerCount() === 2,
+  "cancelling repeating work should not mutate IINA's native timer registry from the caller queue",
+);
+runTimers();
+assert(
+  recurringTicks === 1 && pendingTimerCount() === 0,
+  "a cancelled repeating task should self-remove on its timer callback without another tick",
+);
+
+const mainRuntimeSources = [
+  "src/main/30_backend_import_worker_lookup.js",
+  "src/main/60_overlay_lifecycle_toggle.js",
+]
+  .map((file) => fs.readFileSync(path.join(root, file), "utf8"))
+  .join("\n");
+assert(
+  !/\b(?:setInterval|clearInterval)\s*\(/.test(mainRuntimeSources),
+  "main-plugin consumers must use the queue-safe repeating-task wrapper",
+);
+const timerRuntimeSource = fs.readFileSync(
+  path.join(root, "src/main/00_context_state_paths.js"),
+  "utf8",
+);
+const repeatingHelperSource = timerRuntimeSource.slice(
+  timerRuntimeSource.indexOf("function scheduleRepeating"),
+  timerRuntimeSource.indexOf("function sleep"),
+);
+assert(
+  (repeatingHelperSource.match(/\bsetInterval\s*\(/g) || []).length === 1 &&
+    (repeatingHelperSource.match(/\bclearInterval\s*\(/g) || []).length === 1 &&
+    /scheduleOneShot\(\(\) => clearInterval\(nativeId\), 0\)/.test(
+      repeatingHelperSource,
+    ),
+  "the sole native interval cancellation must be deferred through a main-queue one-shot",
 );
 
 function showPopup(seq, popupSessionId) {

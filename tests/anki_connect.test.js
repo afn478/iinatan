@@ -43,6 +43,11 @@ const context = {
     return ["/data"].concat(parts).join("/");
   },
   debugVerbose() {},
+  http: {
+    async post() {
+      return { statusCode: 200, data: { result: null, error: null } };
+    },
+  },
   normalizePopupThemePreference(value) {
     return value;
   },
@@ -78,19 +83,16 @@ vm.runInContext(
 );
 
 async function testAnkiConnectRetriesAndTimeouts() {
-  const previousExec = context.utils.exec;
+  const previousPost = context.http.post;
   const hungCalls = [];
   fastTimers = true;
   setActiveAnkiPrefs({
     ankiConnectUrl: "http://127.0.0.1:8765",
     ankiConnectTimeoutSeconds: 1,
   });
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      hungCalls.push(args.slice());
-      return new Promise(() => {});
-    }
-    return previousExec(cmd, args);
+  context.http.post = async (url, options) => {
+    hungCalls.push({ url, options });
+    return new Promise(() => {});
   };
   try {
     await context.ankiConnectInvoke("version", {}, {});
@@ -105,21 +107,18 @@ async function testAnkiConnectRetriesAndTimeouts() {
   }
   assert(
     hungCalls.length === 3,
-    "Hung AnkiConnect should be retried with three fresh curl requests",
+    "Hung AnkiConnect should be retried with three fresh HTTP requests",
   );
   fastTimers = false;
 
-  const curlCalls = [];
+  const httpCalls = [];
   setActiveAnkiPrefs({
     ankiConnectUrl: "http://127.0.0.1:8765",
     ankiConnectTimeoutSeconds: 3,
   });
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      curlCalls.push(args.slice());
-      return { status: 7, stdout: "", stderr: "Failed to connect" };
-    }
-    return previousExec(cmd, args);
+  context.http.post = async (url, options) => {
+    httpCalls.push({ url, options });
+    throw { reason: "Failed to connect" };
   };
   try {
     await context.ankiConnectInvoke(
@@ -137,43 +136,35 @@ async function testAnkiConnectRetriesAndTimeouts() {
     );
   }
   assert(
-    curlCalls.length === 3,
-    "Missing AnkiConnect should be retried with three fresh curl requests",
+    httpCalls.length === 3,
+    "Missing AnkiConnect should be retried with three fresh HTTP requests",
   );
   assert(
-    curlCalls.every((args) => {
-      const connectIndex = args.indexOf("--connect-timeout");
-      const maxIndex = args.indexOf("--max-time");
-      return (
-        connectIndex >= 0 &&
-        args[connectIndex + 1] === "3" &&
-        maxIndex >= 0 &&
-        args[maxIndex + 1] === "3"
-      );
-    }),
-    "AnkiConnect retry attempts should use the configured response timeout",
+    httpCalls.every(
+      (call) =>
+        call.url === "http://127.0.0.1:8765" &&
+        call.options.headers["Content-Type"] === "application/json" &&
+        call.options.data.action === "version",
+    ),
+    "AnkiConnect requests should use IINA's JSON HTTP transport",
   );
 
-  context.utils.exec = previousExec;
+  context.http.post = previousPost;
 }
 
 async function testAnkiConnectActionErrorsAreNotRetried() {
-  const previousExec = context.utils.exec;
+  const previousPost = context.http.post;
   const actionErrorCalls = [];
   setActiveAnkiPrefs({
     ankiConnectUrl: "http://127.0.0.1:8765",
     ankiConnectTimeoutSeconds: 3,
   });
-  context.utils.exec = async (cmd, args) => {
-    if (cmd === "/usr/bin/curl") {
-      actionErrorCalls.push(args.slice());
-      return {
-        status: 0,
-        stdout: JSON.stringify({ error: "bad action", result: null }),
-        stderr: "",
-      };
-    }
-    return previousExec(cmd, args);
+  context.http.post = async (url, options) => {
+    actionErrorCalls.push({ url, options });
+    return {
+      statusCode: 200,
+      data: { error: "bad action", result: null },
+    };
   };
   try {
     await context.ankiConnectInvoke("badAction", {}, {});
@@ -188,7 +179,7 @@ async function testAnkiConnectActionErrorsAreNotRetried() {
     actionErrorCalls.length === 1,
     "AnkiConnect action errors should not be retried as connection failures",
   );
-  context.utils.exec = previousExec;
+  context.http.post = previousPost;
 }
 
 function testAnkiConnectParserBehavior() {

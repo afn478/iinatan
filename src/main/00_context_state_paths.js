@@ -365,6 +365,32 @@ function scheduleOneShot(callback, delayMs) {
 function cancelOneShot(task) {
   if (task) task.cancelled = true;
 }
+// IINA's JavaScript interval registry is mutated on whichever queue invokes
+// clearInterval. WebSocket handlers run on a private server queue, so cancelling
+// an interval from one can race the main-queue timer callback and crash IINA.
+// Mark cancellation synchronously, then remove the native interval from a
+// self-cleaning main-queue timeout. The interval itself remains long-lived so
+// fast worker polling does not allocate a native timer on every tick.
+function scheduleRepeating(callback, delayMs) {
+  const task = {
+    cancelled: false,
+    nativeId: null,
+  };
+  task.nativeId = setInterval(
+    () => {
+      if (!task.cancelled) callback();
+    },
+    Math.max(0, Number(delayMs) || 0),
+  );
+  return task;
+}
+function cancelRepeating(task) {
+  if (!task || task.cancelled) return;
+  task.cancelled = true;
+  const nativeId = task.nativeId;
+  task.nativeId = null;
+  if (nativeId !== null) scheduleOneShot(() => clearInterval(nativeId), 0);
+}
 function sleep(ms) {
   return new Promise((resolve) => scheduleOneShot(resolve, ms));
 }

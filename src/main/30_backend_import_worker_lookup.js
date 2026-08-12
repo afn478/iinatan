@@ -1023,7 +1023,7 @@ let directWorkerPollTimer = null;
 let directWorkerPollWaiters = [];
 function flushDirectWorkerPollWaiters() {
   if (!directWorkerPollWaiters.length) {
-    if (directWorkerPollTimer !== null) clearInterval(directWorkerPollTimer);
+    if (directWorkerPollTimer !== null) cancelRepeating(directWorkerPollTimer);
     directWorkerPollTimer = null;
     return;
   }
@@ -1035,7 +1035,7 @@ function waitForDirectWorkerPoll() {
   return new Promise((resolve) => {
     directWorkerPollWaiters.push(resolve);
     if (directWorkerPollTimer !== null) return;
-    directWorkerPollTimer = setInterval(
+    directWorkerPollTimer = scheduleRepeating(
       flushDirectWorkerPollWaiters,
       Math.max(1, prefNumber("directIpcPollMs", 2)),
     );
