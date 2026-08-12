@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.1.2 - 2026-08-12
+
 ### Improved
 
 - Accelerated Anki card export, especially from videos on mounted drives, by extracting sentence audio from mpv's already-open cache before reopening the source, using IINA's native HTTP transport for AnkiConnect, reusing recent duplicate preflights, coalescing media setup, and reducing native hashing and temporary-file overhead. Added a reproducible end-to-end Anki export benchmark covering cold, preflighted, media-heavy, text-only, allow-duplicate, and prevented-duplicate paths.
