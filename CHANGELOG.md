@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved
+
+- Promoted the first configured Japanese pitch dictionary's accent pattern beside each bold headword without changing its pitch typography, while keeping later pitch dictionaries in their existing metadata rows, tightening the header/body spacing around frequency metadata, and collapsing preference-ordered frequency chips after the first behind a compact disclosure control.
+
 ## 2.1.2 - 2026-08-12
 
 ### Improved

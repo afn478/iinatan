@@ -13,6 +13,7 @@ const { context, overlay } = loadOverlayForTest([
   "renderStructuredNode",
   "renderPlainGlossaryText",
   "renderEntryMetadata",
+  "renderPrimaryPitchMetadata",
   "displayHeaderForResult",
   "displayReadingForTerm",
   "segmentFurigana",
@@ -1085,29 +1086,52 @@ assert(
   "Multiple frequency values should stay compact",
 );
 assert(
-  /class="pitch-group"/.test(metadataHtml),
-  "Pitch metadata should render as a bound source/pattern group",
+  metadataHtml.indexOf("BCCWJ") < metadataHtml.indexOf("JPDBv2"),
+  "Frequency chips should retain their configured dictionary order",
 );
 assert(
-  /class="pitch-source-chip">アクセント辞典<\/span><span class="pitch-patterns">/.test(
+  /BCCWJ[\s\S]*class="freq-toggle"[\s\S]*class="freq-chip freq-chip-extra"[\s\S]*JPDBv2/.test(
     metadataHtml,
   ),
-  "Pitch source should be boxed separately from the pitch pattern",
+  "Only the first frequency chip should precede the collapsed disclosure control",
 );
 assert(
-  /class="pitch-pattern"/.test(metadataHtml),
-  "Pitch metadata should include a visual pitch pattern",
+  /class="freq-toggle-input"[^>]*><label class="freq-toggle"[^>]*>/.test(
+    metadataHtml,
+  ),
+  "Frequency disclosure should use a native checkbox and label",
 );
 assert(
-  /pitch-mora pitch-high pitch-drop/.test(metadataHtml),
-  "Accent position should create a drop marker over the kana",
+  /class="pitch-group"/.test(metadataHtml),
+  "Subsequent pitch metadata should render as a bound source/pattern group",
 );
 assert(
-  /アクセント辞典/.test(metadataHtml) &&
-    /ま/.test(metadataHtml) &&
-    /つ/.test(metadataHtml) &&
-    /\[1\]/.test(metadataHtml),
-  "Pitch chip should include source, kana, and accent number",
+  /class="pitch-source-chip">NHK IPA<\/span><span class="pitch-patterns">/.test(
+    metadataHtml,
+  ),
+  "Subsequent pitch sources should stay boxed separately from their pitch patterns",
+);
+assert(
+  /class="pitch-text">toꜜkyo<\/span>/.test(metadataHtml),
+  "Subsequent pitch dictionaries should stay in their existing metadata row",
+);
+const primaryPitchHtml = overlay.renderPrimaryPitchMetadata({
+  expression: "待つ",
+  reading: "まつ",
+  pitches: [
+    { dict: "アクセント辞典", positions: [1] },
+    { dict: "NHK IPA", positions: [0] },
+  ],
+});
+assert(
+  /class="primary-pitch"/.test(primaryPitchHtml) &&
+    /class="pitch-pattern"/.test(primaryPitchHtml) &&
+    /pitch-mora pitch-high pitch-drop/.test(primaryPitchHtml),
+  "The first pitch dictionary should show its existing visual pitch pattern beside the headword",
+);
+assert(
+  !/pitch-source-chip/.test(primaryPitchHtml) && /\[1\]/.test(primaryPitchHtml),
+  "The promoted pitch should omit its dictionary source chip without changing its display",
 );
 
 const unsafeHtml = overlay.renderStructuredNode(
@@ -1154,8 +1178,12 @@ assert(
   "Popup CSS should not define a separate inherit theme",
 );
 assert(
-  /\.lookup-popup \.head \{[^}]*padding: 14px 18px 12px;[^}]*\}/.test(css),
+  /\.lookup-popup \.head \{[^}]*padding: 14px 18px 4px;[^}]*\}/.test(css),
   "Popup header should keep its spacing",
+);
+assert(
+  /\.lookup-popup \.body \{[^}]*padding: 4px 18px 16px;[^}]*\}/.test(css),
+  "Popup frequency metadata should keep a compact gap below the headword",
 );
 assert(
   !/\.lookup-popup \.head \{[^}]*border-bottom:/s.test(css),
@@ -1252,10 +1280,40 @@ assert(
   "Pitch source chip sizing should remain compact",
 );
 assert(
+  /\.lookup-popup \.head-title \{[^}]*align-items: flex-end;[^}]*gap: 8px;/.test(
+    css,
+  ),
+  "Primary headword and pitch should share a compact aligned row",
+);
+assert(
+  /\.dict-term \{[^}]*margin: 0 0 4px;/.test(css),
+  "Headword and frequency metadata should have reduced vertical spacing",
+);
+assert(
   /\.freq-values \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;[^}]*\}/.test(
     css,
   ),
   "Long frequency lists should remain on one ellipsized line",
+);
+assert(
+  /\.freq-chip-extra \{[^}]*display: none;[^}]*order: 2;[^}]*\}/.test(css) &&
+    /\.freq-toggle-input:checked ~ \.freq-chip-extra \{[^}]*display: inline-flex;[^}]*\}/.test(
+      css,
+    ),
+  "Additional frequency chips should be hidden until the checkbox is checked",
+);
+assert(
+  /\.freq-toggle-icon \{[^}]*transform: rotate\(45deg\);[^}]*\}/.test(css) &&
+    /\.freq-toggle-input:checked \+ \.freq-toggle \.freq-toggle-icon \{[^}]*transform: rotate\(-135deg\);[^}]*\}/.test(
+      css,
+    ),
+  "Frequency disclosure caret should point right when collapsed and left when expanded",
+);
+assert(
+  /\.freq-toggle-input:checked ~ \.freq-toggle \{[^}]*order: 3;[^}]*\}/.test(
+    css,
+  ) && /\.pitch-group \{[^}]*order: 4;[^}]*\}/.test(css),
+  "Expanded frequency caret should sit before later pitch rows",
 );
 
 console.log("overlay dictionary formatting tests passed");

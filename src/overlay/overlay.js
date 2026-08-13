@@ -116,6 +116,7 @@
     "g",
   );
   const JAPANESE_KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/;
+  let frequencyDisclosureSeq = 0;
   let customPopupStyleEl = null;
   let lastCustomPopupCss = null;
   let popupThemeHintQuery = null;
@@ -4402,6 +4403,7 @@
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     const audioHtml = audioData
       ? renderAudioButtonHtml(audioData.term, audioData.reading)
@@ -4417,6 +4419,7 @@
         termClass: "term",
         readingClass: "reading",
       }) +
+      (primaryPitchHtml || "") +
       "</div>" +
       actionHtml +
       "</div>" +
@@ -4448,6 +4451,7 @@
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     hideAudioSourceMenu();
     const head = popup.querySelector(".head");
@@ -4459,6 +4463,7 @@
         secondaryText || "",
         audioData || null,
         ankiData || null,
+        primaryPitchHtml || "",
       );
     }
     if (body) body.innerHTML = bodyHtml;
@@ -4484,6 +4489,7 @@
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     setPopupBodyFor(
       popupEl,
@@ -4493,6 +4499,7 @@
       secondaryText,
       audioData,
       ankiData,
+      primaryPitchHtml,
     );
   }
   function markPopupClickable() {
@@ -6546,8 +6553,91 @@
       "]</span></span>"
     );
   }
+  function renderPitchMetadata(entry, term, options) {
+    const dict = String(entry.dict || entry.dictName || entry.dictionary || "");
+    const positions = Array.isArray(entry.positions)
+      ? entry.positions
+      : Array.isArray(entry.pitchPositions)
+        ? entry.pitchPositions
+        : Array.isArray(entry.pitch_positions)
+          ? entry.pitch_positions
+          : [];
+    const transcriptions = Array.isArray(entry.transcriptions)
+      ? entry.transcriptions
+      : [];
+    const reading = String(
+      (term && term.reading) || (term && term.expression) || "",
+    );
+    const patterns = reading
+      ? positions
+          .slice(0, 4)
+          .map((pos) => renderPitchPattern(reading, pos))
+          .filter(Boolean)
+      : [];
+    const bits = [];
+    if (!patterns.length && positions.length)
+      bits.push(positions.map((v) => String(v)).join(", "));
+    if (transcriptions.length)
+      bits.push(
+        transcriptions
+          .map((v) => normalizeWhitespace(v))
+          .filter(Boolean)
+          .join(", "),
+      );
+    const display = patterns.length
+      ? patterns.join("") +
+        (positions.length > patterns.length
+          ? '<span class="pitch-more">+' +
+            escapeHtml(String(positions.length - patterns.length)) +
+            "</span>"
+          : "")
+      : '<span class="pitch-text">' +
+        escapeHtml(bits.filter(Boolean).join(" · ")) +
+        "</span>";
+    const titleDisplay = positions.length
+      ? positions.map((v) => String(v)).join(", ")
+      : bits.filter(Boolean).join(" · ");
+    if (!dict && !display) return "";
+    if (overlayDebugEnabled())
+      overlayDebug(
+        "pitch accent metadata detected dict=" +
+          JSON.stringify(dict) +
+          " positions=" +
+          positions.length +
+          " transcriptions=" +
+          transcriptions.length,
+      );
+    const patternsHtml = '<span class="pitch-patterns">' + display + "</span>";
+    if (options && options.prominent) {
+      return (
+        '<span class="primary-pitch" title="' +
+        escapeHtml(
+          (dict || "Pitch") + (titleDisplay ? " " + titleDisplay : ""),
+        ) +
+        '">' +
+        patternsHtml +
+        "</span>"
+      );
+    }
+    return (
+      '<span class="pitch-group" title="' +
+      escapeHtml((dict || "Pitch") + (titleDisplay ? " " + titleDisplay : "")) +
+      '"><span class="pitch-source-chip">' +
+      escapeHtml(dict || "Pitch") +
+      "</span>" +
+      patternsHtml +
+      "</span>"
+    );
+  }
+  function renderPrimaryPitchMetadata(term) {
+    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
+    return pitches.length
+      ? renderPitchMetadata(pitches[0], term, { prominent: true })
+      : "";
+  }
   function renderEntryMetadata(term) {
     const chips = [];
+    const frequencyChips = [];
     const frequencies = Array.isArray(term && term.frequencies)
       ? term.frequencies
       : [];
@@ -6573,7 +6663,7 @@
             " values=" +
             values.length,
         );
-      chips.push(
+      frequencyChips.push(
         '<span class="freq-chip" title="' +
           escapeHtml((dict || "Frequency") + (display ? " " + display : "")) +
           '"><span class="meta-label">' +
@@ -6585,74 +6675,33 @@
           "</span>",
       );
     });
-    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
-    pitches.forEach((entry) => {
-      const dict = String(
-        entry.dict || entry.dictName || entry.dictionary || "",
-      );
-      const positions = Array.isArray(entry.positions)
-        ? entry.positions
-        : Array.isArray(entry.pitchPositions)
-          ? entry.pitchPositions
-          : Array.isArray(entry.pitch_positions)
-            ? entry.pitch_positions
-            : [];
-      const transcriptions = Array.isArray(entry.transcriptions)
-        ? entry.transcriptions
-        : [];
-      const reading = String(
-        (term && term.reading) || (term && term.expression) || "",
-      );
-      const patterns = reading
-        ? positions
-            .slice(0, 4)
-            .map((pos) => renderPitchPattern(reading, pos))
-            .filter(Boolean)
-        : [];
-      const bits = [];
-      if (!patterns.length && positions.length)
-        bits.push(positions.map((v) => String(v)).join(", "));
-      if (transcriptions.length)
-        bits.push(
-          transcriptions
-            .map((v) => normalizeWhitespace(v))
-            .filter(Boolean)
-            .join(", "),
-        );
-      const display = patterns.length
-        ? patterns.join("") +
-          (positions.length > patterns.length
-            ? '<span class="pitch-more">+' +
-              escapeHtml(String(positions.length - patterns.length)) +
-              "</span>"
-            : "")
-        : '<span class="pitch-text">' +
-          escapeHtml(bits.filter(Boolean).join(" · ")) +
-          "</span>";
-      const titleDisplay = positions.length
-        ? positions.map((v) => String(v)).join(", ")
-        : bits.filter(Boolean).join(" · ");
-      if (!dict && !display) return;
-      if (overlayDebugEnabled())
-        overlayDebug(
-          "pitch accent metadata detected dict=" +
-            JSON.stringify(dict) +
-            " positions=" +
-            positions.length +
-            " transcriptions=" +
-            transcriptions.length,
-        );
+    if (frequencyChips.length > 1) {
+      const disclosureId =
+        "freq-disclosure-" + String(++frequencyDisclosureSeq);
+      chips.push(frequencyChips[0]);
       chips.push(
-        '<span class="pitch-group" title="' +
-          escapeHtml(
-            (dict || "Pitch") + (titleDisplay ? " " + titleDisplay : ""),
-          ) +
-          '"><span class="pitch-source-chip">' +
-          escapeHtml(dict || "Pitch") +
-          '</span><span class="pitch-patterns">' +
-          display +
-          "</span></span>",
+        '<input type="checkbox" class="freq-toggle-input" id="' +
+          disclosureId +
+          '"><label class="freq-toggle" data-clickable="true" for="' +
+          disclosureId +
+          '" title="Show or hide frequencies" aria-label="Show or hide frequencies"><span class="freq-toggle-icon" aria-hidden="true"></span></label>',
       );
+      chips.push(
+        frequencyChips
+          .slice(1)
+          .map((html) =>
+            html.replace(
+              'class="freq-chip"',
+              'class="freq-chip freq-chip-extra"',
+            ),
+          )
+          .join(""),
+      );
+    } else chips.push.apply(chips, frequencyChips);
+    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
+    pitches.slice(1).forEach((entry) => {
+      const pitchHtml = renderPitchMetadata(entry, term);
+      if (pitchHtml) chips.push(pitchHtml);
     });
     return chips.length
       ? '<div class="entry-meta-row">' + chips.join("") + "</div>"
@@ -6843,6 +6892,7 @@
     }
     const first = entries[0];
     const header = displayHeaderForResult(result, first);
+    const headerPrimaryPitch = renderPrimaryPitchMetadata(first.term || {});
     const headerAudio = audioDataForEntry(first);
     const headerAnki = registerAnkiCardContext(
       buildAnkiCardContext(stored, first, header, isRootPopup),
@@ -6893,6 +6943,7 @@
               termClass: "dict-headword",
               readingClass: "dict-reading",
             }) +
+            renderPrimaryPitchMetadata(term) +
             "</span>" +
             entryActionHtml +
             "</div>";
@@ -6929,6 +6980,7 @@
       header.secondary,
       headerAudio,
       headerAnki,
+      headerPrimaryPitch,
     );
     maybeAutoPlayEntryAudio(stored, first);
   }

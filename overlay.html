@@ -266,24 +266,24 @@
     .lookup-popup::-webkit-scrollbar-track { background: var(--popup-scroll-track); border-radius: 999px; }
     .lookup-popup::-webkit-scrollbar-thumb { background: var(--popup-scroll-thumb); border-radius: 999px; border: 2px solid var(--popup-scroll-thumb-border); }
     .lookup-popup::-webkit-scrollbar-thumb:hover { background: var(--popup-scroll-thumb-hover); }
-    .lookup-popup .head { padding: 14px 18px 12px; }
+    .lookup-popup .head { padding: 14px 18px 4px; }
     .lookup-popup .head-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
-    .lookup-popup .head-title { display: flex; align-items: flex-start; flex: 1 1 auto; min-width: 0; }
+    .lookup-popup .head-title { display: flex; align-items: flex-end; gap: 8px; flex: 1 1 auto; min-width: 0; }
     .headword-stack { display: inline-block; max-width: 100%; }
     .lookup-popup .term { display: block; max-width: 100%; text-align: center; font-size: 30px; font-weight: 800; line-height: 1.15; }
     .lookup-popup .term rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 650; line-height: 1.1; -webkit-user-select: none; }
     .lookup-popup .reading { display: block; max-width: 100%; margin: 0 0 2px; color: var(--popup-reading); text-align: center; font-size: 16px; font-weight: 650; line-height: 1.15; }
     .lookup-popup .lookup-source { margin-top: 4px; color: var(--popup-faint); font-size: 12px; font-weight: 650; line-height: 1.25; }
-    .lookup-popup .body { padding: 12px 18px 16px; font-size: 15px; line-height: 1.45; }
+    .lookup-popup .body { padding: 4px 18px 16px; font-size: 15px; line-height: 1.45; }
     .lookup-popup .loading, .lookup-popup .error, .lookup-popup .empty { color: var(--popup-muted); font-weight: 650; white-space: normal; }
     .lookup-popup .error { color: var(--popup-error); }
     .entry + .entry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--popup-divider); }
     .dict { color: var(--popup-muted); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
-    .dict-term { position: relative; min-width: 0; min-height: 28px; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 8px; }
+    .dict-term { position: relative; min-width: 0; min-height: 28px; color: var(--popup-heading); font-size: 30px; font-weight: 800; line-height: 1.15; margin: 0 0 4px; }
     .dict-term.has-actions { padding-right: 66px; }
-    .dict-term-text { display: block; min-width: 0; }
+    .dict-term-text { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 650; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
     .dict-headword rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 650; line-height: 1.1; -webkit-user-select: none; }
@@ -489,10 +489,20 @@
     .entry-meta-row { display: flex; flex-wrap: wrap; gap: 5px 6px; margin: 0 0 8px; max-width: 100%; overflow: visible; white-space: normal; scrollbar-width: none; }
     .entry-meta-row::-webkit-scrollbar { display: none; }
     .freq-chip { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; max-width: 220px; overflow: hidden; border-radius: 7px; padding: 2px 7px; font-size: 11px; font-weight: 800; line-height: 1.45; color: var(--popup-chip-text); background: var(--popup-frequency-bg); white-space: nowrap; }
+    .freq-chip-extra { display: none; order: 2; }
+    .freq-toggle-input { position: absolute; width: 1px; height: 1px; margin: -1px; opacity: 0; pointer-events: none; }
+    .freq-toggle { display: inline-flex; align-items: center; justify-content: center; order: 1; flex: 0 0 auto; width: 20px; height: 20px; margin: 0; border: 0; border-radius: 4px; padding: 0; color: var(--popup-muted); background: transparent; cursor: pointer; }
+    .freq-toggle-input:checked ~ .freq-toggle { order: 3; }
+    .freq-toggle-input:checked ~ .freq-chip-extra { display: inline-flex; }
+    .freq-toggle-input:focus-visible + .freq-toggle { outline: 2px solid var(--popup-link); outline-offset: 2px; }
+    .freq-toggle:hover { color: var(--popup-heading); background: var(--popup-subtle-chip-bg); }
+    .freq-toggle-icon { display: block; width: 7px; height: 7px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; transform: rotate(45deg); }
+    .freq-toggle-input:checked + .freq-toggle .freq-toggle-icon { transform: rotate(-135deg); }
     .freq-chip .meta-label { flex: 0 0 auto; color: var(--popup-muted); }
     .freq-values { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pitch-group { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; color: var(--popup-chip-text); font-size: 11px; font-weight: 800; line-height: 1.45; }
+    .pitch-group { display: inline-flex; align-items: center; gap: 7px; order: 4; flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; color: var(--popup-chip-text); font-size: 11px; font-weight: 800; line-height: 1.45; }
     .pitch-source-chip { display: inline-flex; align-items: center; flex: 0 0 auto; border-radius: 7px; padding: 2px 7px; color: var(--popup-inverted); background: var(--popup-pitch-source-bg); }
+    .primary-pitch { display: inline-flex; align-items: flex-end; flex: 0 1 auto; min-width: 0; margin-bottom: 1px; }
     .pitch-patterns { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 8px; min-width: 0; max-width: 100%; padding: 1px 0 1px 2px; font-size: 15px; line-height: 1.35; }
     .pitch-pattern { display: inline-flex; align-items: flex-end; gap: 3px; color: var(--popup-strong); }
     .pitch-reading { display: inline-flex; align-items: flex-end; padding-top: 4px; }
@@ -1255,6 +1265,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     "g",
   );
   const JAPANESE_KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/;
+  let frequencyDisclosureSeq = 0;
   let customPopupStyleEl = null;
   let lastCustomPopupCss = null;
   let popupThemeHintQuery = null;
@@ -5541,6 +5552,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     const audioHtml = audioData
       ? renderAudioButtonHtml(audioData.term, audioData.reading)
@@ -5556,6 +5568,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         termClass: "term",
         readingClass: "reading",
       }) +
+      (primaryPitchHtml || "") +
       "</div>" +
       actionHtml +
       "</div>" +
@@ -5587,6 +5600,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     hideAudioSourceMenu();
     const head = popup.querySelector(".head");
@@ -5598,6 +5612,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         secondaryText || "",
         audioData || null,
         ankiData || null,
+        primaryPitchHtml || "",
       );
     }
     if (body) body.innerHTML = bodyHtml;
@@ -5623,6 +5638,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     secondaryText,
     audioData,
     ankiData,
+    primaryPitchHtml,
   ) {
     setPopupBodyFor(
       popupEl,
@@ -5632,6 +5648,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       secondaryText,
       audioData,
       ankiData,
+      primaryPitchHtml,
     );
   }
   function markPopupClickable() {
@@ -7685,8 +7702,91 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       "]</span></span>"
     );
   }
+  function renderPitchMetadata(entry, term, options) {
+    const dict = String(entry.dict || entry.dictName || entry.dictionary || "");
+    const positions = Array.isArray(entry.positions)
+      ? entry.positions
+      : Array.isArray(entry.pitchPositions)
+        ? entry.pitchPositions
+        : Array.isArray(entry.pitch_positions)
+          ? entry.pitch_positions
+          : [];
+    const transcriptions = Array.isArray(entry.transcriptions)
+      ? entry.transcriptions
+      : [];
+    const reading = String(
+      (term && term.reading) || (term && term.expression) || "",
+    );
+    const patterns = reading
+      ? positions
+          .slice(0, 4)
+          .map((pos) => renderPitchPattern(reading, pos))
+          .filter(Boolean)
+      : [];
+    const bits = [];
+    if (!patterns.length && positions.length)
+      bits.push(positions.map((v) => String(v)).join(", "));
+    if (transcriptions.length)
+      bits.push(
+        transcriptions
+          .map((v) => normalizeWhitespace(v))
+          .filter(Boolean)
+          .join(", "),
+      );
+    const display = patterns.length
+      ? patterns.join("") +
+        (positions.length > patterns.length
+          ? '<span class="pitch-more">+' +
+            escapeHtml(String(positions.length - patterns.length)) +
+            "</span>"
+          : "")
+      : '<span class="pitch-text">' +
+        escapeHtml(bits.filter(Boolean).join(" · ")) +
+        "</span>";
+    const titleDisplay = positions.length
+      ? positions.map((v) => String(v)).join(", ")
+      : bits.filter(Boolean).join(" · ");
+    if (!dict && !display) return "";
+    if (overlayDebugEnabled())
+      overlayDebug(
+        "pitch accent metadata detected dict=" +
+          JSON.stringify(dict) +
+          " positions=" +
+          positions.length +
+          " transcriptions=" +
+          transcriptions.length,
+      );
+    const patternsHtml = '<span class="pitch-patterns">' + display + "</span>";
+    if (options && options.prominent) {
+      return (
+        '<span class="primary-pitch" title="' +
+        escapeHtml(
+          (dict || "Pitch") + (titleDisplay ? " " + titleDisplay : ""),
+        ) +
+        '">' +
+        patternsHtml +
+        "</span>"
+      );
+    }
+    return (
+      '<span class="pitch-group" title="' +
+      escapeHtml((dict || "Pitch") + (titleDisplay ? " " + titleDisplay : "")) +
+      '"><span class="pitch-source-chip">' +
+      escapeHtml(dict || "Pitch") +
+      "</span>" +
+      patternsHtml +
+      "</span>"
+    );
+  }
+  function renderPrimaryPitchMetadata(term) {
+    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
+    return pitches.length
+      ? renderPitchMetadata(pitches[0], term, { prominent: true })
+      : "";
+  }
   function renderEntryMetadata(term) {
     const chips = [];
+    const frequencyChips = [];
     const frequencies = Array.isArray(term && term.frequencies)
       ? term.frequencies
       : [];
@@ -7712,7 +7812,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
             " values=" +
             values.length,
         );
-      chips.push(
+      frequencyChips.push(
         '<span class="freq-chip" title="' +
           escapeHtml((dict || "Frequency") + (display ? " " + display : "")) +
           '"><span class="meta-label">' +
@@ -7724,74 +7824,33 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           "</span>",
       );
     });
-    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
-    pitches.forEach((entry) => {
-      const dict = String(
-        entry.dict || entry.dictName || entry.dictionary || "",
-      );
-      const positions = Array.isArray(entry.positions)
-        ? entry.positions
-        : Array.isArray(entry.pitchPositions)
-          ? entry.pitchPositions
-          : Array.isArray(entry.pitch_positions)
-            ? entry.pitch_positions
-            : [];
-      const transcriptions = Array.isArray(entry.transcriptions)
-        ? entry.transcriptions
-        : [];
-      const reading = String(
-        (term && term.reading) || (term && term.expression) || "",
-      );
-      const patterns = reading
-        ? positions
-            .slice(0, 4)
-            .map((pos) => renderPitchPattern(reading, pos))
-            .filter(Boolean)
-        : [];
-      const bits = [];
-      if (!patterns.length && positions.length)
-        bits.push(positions.map((v) => String(v)).join(", "));
-      if (transcriptions.length)
-        bits.push(
-          transcriptions
-            .map((v) => normalizeWhitespace(v))
-            .filter(Boolean)
-            .join(", "),
-        );
-      const display = patterns.length
-        ? patterns.join("") +
-          (positions.length > patterns.length
-            ? '<span class="pitch-more">+' +
-              escapeHtml(String(positions.length - patterns.length)) +
-              "</span>"
-            : "")
-        : '<span class="pitch-text">' +
-          escapeHtml(bits.filter(Boolean).join(" · ")) +
-          "</span>";
-      const titleDisplay = positions.length
-        ? positions.map((v) => String(v)).join(", ")
-        : bits.filter(Boolean).join(" · ");
-      if (!dict && !display) return;
-      if (overlayDebugEnabled())
-        overlayDebug(
-          "pitch accent metadata detected dict=" +
-            JSON.stringify(dict) +
-            " positions=" +
-            positions.length +
-            " transcriptions=" +
-            transcriptions.length,
-        );
+    if (frequencyChips.length > 1) {
+      const disclosureId =
+        "freq-disclosure-" + String(++frequencyDisclosureSeq);
+      chips.push(frequencyChips[0]);
       chips.push(
-        '<span class="pitch-group" title="' +
-          escapeHtml(
-            (dict || "Pitch") + (titleDisplay ? " " + titleDisplay : ""),
-          ) +
-          '"><span class="pitch-source-chip">' +
-          escapeHtml(dict || "Pitch") +
-          '</span><span class="pitch-patterns">' +
-          display +
-          "</span></span>",
+        '<input type="checkbox" class="freq-toggle-input" id="' +
+          disclosureId +
+          '"><label class="freq-toggle" data-clickable="true" for="' +
+          disclosureId +
+          '" title="Show or hide frequencies" aria-label="Show or hide frequencies"><span class="freq-toggle-icon" aria-hidden="true"></span></label>',
       );
+      chips.push(
+        frequencyChips
+          .slice(1)
+          .map((html) =>
+            html.replace(
+              'class="freq-chip"',
+              'class="freq-chip freq-chip-extra"',
+            ),
+          )
+          .join(""),
+      );
+    } else chips.push.apply(chips, frequencyChips);
+    const pitches = Array.isArray(term && term.pitches) ? term.pitches : [];
+    pitches.slice(1).forEach((entry) => {
+      const pitchHtml = renderPitchMetadata(entry, term);
+      if (pitchHtml) chips.push(pitchHtml);
     });
     return chips.length
       ? '<div class="entry-meta-row">' + chips.join("") + "</div>"
@@ -7982,6 +8041,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     }
     const first = entries[0];
     const header = displayHeaderForResult(result, first);
+    const headerPrimaryPitch = renderPrimaryPitchMetadata(first.term || {});
     const headerAudio = audioDataForEntry(first);
     const headerAnki = registerAnkiCardContext(
       buildAnkiCardContext(stored, first, header, isRootPopup),
@@ -8032,6 +8092,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
               termClass: "dict-headword",
               readingClass: "dict-reading",
             }) +
+            renderPrimaryPitchMetadata(term) +
             "</span>" +
             entryActionHtml +
             "</div>";
@@ -8068,6 +8129,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       header.secondary,
       headerAudio,
       headerAnki,
+      headerPrimaryPitch,
     );
     maybeAutoPlayEntryAudio(stored, first);
   }
