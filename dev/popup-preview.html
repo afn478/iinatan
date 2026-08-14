@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iinatan popup preview</title>
+    <link rel="stylesheet" href="../src/overlay/overlay.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --preview-panel: rgba(28, 28, 30, 0.94);
+        --preview-border: rgba(255, 255, 255, 0.13);
+        --preview-muted: rgba(235, 235, 245, 0.62);
+      }
+      html,
+      body {
+        width: auto;
+        min-width: 960px;
+        height: auto;
+        min-height: 100%;
+        overflow: auto;
+        background: #111214;
+        color: rgba(255, 255, 255, 0.92);
+        pointer-events: auto;
+        user-select: text;
+      }
+      body {
+        display: grid;
+        grid-template-columns: minmax(640px, 1fr) 340px;
+        margin: 0;
+      }
+      .preview-main {
+        min-height: 100vh;
+        padding: 28px;
+        box-sizing: border-box;
+      }
+      .preview-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 18px;
+      }
+      .preview-heading h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .preview-heading p,
+      #fixture-description,
+      #result-summary,
+      .preview-note {
+        margin: 0;
+        color: var(--preview-muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .preview-stage {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        min-height: calc(100vh - 105px);
+        padding: 54px;
+        overflow: auto;
+        box-sizing: border-box;
+        border: 1px solid var(--preview-border);
+        border-radius: 18px;
+        background:
+          linear-gradient(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.4)),
+          radial-gradient(circle at 22% 18%, #8c7658, transparent 34%),
+          radial-gradient(circle at 78% 64%, #536348, transparent 38%),
+          #34302d;
+      }
+      #root {
+        position: relative;
+        inset: auto;
+        z-index: auto;
+        width: var(--popup-max-width);
+        min-height: 360px;
+        pointer-events: auto;
+      }
+      #popup.lookup-popup {
+        position: relative;
+        inset: auto;
+        width: 100%;
+        min-width: 250px;
+        max-width: var(--popup-max-width);
+        max-height: var(--popup-max-height);
+        transform: none;
+        box-sizing: border-box;
+      }
+      .preview-sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        padding: 24px;
+        box-sizing: border-box;
+        border-left: 1px solid var(--preview-border);
+        background: var(--preview-panel);
+      }
+      .control-group {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .control-row {
+        display: grid;
+        grid-template-columns: 1fr 72px;
+        align-items: center;
+        gap: 10px;
+      }
+      label,
+      .control-title {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 12px;
+        font-weight: 650;
+      }
+      select,
+      input,
+      textarea,
+      button {
+        box-sizing: border-box;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        color: inherit;
+        font: inherit;
+      }
+      select,
+      input,
+      button {
+        min-height: 32px;
+        padding: 5px 9px;
+      }
+      input[type="range"] {
+        width: 100%;
+        padding: 0;
+      }
+      textarea {
+        width: 100%;
+        min-height: 190px;
+        resize: vertical;
+        padding: 10px;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.13);
+      }
+      .value {
+        color: var(--preview-muted);
+        text-align: right;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      details {
+        margin-top: 14px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--preview-muted);
+        font-size: 12px;
+      }
+      #raw-data-text {
+        max-height: 320px;
+        overflow: auto;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.24);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #preview-error {
+        color: #ff6961;
+      }
+      @media (max-width: 1050px) {
+        html,
+        body {
+          min-width: 0;
+        }
+        body {
+          grid-template-columns: 1fr;
+        }
+        .preview-sidebar {
+          position: relative;
+          height: auto;
+          border-top: 1px solid var(--preview-border);
+          border-left: 0;
+        }
+      }
+    </style>
+    <style id="preview-user-css"></style>
+  </head>
+  <body data-preview-state="loading">
+    <main class="preview-main">
+      <div class="preview-heading">
+        <div>
+          <h1>iinatan production popup preview</h1>
+          <p>
+            This page loads the real overlay CSS and renderer. Edit files under
+            <code>src/overlay/</code>, then refresh.
+          </p>
+        </div>
+        <p id="preview-error"></p>
+      </div>
+      <section class="preview-stage" aria-label="Popup preview stage">
+        <div id="root">
+          <div id="status" class="hidden"></div>
+          <div
+            id="bitmap-ocr-status"
+            class="hidden"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <div id="task" class="hidden" data-clickable="true"></div>
+          <div id="subtitle" class="hidden"></div>
+          <div
+            id="popup"
+            class="lookup-popup hidden"
+            data-clickable="true"
+            data-popup-depth="0"
+          ></div>
+          <div id="nested-popup-layer" aria-live="polite"></div>
+          <div
+            id="popup-safety-zone"
+            class="hidden"
+            data-clickable="true"
+            aria-hidden="true"
+          ></div>
+          <div
+            id="popup-row-safety-zone"
+            class="hidden"
+            data-clickable="true"
+            aria-hidden="true"
+          ></div>
+        </div>
+      </section>
+    </main>
+    <aside class="preview-sidebar">
+      <div class="control-group">
+        <label for="fixture-select">Dictionary fixture</label>
+        <select id="fixture-select"></select>
+        <p id="fixture-description"></p>
+        <p id="result-summary"></p>
+      </div>
+      <div class="control-group">
+        <label for="theme-select">Popup theme</label>
+        <select id="theme-select">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <div class="control-row">
+          <label for="width-input">Maximum width</label>
+          <span class="value" id="width-value"></span>
+        </div>
+        <input id="width-input" type="range" min="300" max="700" value="440" />
+      </div>
+      <div class="control-group">
+        <div class="control-row">
+          <label for="height-input">Maximum height</label>
+          <span class="value" id="height-value"></span>
+        </div>
+        <input id="height-input" type="range" min="25" max="85" value="62" />
+      </div>
+      <div class="control-group">
+        <label for="entries-input">Rendered lookup results</label>
+        <select id="entries-input">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+        </select>
+        <label for="glosses-input">Dictionaries per result</label>
+        <select id="glosses-input">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <div class="control-row">
+          <label for="custom-css">Temporary CSS overrides</label>
+          <button id="reset-css" type="button">Reset</button>
+        </div>
+        <textarea
+          id="custom-css"
+          spellcheck="false"
+          placeholder=".lookup-popup .pos-pill { padding-inline: 2px; }"
+        ></textarea>
+        <p class="preview-note">
+          Overrides are saved locally. Production changes still belong in
+          <code>src/overlay/overlay.css</code>.
+        </p>
+      </div>
+      <details id="raw-data">
+        <summary>Hardcoded HoshiDicts payload</summary>
+        <pre id="raw-data-text"></pre>
+      </details>
+    </aside>
+    <script>
+      window.__IINATAN_POPUP_PREVIEW__ = true;
+      window.iina = {
+        handlers: Object.create(null),
+        onMessage(type, callback) {
+          this.handlers[type] = callback;
+        },
+        postMessage() {},
+      };
+    </script>
+    <script src="../src/languages/lookup_character_policy.js"></script>
+    <script src="popup-preview-data.js"></script>
+    <script src="../src/overlay/overlay.js"></script>
+    <script src="popup-preview.js"></script>
+  </body>
+</html>
