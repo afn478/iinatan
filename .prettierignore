@@ -8,3 +8,4 @@ global.js
 overlay.html
 dictionary-manager.html
 preferences.html
+dev/popup-preview-data.js

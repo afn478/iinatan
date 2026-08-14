@@ -2,9 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- Kept the popup scrollbar fully rounded and inside the material surface by widening its transparent gutter and reserving space above and below the track for the popup's curved corners.
+- Removed redundant horizontal padding from self-framed inline metadata across dictionary bracket styles, indented definition content without moving dictionary names or source headwords, and tightened dictionary-section spacing without dividers.
+
 ### Improved
 
 - Promoted the first configured Japanese pitch dictionary's accent pattern beside each bold headword without changing its pitch typography, while keeping later pitch dictionaries in their existing metadata rows, tightening the header/body spacing around frequency metadata, and collapsing preference-ordered frequency chips after the first behind a compact disclosure control.
+- Refined the popup with macOS-style translucent dark and light materials, semantic system-color accents, quieter controls and metadata, softer separators, and restrained example, note, cross-reference, disclosure, and forms-table styling while preserving each dictionary's existing layout and entry hierarchy.
+- Polished popup typography and interaction details with an explicit Apple-system font stack, native text selection colors, tabular numeric metadata, larger icon targets, dimmed press states, theme-aware focus halos, and a reduced-motion-safe entrance animation.
 
 ## 2.1.2 - 2026-08-12
 

@@ -137,6 +137,18 @@ The IINA plugin menu also includes **Settings...** and quick profile switching.
 
 ## Development / Contributing
 
+### Browser popup preview
+
+Open [`dev/popup-preview.html`](dev/popup-preview.html) directly in a browser to render real dictionary entries without starting IINA. The preview imports `src/overlay/overlay.css` and `src/overlay/overlay.js` directly, so changes to the production popup UI appear after refreshing the page. Its sidebar switches between representative words, dark and light themes, popup dimensions, result limits, and persistent temporary CSS overrides.
+
+The bundled lookup payloads are hardcoded in `dev/popup-preview-data.js`. To refresh them from the locally installed dictionaries with `iina-hoshi-dicts`, run:
+
+```sh
+npm run preview:data
+```
+
+Set `IINATAN_DATA_ROOT` first if the plugin data lives outside IINA's standard application-support directory.
+
 Development notes, build commands, test commands, packaging details, and release steps live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

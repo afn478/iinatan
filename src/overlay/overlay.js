@@ -3501,6 +3501,7 @@
   }
 
   function scheduleHidePopup() {
+    if (window.__IINATAN_POPUP_PREVIEW__) return;
     if (state.hideTimer) clearTimeout(state.hideTimer);
     state.hideTimer = setTimeout(() => hidePopup(), 240);
   }
@@ -6050,6 +6051,25 @@
       ).length > 0
     );
   }
+  function isSelfFramedMarker(text) {
+    const value = String(text || "").trim();
+    const enclosurePairs = {
+      "（": "）",
+      "［": "］",
+      "【": "】",
+      "〔": "〕",
+      "〘": "〙",
+      "〚": "〛",
+      "〈": "〉",
+      "《": "》",
+    };
+    return value.length >= 2 && enclosurePairs[value[0]] === value.at(-1);
+  }
+  function structuredPosClass(text) {
+    return isSelfFramedMarker(text)
+      ? "pos-pill self-framed-inline-chip"
+      : "pos-pill";
+  }
   function renderStructuredSpan(node, ctx) {
     const kind = nodeDataContent(node);
     const cls = nodeClassName(node);
@@ -6076,14 +6096,18 @@
       hasDataFlag(node, "pos") ||
       hasDataFlag(node, "hinshi") ||
       kind === "part-of-speech-info"
-    )
+    ) {
+      const posClass = structuredPosClass(text);
       return (
-        '<span class="pos-pill" title="' +
+        '<span class="' +
+        posClass +
+        '" title="' +
         escapeHtml(nodeTitle(node)) +
         '">' +
         body +
         "</span>"
       );
+    }
     if (kind === "misc-info")
       return (
         '<span class="pos-pill misc-pill misc-' +
@@ -6103,8 +6127,12 @@
       /(?:^|\s)(?:FM|gaiji)(?:\s|$)/i.test(cls)
     )
       return '<span class="sense-number">' + body + "</span>";
-    if (hasDataFlag(node, "sup"))
-      return '<span class="usage-marker">' + body + "</span>";
+    if (hasDataFlag(node, "sup")) {
+      const usageClass = isSelfFramedMarker(text)
+        ? "usage-marker self-framed-inline-chip"
+        : "usage-marker";
+      return '<span class="' + usageClass + '">' + body + "</span>";
+    }
     if (hasDataFlag(node, "logo") || hasDataFlag(node, "補足ロゴ"))
       return '<span class="section-label">' + body + "</span>";
     if (
@@ -6417,7 +6445,9 @@
       );
     if (kind === "part-of-speech-info")
       return (
-        '<span class="pos-pill">' +
+        '<span class="' +
+        structuredPosClass(plainTextFromNode(node.content)) +
+        '">' +
         escapeHtml(plainTextFromNode(node.content)) +
         "</span>"
       );
@@ -6987,6 +7017,46 @@
   function renderStoredLookup(stored) {
     renderStoredLookupInto(popupEl, stored, true);
   }
+
+  function installPopupPreviewApi() {
+    if (!window.__IINATAN_POPUP_PREVIEW__) return;
+    window.IINATAN_POPUP_PREVIEW_API = Object.freeze({
+      applyConfig,
+      renderLookup(payload) {
+        if (!payload || !Array.isArray(payload.results))
+          throw new Error("Preview lookup payload must contain results");
+        const lookupString = String(payload.lookupString || "");
+        const lookupLength = charsCount(lookupString);
+        state.lineId++;
+        state.text = lookupString;
+        state.chars = Array.from(lookupString);
+        state.currentPos = 0;
+        state.currentAnchor = null;
+        popupEl.innerHTML = '<div class="head"></div><div class="body"></div>';
+        popupEl.classList.remove("hidden");
+        renderStoredLookupInto(
+          popupEl,
+          {
+            ok: payload.ok !== false,
+            position: 0,
+            result: Object.assign({}, payload, {
+              language: "ja",
+              text: lookupString,
+              lookupText: lookupString,
+              lookupStart: 0,
+              lookupEnd: lookupLength,
+            }),
+          },
+          true,
+        );
+        return {
+          lookupString,
+          resultCount: payload.results.length,
+        };
+      },
+    });
+  }
+  installPopupPreviewApi();
 
   function updateCharReady(pos) {
     const run = findLookupRun(pos);

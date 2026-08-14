@@ -16,6 +16,7 @@
     "perf:plugin": "node scripts/benchmark_plugin_performance.js",
     "perf:anki": "node scripts/benchmark_anki_export.js",
     "perf:youtube-subs": "node scripts/benchmark_youtube_native_subtitles.js",
+    "preview:data": "node scripts/generate_popup_preview_data.js",
     "test:native-ass": "node tests/native_ass_geometry.test.js",
     "pack": "/Applications/IINA.app/Contents/MacOS/iina-plugin pack .",
     "link": "/Applications/IINA.app/Contents/MacOS/iina-plugin link .",

@@ -810,6 +810,52 @@ assert(
   "Japanese example details should use example-section styling",
 );
 
+const structuredUsageHtml = overlay.renderGlossaryPayload({
+  dict: "Structured Japanese Dictionary",
+  glossary: JSON.stringify([
+    {
+      type: "structured-content",
+      content: {
+        tag: "div",
+        data: { meaning: "" },
+        content: [
+          { tag: "span", data: { pos: "" }, content: "（名・形動ダ）" },
+          "当然のこととして認められる程度。",
+        ],
+      },
+    },
+  ]),
+});
+assert(
+  /<span class="pos-pill self-framed-inline-chip" title="">（名・形動ダ）<\/span>当然のこと/.test(
+    structuredUsageHtml,
+  ),
+  "Self-framed POS markers should receive content-driven compact spacing",
+);
+
+const daijisenPosHtml = overlay.renderGlossaryPayload({
+  dict: "大辞泉 第二版",
+  glossary: JSON.stringify([
+    {
+      type: "structured-content",
+      content: {
+        tag: "div",
+        data: { meaning: "" },
+        content: [
+          { tag: "span", data: { hinshi: "" }, content: "〘名・形動〙" },
+          "程度がほどよいこと。",
+        ],
+      },
+    },
+  ]),
+});
+assert(
+  /<span class="pos-pill self-framed-inline-chip" title="">〘名・形動〙<\/span>程度が/.test(
+    daijisenPosHtml,
+  ),
+  "Daijisen-style corner-bracketed POS markers should use compact spacing",
+);
+
 const jitendexForms = JSON.stringify([
   {
     type: "structured-content",
@@ -1178,6 +1224,60 @@ assert(
   "Popup CSS should not define a separate inherit theme",
 );
 assert(
+  /--popup-bg: rgba\(28, 28, 30, 0\.9\);/.test(css) &&
+    /:root\.theme-light \{[^}]*--popup-bg: rgba\(246, 246, 248, 0\.9\);/s.test(
+      css,
+    ),
+  "Popup themes should use macOS-style translucent neutral materials",
+);
+assert(
+  /\.lookup-popup \{[^}]*border-radius: 14px;[^}]*-webkit-backdrop-filter: saturate\(145%\) blur\(28px\);[^}]*backdrop-filter: saturate\(145%\) blur\(28px\);/s.test(
+    css,
+  ),
+  "Popup shell should use a compact macOS material treatment",
+);
+assert(
+  /\.lookup-popup \{[^}]*font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;[^}]*-webkit-font-smoothing: antialiased;[^}]*-moz-osx-font-smoothing: grayscale;[^}]*\}/s.test(
+    css,
+  ),
+  "Popup text should use the Apple-system font stack and native smoothing",
+);
+assert(
+  /--popup-selection-bg: rgba\(100, 168, 255, 0\.28\);/.test(css) &&
+    /:root\.theme-light \{[^}]*--popup-selection-bg: rgba\(0, 102, 204, 0\.22\);/s.test(
+      css,
+    ) &&
+    /\.lookup-popup ::selection \{[^}]*background: var\(--popup-selection-bg\);[^}]*\}/.test(
+      css,
+    ),
+  "Popup text selection should use a theme-aware system-blue tint",
+);
+assert(
+  /\.lookup-popup::\-webkit-scrollbar \{[^}]*width: 14px;[^}]*\}/.test(css) &&
+    /\.lookup-popup::\-webkit-scrollbar-track \{[^}]*margin: 10px 0;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.lookup-popup::\-webkit-scrollbar-thumb \{[^}]*min-height: 24px;[^}]*background-color: var\(--popup-scroll-thumb\);[^}]*background-clip: content-box;[^}]*border: 3px solid var\(--popup-scroll-thumb-border\);[^}]*border-radius: 999px;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.lookup-popup::\-webkit-scrollbar-thumb:hover \{[^}]*background-color: var\(--popup-scroll-thumb-hover\);[^}]*\}/.test(
+      css,
+    ),
+  "Popup scrollbar should stay inside the straight edge and away from rounded corners",
+);
+assert(
+  /\.lookup-popup:not\(\.hidden\) \{[^}]*animation: lookup-popup-appear 160ms cubic-bezier\(0\.16, 1, 0\.3, 1\) both;[^}]*\}/.test(
+    css,
+  ) &&
+    /@keyframes lookup-popup-appear \{[^}]*from \{ opacity: 0; scale: 0\.98; \}[^}]*to \{ opacity: 1; scale: 1; \}[^}]*\}/s.test(
+      css,
+    ) &&
+    /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.lookup-popup:not\(\.hidden\),[^}]*scale: 1;/s.test(
+      css,
+    ),
+  "Popup appearance motion should compose with configured scaling and respect reduced motion",
+);
+assert(
   /\.lookup-popup \.head \{[^}]*padding: 14px 18px 4px;[^}]*\}/.test(css),
   "Popup header should keep its spacing",
 );
@@ -1236,8 +1336,71 @@ assert(
   "Secondary entry headwords should match the main popup headword size",
 );
 assert(
+  /\.lookup-popup \.term \{[^}]*font-weight: 700;[^}]*\}/.test(css) &&
+    /\.dict-term \{[^}]*font-weight: 700;[^}]*\}/.test(css),
+  "Primary and later dictionary headwords should retain equal visual prominence",
+);
+assert(
+  /\.lookup-popup \.term \{[^}]*letter-spacing: -0\.02em;[^}]*\}/.test(css) &&
+    /\.dict-term \{[^}]*letter-spacing: -0\.02em;[^}]*\}/.test(css),
+  "Primary and later dictionary headwords should use compact display tracking",
+);
+assert(
+  /\.pos-pill\.self-framed-inline-chip, \.usage-marker\.self-framed-inline-chip \{[^}]*margin-right: 0\.6em;[^}]*padding-right: 0;[^}]*padding-bottom: 0\.08em;[^}]*padding-left: 0;[^}]*\}/.test(
+    css,
+  ),
+  "Self-framed inline chips should specifically override base pill padding while increasing definition spacing",
+);
+assert(
+  /\.dict-section \+ \.dict-section \{[^}]*margin-top: 10px;[^}]*padding-top: 4px;[^}]*border-top: 0;[^}]*\}/.test(
+    css,
+  ),
+  "Dictionary sections should use compact vertical spacing without dividers",
+);
+assert(
+  /\.dict-header \{[^}]*flex-wrap: nowrap;[^}]*margin-bottom: 4px;[^}]*\}/.test(
+    css,
+  ),
+  "Dictionary headers should retain a valid no-wrap layout with compact spacing",
+);
+assert(
+  /\.lookup-popup \.dict-section \{ padding-inline-start: 20px; \}/.test(css) &&
+    /\.lookup-popup \.dict-section > \.dict-header \{ margin-inline-start: -20px; \}/.test(
+      css,
+    ),
+  "Dictionary contents should be indented without moving dictionary names",
+);
+assert(
+  /\.lookup-popup \.dict-section \.dictionary-head-block \{ margin-inline-start: -20px; \}/.test(
+    css,
+  ) &&
+    /\.lookup-popup \.dict-section \.dictionary-head-block \.dictionary-head-block \{ margin-inline-start: 0; \}/.test(
+      css,
+    ),
+  "Only outermost dictionary headword wrappers should cancel the content indent",
+);
+assert(
   /\.dict-term\.has-actions \{[^}]*padding-right: 66px;[^}]*\}/.test(css),
   "Secondary entry headword rows should reserve space for action buttons",
+);
+assert(
+  /\.audio-button, \.anki-button \{[^}]*width: 28px;[^}]*height: 28px;[^}]*transition:[^}]*filter 100ms ease-out;[^}]*\}/.test(
+    css,
+  ) &&
+    /\.audio-button:active, \.anki-button:active \{[^}]*filter: brightness\(0\.85\);[^}]*\}/.test(
+      css,
+    ),
+  "Popup icon controls should use larger targets and a dimmed press state",
+);
+assert(
+  /--popup-focus-ring: rgba\(10, 132, 255, 0\.5\);/.test(css) &&
+    /:root\.theme-light \{[^}]*--popup-focus-ring: rgba\(0, 102, 204, 0\.5\);/s.test(
+      css,
+    ) &&
+    /\.audio-button:focus-visible, \.anki-button:focus-visible \{[^}]*outline: none;[^}]*box-shadow: 0 0 0 3px var\(--popup-focus-ring\);[^}]*\}/.test(
+      css,
+    ),
+  "Popup icon controls should use a theme-aware focus halo",
 );
 assert(
   /\.dict-term-actions \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*display: inline-flex;[^}]*\}/.test(
@@ -1276,8 +1439,47 @@ assert(
   "Pitch accent number/text should scale with the accent display",
 );
 assert(
+  /\.pitch-number \{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/.test(
+    css,
+  ) &&
+    /\.freq-values \{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.forms-table th, \.forms-table td \{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/.test(
+      css,
+    ),
+  "Frequency, pitch, and forms metadata should align numeric values tabularly",
+);
+assert(
   /\.pitch-source-chip \{[^}]*padding: 2px 7px;[^}]*\}/.test(css),
   "Pitch source chip sizing should remain compact",
+);
+assert(
+  /\.tag-chip \{[^}]*font-weight: 600;[^}]*\}/.test(css) &&
+    /\.pos-pill \{[^}]*font-weight: 600;[^}]*\}/.test(css) &&
+    /\.freq-chip \{[^}]*font-weight: 600;[^}]*\}/.test(css),
+  "Dictionary metadata should keep distinct compact components with quieter typography",
+);
+assert(
+  /\.example-card \{[^}]*border-left: 3px solid var\(--popup-card-accent\);[^}]*border-radius: 8px;[^}]*\}/.test(
+    css,
+  ) &&
+    /\.note-card \{[^}]*border-left: 3px solid var\(--popup-note-border\);[^}]*border-radius: 8px;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.xref-card \{[^}]*border-left: 3px solid var\(--popup-xref-border\);[^}]*border-radius: 8px;[^}]*\}/.test(
+      css,
+    ),
+  "Examples, notes, and cross-references should remain semantically distinct restrained panels",
+);
+assert(
+  /\.forms-table \{[^}]*border-collapse: separate;[^}]*border-radius: 7px;[^}]*\}/.test(
+    css,
+  ) &&
+    /\.forms-table tr > \* \+ \* \{[^}]*border-left: 1px solid var\(--popup-table-border\);[^}]*\}/.test(
+      css,
+    ),
+  "Dictionary forms should remain a structured table with macOS-style grouped borders",
 );
 assert(
   /\.lookup-popup \.head-title \{[^}]*align-items: flex-end;[^}]*gap: 8px;/.test(
