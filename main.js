@@ -553,7 +553,7 @@ function forgetOverlayBridgeConnection(conn) {
   }
 }
 function postToOverlayBridge(payload) {
-  if (!ws || typeof ws.sendText !== "function") return false;
+  if (!ws || typeof ws.sendText !== "function") return Promise.resolve(false);
   const message = JSON.stringify(payload || {});
   const targets = [];
   if (
@@ -565,11 +565,32 @@ function postToOverlayBridge(payload) {
     const conn = overlayBridgeConnections[key];
     if (targets.map(String).indexOf(String(conn)) < 0) targets.push(conn);
   });
-  let sent = false;
-  targets.forEach((conn) => {
+  const sends = targets.map((conn) => {
     try {
-      ws.sendText(conn, message);
-      sent = true;
+      return Promise.resolve(ws.sendText(conn, message))
+        .then((result) => {
+          if (String(result || "") === "success") {
+            debugVerbose(
+              "overlay bridge send completed connection=" + String(conn),
+            );
+            return true;
+          }
+          debugVerbose(
+            "overlay bridge send did not find connection=" + String(conn),
+          );
+          forgetOverlayBridgeConnection(conn);
+          return false;
+        })
+        .catch((error) => {
+          debugVerbose(
+            "overlay bridge send failed conn=" +
+              String(conn) +
+              ": " +
+              compactError(error),
+          );
+          forgetOverlayBridgeConnection(conn);
+          return false;
+        });
     } catch (error) {
       debugVerbose(
         "overlay bridge send failed conn=" +
@@ -578,9 +599,11 @@ function postToOverlayBridge(payload) {
           compactError(error),
       );
       forgetOverlayBridgeConnection(conn);
+      return Promise.resolve(false);
     }
   });
-  return sent;
+  if (!sends.length) return Promise.resolve(false);
+  return Promise.all(sends).then((results) => results.some(Boolean));
 }
 function setOverlayStatus(message, kind, ttlMs) {
   if (statusTimer !== null) {
@@ -15853,7 +15876,12 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     const result = await ankiConnectInvoke(
       "canAddNotesWithErrorDetail",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
+      {
+        url: prefs.ankiConnectUrl,
+        timeoutSeconds: 8,
+        preferences: prefs,
+        retry: false,
+      },
     );
     const first = Array.isArray(result) ? result[0] : null;
     if (first && typeof first === "object")
@@ -15866,12 +15894,22 @@ async function ankiNoteLooksDuplicate(prefs, fields, fieldNames) {
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [allowedNote || blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
+      {
+        url: prefs.ankiConnectUrl,
+        timeoutSeconds: 8,
+        preferences: prefs,
+        retry: false,
+      },
     ),
     ankiConnectInvoke(
       "canAddNotes",
       { notes: [blockedNote] },
-      { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
+      {
+        url: prefs.ankiConnectUrl,
+        timeoutSeconds: 8,
+        preferences: prefs,
+        retry: false,
+      },
     ),
   ]);
   const withDuplicatesAllowed = Array.isArray(results[0])
@@ -15888,14 +15926,79 @@ async function ankiFindNotesByDuplicateQuery(prefs, fields, fieldNames) {
   const result = await ankiConnectInvoke(
     "findNotes",
     { query },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
+    {
+      url: prefs.ankiConnectUrl,
+      timeoutSeconds: 8,
+      preferences: prefs,
+      retry: false,
+    },
   );
   return Array.isArray(result) ? result : [];
 }
-async function ankiFindDuplicateNotes(prefs, fields, fieldNames) {
-  if (!prefs.ankiDuplicateCheck) return [];
+function ankiMultiActionEnvelope(value) {
+  return value && typeof value === "object" ? value : null;
+}
+function ankiUnsupportedAction(error) {
+  return /unsupported action/i.test(compactError(error));
+}
+async function ankiFindDuplicateNotesSequential(prefs, fields, fieldNames) {
   if (!(await ankiNoteLooksDuplicate(prefs, fields, fieldNames))) return [];
   return ankiFindNotesByDuplicateQuery(prefs, fields, fieldNames);
+}
+async function ankiFindDuplicateNotes(prefs, fields, fieldNames) {
+  if (!prefs.ankiDuplicateCheck) return [];
+  const note = ankiDuplicateCheckNote(prefs, fields, fieldNames, false);
+  const query = ankiDuplicateQuery(prefs, fields, fieldNames);
+  if (!note || !query) return [];
+  let results = null;
+  try {
+    results = await ankiConnectInvoke(
+      "multi",
+      {
+        actions: [
+          {
+            action: "canAddNotesWithErrorDetail",
+            version: ANKI_CONNECT_VERSION,
+            params: { notes: [note] },
+          },
+          {
+            action: "findNotes",
+            version: ANKI_CONNECT_VERSION,
+            params: { query },
+          },
+        ],
+      },
+      {
+        url: prefs.ankiConnectUrl,
+        timeoutSeconds: 8,
+        preferences: prefs,
+        retry: false,
+      },
+    );
+  } catch (error) {
+    if (ankiUnsupportedAction(error))
+      return ankiFindDuplicateNotesSequential(prefs, fields, fieldNames);
+    throw error;
+  }
+  if (!Array.isArray(results) || results.length < 2)
+    return ankiFindDuplicateNotesSequential(prefs, fields, fieldNames);
+  const detailEnvelope = ankiMultiActionEnvelope(results[0]);
+  const notesEnvelope = ankiMultiActionEnvelope(results[1]);
+  if (!detailEnvelope || !notesEnvelope)
+    return ankiFindDuplicateNotesSequential(prefs, fields, fieldNames);
+  if (detailEnvelope.error) {
+    if (ankiUnsupportedAction(detailEnvelope.error))
+      return ankiFindDuplicateNotesSequential(prefs, fields, fieldNames);
+    throw new Error(String(detailEnvelope.error));
+  }
+  if (notesEnvelope.error) throw new Error(String(notesEnvelope.error));
+  const detail = Array.isArray(detailEnvelope.result)
+    ? detailEnvelope.result[0]
+    : null;
+  if (!detail || typeof detail !== "object")
+    return ankiFindDuplicateNotesSequential(prefs, fields, fieldNames);
+  if (!ankiErrorLooksDuplicate(detail.error)) return [];
+  return Array.isArray(notesEnvelope.result) ? notesEnvelope.result : [];
 }
 function ankiNormalizeNoteIds(noteIds) {
   const seen = Object.create(null);
@@ -15910,7 +16013,7 @@ function ankiNormalizeNoteIds(noteIds) {
 }
 function ankiNoteIdQuery(noteIds) {
   const ids = ankiNormalizeNoteIds(noteIds);
-  return ids.length ? "nid:" + ids[0] : "";
+  return ids.length ? "nid:" + ids.join(",") : "";
 }
 function ankiDisplayNoteIds(noteIds) {
   return ankiNormalizeNoteIds(noteIds).map((id) => {
@@ -15918,27 +16021,47 @@ function ankiDisplayNoteIds(noteIds) {
     return Number.isSafeInteger(numeric) ? numeric : id;
   });
 }
-function ankiOpenDuplicateNotes(prefs, noteIds) {
-  const query = ankiNoteIdQuery(noteIds);
+async function ankiOpenDuplicateNotes(prefs, noteIds) {
+  const requestedIds = ankiNormalizeNoteIds(noteIds);
+  const query = ankiNoteIdQuery(requestedIds);
   if (!query) throw new Error("No duplicate note ID is available.");
-  try {
-    Promise.resolve(
-      ankiConnectInvoke(
-        "guiBrowse",
-        { query },
-        { url: prefs.ankiConnectUrl, timeoutSeconds: 8, preferences: prefs },
-      ),
-    ).catch((error) => {
-      debugWarn(
-        "Anki reveal request failed after dispatch: " + compactError(error),
-      );
-    });
-  } catch (error) {
-    debugWarn(
-      "Anki reveal request failed before dispatch: " + compactError(error),
+  const existing = await ankiConnectInvoke(
+    "findNotes",
+    { query },
+    {
+      url: prefs.ankiConnectUrl,
+      timeoutSeconds: 8,
+      preferences: prefs,
+      retry: false,
+    },
+  );
+  const existingIds = Object.create(null);
+  ankiNormalizeNoteIds(existing).forEach((id) => {
+    existingIds[id] = true;
+  });
+  const survivingIds = requestedIds.filter((id) => existingIds[id]);
+  const survivingQuery = ankiNoteIdQuery(survivingIds);
+  if (!survivingQuery) throw new Error("No matching Anki cards are available.");
+  await ankiConnectInvoke(
+    "guiBrowse",
+    { query: survivingQuery },
+    {
+      url: prefs.ankiConnectUrl,
+      timeoutSeconds: 8,
+      preferences: prefs,
+      retry: false,
+    },
+  );
+  const activated = await utils.exec(
+    "/usr/bin/open",
+    ["-a", "Anki"],
+    dataRoot(),
+  );
+  if (!activated || activated.status !== 0)
+    throw new Error(
+      "Anki's Browser opened, but Anki could not be foregrounded.",
     );
-  }
-  return ankiDisplayNoteIds(noteIds);
+  return ankiDisplayNoteIds(survivingIds);
 }
 function ankiNoteTags(prefs) {
   const seen = Object.create(null);
@@ -15965,8 +16088,8 @@ let ankiModelFieldCache = Object.create(null);
 let ankiActiveBridgeRequests = Object.create(null);
 let ankiStatusCache = Object.create(null);
 let ankiStatusInFlight = Object.create(null);
-let ankiStatusQueueTail = Promise.resolve();
-let ankiStatusQueuedCount = 0;
+let ankiStatusQueue = [];
+let ankiStatusActiveCount = 0;
 let ankiMediaRootReady = false;
 let ankiMediaRootPromise = null;
 let ankiFfmpegPathCache = "";
@@ -15976,7 +16099,11 @@ const ANKI_MEDIA_MAX_CACHE_PREROLL_SECONDS = 30;
 const ANKI_MODEL_FIELD_CACHE_LIMIT = 32;
 const ANKI_PASSIVE_STATUS_CACHE_MS = 5000;
 const ANKI_PASSIVE_STATUS_CACHE_LIMIT = 80;
-const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 4;
+const ANKI_PASSIVE_STATUS_CONCURRENCY = 2;
+const ANKI_PASSIVE_STATUS_QUEUE_LIMIT = 16;
+const ANKI_PASSIVE_STATUS_RETRY_MS = 300;
+const ANKI_BRIDGE_REQUEST_RETENTION_MS = 60000;
+const ANKI_BRIDGE_REQUEST_LIMIT = 128;
 
 function ankiActiveProfilePreferences(overrides) {
   const manifest = readManifest();
@@ -16686,10 +16813,9 @@ function ankiCachedPassiveStatus(key) {
 }
 async function ankiDuplicateNotesForAdd(prefs, fields) {
   const cacheKey = ankiPassiveStatusCacheKey(prefs, fields);
-  let status = ankiCachedPassiveStatus(cacheKey);
-  if (status && status.duplicate) status = null;
-  if (!status && ankiStatusInFlight[cacheKey])
-    status = await ankiStatusInFlight[cacheKey];
+  const status = ankiStatusInFlight[cacheKey]
+    ? await ankiStatusInFlight[cacheKey]
+    : null;
   if (status && status.ok !== false)
     return {
       cacheKey,
@@ -16701,22 +16827,41 @@ async function ankiDuplicateNotesForAdd(prefs, fields) {
     noteIds: await ankiFindDuplicateNotes(prefs, fields, fieldNames),
   };
 }
-function ankiPassiveStatusQueueBusyPayload() {
+function ankiPassiveStatusDeferredPayload() {
   return {
     ok: true,
-    state: "ready",
-    duplicate: false,
-    noteIds: [],
-    message: "Add Anki card",
+    state: "deferred",
+    retryAfterMs: ANKI_PASSIVE_STATUS_RETRY_MS,
+    message: "Waiting to check Anki...",
   };
 }
-function ankiRunQueuedPassiveStatus(task) {
-  ankiStatusQueuedCount++;
-  const run = ankiStatusQueueTail.catch(() => {}).then(task);
-  ankiStatusQueueTail = run.catch(() => {});
-  return run.finally(() => {
-    ankiStatusQueuedCount = Math.max(0, ankiStatusQueuedCount - 1);
+function ankiDrainPassiveStatusQueue() {
+  while (
+    ankiStatusActiveCount < ANKI_PASSIVE_STATUS_CONCURRENCY &&
+    ankiStatusQueue.length
+  ) {
+    const job = ankiStatusQueue.shift();
+    ankiStatusActiveCount++;
+    Promise.resolve()
+      .then(job.task)
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        ankiStatusActiveCount = Math.max(0, ankiStatusActiveCount - 1);
+        ankiDrainPassiveStatusQueue();
+      });
+  }
+}
+function ankiQueuePassiveStatus(task) {
+  if (
+    ankiStatusActiveCount >= ANKI_PASSIVE_STATUS_CONCURRENCY &&
+    ankiStatusQueue.length >= ANKI_PASSIVE_STATUS_QUEUE_LIMIT
+  )
+    return null;
+  const promise = new Promise((resolve, reject) => {
+    ankiStatusQueue.push({ task, resolve, reject });
   });
+  ankiDrainPassiveStatusQueue();
+  return promise;
 }
 async function ankiCardStatusForContext(payload) {
   const prefs = ankiActiveProfilePreferences();
@@ -16730,13 +16875,13 @@ async function ankiCardStatusForContext(payload) {
   const context = ankiCardContextFromPayload(payload);
   const fields = renderAnkiFields(templates, context, {});
   const cacheKey = ankiPassiveStatusCacheKey(prefs, fields);
-  const cached = ankiCachedPassiveStatus(cacheKey);
+  const cached = prefs.ankiDuplicateCheck
+    ? ankiCachedPassiveStatus(cacheKey)
+    : null;
   if (cached) return cached;
   if (ankiStatusInFlight[cacheKey])
     return ankiCloneStatusPayload(await ankiStatusInFlight[cacheKey]);
-  if (ankiStatusQueuedCount >= ANKI_PASSIVE_STATUS_QUEUE_LIMIT)
-    return ankiPassiveStatusQueueBusyPayload();
-  const task = ankiRunQueuedPassiveStatus(async () => {
+  const task = ankiQueuePassiveStatus(async () => {
     let duplicates = [];
     if (prefs.ankiDuplicateCheck) {
       const fieldNames = await ankiConfiguredFieldNames(prefs);
@@ -16760,6 +16905,7 @@ async function ankiCardStatusForContext(payload) {
       message: "Ready to add.",
     };
   });
+  if (!task) return ankiPassiveStatusDeferredPayload();
   ankiStatusInFlight[cacheKey] = task;
   try {
     const status = await task;
@@ -16803,35 +16949,110 @@ function postAnkiCardStateForBridgePayload(payload, statePayload) {
   const response = Object.assign({}, statePayload || {});
   if (sessionId && response.popupSessionId === undefined)
     response.popupSessionId = sessionId;
+  if (response.ack !== true) {
+    const key = ankiBridgeRequestKey(
+      payload && (payload.ankiBridgeRequestType || payload.type),
+      payload,
+    );
+    const record = ankiActiveBridgeRequests[key];
+    if (record && typeof record === "object") {
+      record.state = "done";
+      record.finalPayload = ankiCloneStatusPayload(response);
+      record.updatedAt = Date.now();
+    }
+    debugVerbose(
+      "Anki bridge final requestId=" +
+        ankiBridgeRequestId(payload) +
+        " state=" +
+        String(response.state || "unknown"),
+    );
+  }
   postAnkiCardState(ankiBridgeRequestId(payload), response);
 }
+function pruneAnkiBridgeRequests() {
+  const now = Date.now();
+  const keys = Object.keys(ankiActiveBridgeRequests);
+  keys.forEach((key) => {
+    const record = ankiActiveBridgeRequests[key];
+    if (
+      record &&
+      record.state === "done" &&
+      now - Number(record.updatedAt || 0) >= ANKI_BRIDGE_REQUEST_RETENTION_MS
+    )
+      delete ankiActiveBridgeRequests[key];
+  });
+  const remaining = Object.keys(ankiActiveBridgeRequests);
+  if (remaining.length <= ANKI_BRIDGE_REQUEST_LIMIT) return;
+  remaining
+    .filter((key) => ankiActiveBridgeRequests[key].state === "done")
+    .sort(
+      (left, right) =>
+        Number(ankiActiveBridgeRequests[left].updatedAt || 0) -
+        Number(ankiActiveBridgeRequests[right].updatedAt || 0),
+    )
+    .slice(0, remaining.length - ANKI_BRIDGE_REQUEST_LIMIT)
+    .forEach((key) => delete ankiActiveBridgeRequests[key]);
+}
 function beginAnkiBridgeRequest(type, payload, ackPayload) {
+  if (payload && typeof payload === "object")
+    payload.ankiBridgeRequestType = String(type || "");
   const requestId = ankiBridgeRequestId(payload);
   const key = ankiBridgeRequestKey(type, payload);
-  if (requestId && ankiActiveBridgeRequests[key]) {
-    postAnkiCardStateForBridgePayload(
-      payload,
-      Object.assign({ ok: true, ack: true }, ackPayload || {}),
+  pruneAnkiBridgeRequests();
+  const existing = requestId ? ankiActiveBridgeRequests[key] : null;
+  if (existing) {
+    const replay =
+      existing.state === "done" && existing.finalPayload
+        ? existing.finalPayload
+        : existing.ackPayload;
+    debugVerbose(
+      "Anki bridge replay type=" +
+        String(type || "") +
+        " requestId=" +
+        requestId +
+        " state=" +
+        String(existing.state || "") +
+        " transport=" +
+        String((payload && payload.bridgeTransport) || "unknown"),
     );
+    postAnkiCardStateForBridgePayload(payload, replay || {});
     return false;
   }
-  if (requestId) ankiActiveBridgeRequests[key] = true;
-  postAnkiCardStateForBridgePayload(
-    payload,
-    Object.assign({ ok: true, ack: true }, ackPayload || {}),
+  const ack = Object.assign({ ok: true, ack: true }, ackPayload || {});
+  if (requestId)
+    ankiActiveBridgeRequests[key] = {
+      state: "active",
+      ackPayload: ankiCloneStatusPayload(ack),
+      finalPayload: null,
+      updatedAt: Date.now(),
+    };
+  debugVerbose(
+    "Anki bridge begin type=" +
+      String(type || "") +
+      " requestId=" +
+      requestId +
+      " transport=" +
+      String((payload && payload.bridgeTransport) || "unknown"),
   );
+  postAnkiCardStateForBridgePayload(payload, ack);
   return true;
 }
 function finishAnkiBridgeRequest(type, payload) {
   const requestId = ankiBridgeRequestId(payload);
   const key = ankiBridgeRequestKey(type, payload);
-  if (!requestId || !ankiActiveBridgeRequests[key]) return;
-  ankiActiveBridgeRequests[key] = "done";
-  scheduleOneShot(() => {
-    try {
-      delete ankiActiveBridgeRequests[key];
-    } catch (_) {}
-  }, 60000);
+  const record = requestId ? ankiActiveBridgeRequests[key] : null;
+  if (!record) return;
+  record.state = "done";
+  record.updatedAt = Date.now();
+  debugVerbose(
+    "Anki bridge finish type=" +
+      String(type || "") +
+      " requestId=" +
+      requestId +
+      " final=" +
+      String(!!record.finalPayload),
+  );
+  pruneAnkiBridgeRequests();
 }
 function handleBridgeAnkiCardStatus(payload) {
   if (
@@ -16843,10 +17064,12 @@ function handleBridgeAnkiCardStatus(payload) {
       const status = await ankiCardStatusForContext(payload);
       postAnkiCardStateForBridgePayload(payload, status);
     } catch (error) {
+      const message = compactError(error);
       postAnkiCardStateForBridgePayload(payload, {
         ok: false,
         state: "error",
-        message: compactError(error),
+        staleNoteIds: /No matching Anki cards/i.test(message),
+        message,
       });
     } finally {
       finishAnkiBridgeRequest("anki-card-status", payload);
@@ -16861,24 +17084,31 @@ function handleBridgeAnkiCardOpen(payload) {
     })
   )
     return;
-  try {
-    const prefs = ankiActiveProfilePreferences();
-    const openedIds = ankiOpenDuplicateNotes(prefs, payload && payload.noteIds);
-    postAnkiCardStateForBridgePayload(payload, {
-      ok: true,
-      state: "opened",
-      noteIds: openedIds,
-      message: "Reveal sent to Anki.",
-    });
-  } catch (error) {
-    postAnkiCardStateForBridgePayload(payload, {
-      ok: false,
-      state: "error",
-      message: compactError(error),
-    });
-  } finally {
-    finishAnkiBridgeRequest("anki-card-open", payload);
-  }
+  (async () => {
+    try {
+      const prefs = ankiActiveProfilePreferences();
+      const openedIds = await ankiOpenDuplicateNotes(
+        prefs,
+        payload && payload.noteIds,
+      );
+      postAnkiCardStateForBridgePayload(payload, {
+        ok: true,
+        state: "opened",
+        noteIds: openedIds,
+        message: "Opened in Anki.",
+      });
+    } catch (error) {
+      const message = compactError(error);
+      postAnkiCardStateForBridgePayload(payload, {
+        ok: false,
+        state: "error",
+        staleNoteIds: /No matching Anki cards/i.test(message),
+        message,
+      });
+    } finally {
+      finishAnkiBridgeRequest("anki-card-open", payload);
+    }
+  })();
 }
 function handleBridgeAnkiCardAdd(payload) {
   if (
@@ -16894,23 +17124,36 @@ function handleBridgeAnkiCardAdd(payload) {
       const templates = ankiFieldTemplatesFromPrefs(prefs);
       if (!ankiProfileConfigured(prefs, templates))
         throw new Error("Anki export is not configured.");
+      const forceDuplicate = !!(payload && payload.forceDuplicate);
+      if (
+        forceDuplicate &&
+        (prefs.ankiDuplicateMode !== "allow" || !prefs.ankiDuplicateCheck)
+      )
+        throw new Error("Adding duplicate Anki cards is not enabled.");
+      if (
+        forceDuplicate &&
+        (String((payload && payload.duplicateKnown) || "") !== "duplicate" ||
+          !ankiNormalizeNoteIds(payload && payload.noteIds).length)
+      )
+        throw new Error(
+          "Confirm the existing Anki card before adding another copy.",
+        );
       const context = ankiCardContextFromPayload(payload);
       let fields = renderAnkiFields(templates, context, {});
       let duplicates = [];
-      let statusCacheKey = "";
-      if (prefs.ankiDuplicateCheck && prefs.ankiDuplicateMode !== "allow") {
+      const statusCacheKey = ankiPassiveStatusCacheKey(prefs, fields);
+      if (!forceDuplicate && prefs.ankiDuplicateCheck) {
         const duplicateStatus = await ankiDuplicateNotesForAdd(prefs, fields);
-        statusCacheKey = duplicateStatus.cacheKey;
         duplicates = duplicateStatus.noteIds;
       }
-      if (duplicates.length && prefs.ankiDuplicateMode !== "allow") {
-        const openedIds = ankiOpenDuplicateNotes(prefs, duplicates);
+      if (duplicates.length && !forceDuplicate) {
+        const openedIds = await ankiOpenDuplicateNotes(prefs, duplicates);
         postAnkiCardStateForBridgePayload(payload, {
           ok: true,
           state: "opened",
           duplicate: true,
           noteIds: openedIds,
-          message: "Reveal sent to Anki.",
+          message: "Opened in Anki.",
         });
         return;
       }
@@ -16921,7 +17164,9 @@ function handleBridgeAnkiCardAdd(payload) {
         deckName: prefs.ankiDeckName,
         modelName: prefs.ankiModelName,
         fields,
-        options: ankiDuplicateOptions(prefs),
+        options: prefs.ankiDuplicateCheck
+          ? ankiDuplicateCheckOptions(prefs, forceDuplicate)
+          : ankiDuplicateOptions(prefs),
         tags: ankiNoteTags(prefs),
       };
       let noteId = null;
@@ -16929,12 +17174,17 @@ function handleBridgeAnkiCardAdd(payload) {
         noteId = await ankiConnectInvoke(
           "addNote",
           { note },
-          { url: prefs.ankiConnectUrl, timeoutSeconds: 20, preferences: prefs },
+          {
+            url: prefs.ankiConnectUrl,
+            timeoutSeconds: 20,
+            preferences: prefs,
+            retry: false,
+          },
         );
       } catch (error) {
         if (
           prefs.ankiDuplicateCheck &&
-          prefs.ankiDuplicateMode !== "allow" &&
+          !forceDuplicate &&
           ankiErrorLooksDuplicate(compactError(error))
         ) {
           const fieldNames = await ankiConfiguredFieldNames(prefs);
@@ -16944,13 +17194,16 @@ function handleBridgeAnkiCardAdd(payload) {
             fieldNames,
           );
           if (lateDuplicates.length) {
-            const openedIds = ankiOpenDuplicateNotes(prefs, lateDuplicates);
+            const openedIds = await ankiOpenDuplicateNotes(
+              prefs,
+              lateDuplicates,
+            );
             postAnkiCardStateForBridgePayload(payload, {
               ok: true,
               state: "opened",
               duplicate: true,
               noteIds: openedIds,
-              message: "Reveal sent to Anki.",
+              message: "Opened in Anki.",
             });
             return;
           }
@@ -16959,26 +17212,36 @@ function handleBridgeAnkiCardAdd(payload) {
       }
       if (!ankiValidAddedNoteId(noteId))
         throw new Error("AnkiConnect did not return a note ID.");
-      if (statusCacheKey)
-        ankiRememberPassiveStatus(statusCacheKey, {
-          ok: true,
-          state: "duplicate",
-          duplicate: true,
-          noteIds: [noteId],
-          message: "Duplicate found.",
-        });
+      const cachedStatus = ankiCachedPassiveStatus(statusCacheKey);
+      const knownNoteIds = ankiDisplayNoteIds(
+        ankiNormalizeNoteIds(
+          (cachedStatus && cachedStatus.noteIds ? cachedStatus.noteIds : [])
+            .concat(payload && payload.noteIds ? payload.noteIds : [])
+            .concat([noteId]),
+        ),
+      );
+      ankiRememberPassiveStatus(statusCacheKey, {
+        ok: true,
+        state: "duplicate",
+        duplicate: true,
+        noteIds: knownNoteIds,
+        message: "Duplicate found.",
+      });
       postAnkiCardStateForBridgePayload(payload, {
         ok: true,
         state: "added",
         noteId,
-        noteIds: ankiDisplayNoteIds([noteId]),
+        noteIds: knownNoteIds,
+        forceDuplicate,
         message: "Added Anki card.",
       });
     } catch (error) {
+      const message = compactError(error);
       postAnkiCardStateForBridgePayload(payload, {
         ok: false,
         state: "error",
-        message: compactError(error),
+        staleNoteIds: /No matching Anki cards/i.test(message),
+        message,
       });
     } finally {
       finishAnkiBridgeRequest("anki-card-add", payload);

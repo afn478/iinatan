@@ -552,7 +552,7 @@ function forgetOverlayBridgeConnection(conn) {
   }
 }
 function postToOverlayBridge(payload) {
-  if (!ws || typeof ws.sendText !== "function") return false;
+  if (!ws || typeof ws.sendText !== "function") return Promise.resolve(false);
   const message = JSON.stringify(payload || {});
   const targets = [];
   if (
@@ -564,11 +564,32 @@ function postToOverlayBridge(payload) {
     const conn = overlayBridgeConnections[key];
     if (targets.map(String).indexOf(String(conn)) < 0) targets.push(conn);
   });
-  let sent = false;
-  targets.forEach((conn) => {
+  const sends = targets.map((conn) => {
     try {
-      ws.sendText(conn, message);
-      sent = true;
+      return Promise.resolve(ws.sendText(conn, message))
+        .then((result) => {
+          if (String(result || "") === "success") {
+            debugVerbose(
+              "overlay bridge send completed connection=" + String(conn),
+            );
+            return true;
+          }
+          debugVerbose(
+            "overlay bridge send did not find connection=" + String(conn),
+          );
+          forgetOverlayBridgeConnection(conn);
+          return false;
+        })
+        .catch((error) => {
+          debugVerbose(
+            "overlay bridge send failed conn=" +
+              String(conn) +
+              ": " +
+              compactError(error),
+          );
+          forgetOverlayBridgeConnection(conn);
+          return false;
+        });
     } catch (error) {
       debugVerbose(
         "overlay bridge send failed conn=" +
@@ -577,9 +598,11 @@ function postToOverlayBridge(payload) {
           compactError(error),
       );
       forgetOverlayBridgeConnection(conn);
+      return Promise.resolve(false);
     }
   });
-  return sent;
+  if (!sends.length) return Promise.resolve(false);
+  return Promise.all(sends).then((results) => results.some(Boolean));
 }
 function setOverlayStatus(message, kind, ttlMs) {
   if (statusTimer !== null) {

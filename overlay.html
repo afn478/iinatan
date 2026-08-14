@@ -296,6 +296,7 @@
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
     .dict-term { position: relative; min-width: 0; min-height: 28px; color: var(--popup-heading); font-size: 30px; font-weight: 700; line-height: 1.15; margin: 0 0 4px; letter-spacing: -0.02em; }
     .dict-term.has-actions { padding-right: 66px; }
+    .dict-term.has-actions.has-add-anyway { padding-right: 91px; }
     .dict-term-text { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 600; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
@@ -306,6 +307,12 @@
       gap: 5px;
       flex: 0 0 auto;
       margin: 1px 0 0 auto;
+    }
+    .anki-action-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
     }
     .audio-button, .anki-button {
       position: relative;
@@ -330,6 +337,15 @@
     .audio-button:active, .anki-button:active { filter: brightness(0.85); }
     .audio-button:focus-visible, .anki-button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--popup-focus-ring); }
     .dict-term-actions { position: absolute; top: 1px; right: 0; display: inline-flex; align-items: center; gap: 5px; }
+    .anki-add-anyway-button {
+      width: 20px;
+      height: 20px;
+    }
+    .anki-add-anyway-button[hidden] { display: none; }
+    .anki-add-anyway-button .anki-icon {
+      width: 12px;
+      height: 12px;
+    }
     .audio-button[data-audio-state="loading"] { opacity: 0.72; }
     .audio-button[data-audio-state="loading"] .audio-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .audio-button[data-audio-state="missing"] { color: var(--popup-error); border-color: var(--popup-error-border); }
@@ -361,9 +377,11 @@
       stroke-linejoin: round;
     }
     .anki-button[data-anki-state="checking"],
-    .anki-button[data-anki-state="adding"] { opacity: 0.72; }
+    .anki-button[data-anki-state="adding"],
+    .anki-button[data-anki-state="opening"] { opacity: 0.72; }
     .anki-button[data-anki-state="checking"] .anki-icon,
-    .anki-button[data-anki-state="adding"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
+    .anki-button[data-anki-state="adding"] .anki-icon,
+    .anki-button[data-anki-state="opening"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .anki-button[data-anki-state="duplicate"] {
       color: var(--popup-heading);
       border-color: var(--popup-border);
@@ -4759,6 +4777,69 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     },
     { passive: false, capture: true },
   );
+  function decodeBridgeUtf8(bytes) {
+    const view =
+      bytes instanceof Uint8Array
+        ? bytes
+        : new Uint8Array(
+            bytes.buffer || bytes,
+            bytes.byteOffset || 0,
+            bytes.byteLength,
+          );
+    if (typeof TextDecoder === "function")
+      return new TextDecoder("utf-8").decode(view);
+    let binary = "";
+    for (let index = 0; index < view.length; index++)
+      binary += String.fromCharCode(view[index]);
+    try {
+      return decodeURIComponent(escape(binary));
+    } catch (_) {
+      return binary;
+    }
+  }
+  function bridgeMessageText(data) {
+    if (typeof data === "string") return Promise.resolve(data);
+    if (typeof ArrayBuffer === "function" && data instanceof ArrayBuffer)
+      return Promise.resolve(decodeBridgeUtf8(new Uint8Array(data)));
+    if (
+      typeof ArrayBuffer === "function" &&
+      ArrayBuffer.isView &&
+      ArrayBuffer.isView(data)
+    )
+      return Promise.resolve(decodeBridgeUtf8(data));
+    if (data && typeof data.text === "function")
+      return Promise.resolve(data.text());
+    if (typeof Blob === "function" && data instanceof Blob)
+      return new Promise((resolve, reject) => {
+        try {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () =>
+            reject(reader.error || new Error("read failed"));
+          reader.readAsText(data);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    return Promise.reject(new Error("Unsupported bridge message payload"));
+  }
+  function handleBridgeSocketMessage(event) {
+    const data = event && event.data !== undefined ? event.data : event;
+    bridgeMessageText(data)
+      .then((text) => {
+        let payload = null;
+        try {
+          payload = JSON.parse(String(text || ""));
+        } catch (_) {
+          return;
+        }
+        if (!payload || typeof payload !== "object") return;
+        if (payload.type === "anki-card-state") updateAnkiCardState(payload);
+      })
+      .catch((error) => {
+        overlayDebug("bridge message decode failed: " + String(error || ""));
+      });
+  }
   function ensureBridgeSocket() {
     if (!state.bridgePort) return;
     if (
@@ -4771,6 +4852,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       const socket = new WebSocket(
         "ws://127.0.0.1:" + String(state.bridgePort) + "/overlay",
       );
+      try {
+        socket.binaryType = "arraybuffer";
+      } catch (_) {}
       state.bridgeSocket = socket;
       socket.onopen = () => {
         overlayDebug("bridge socket open");
@@ -4790,16 +4874,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           sendBridgePopupVisibility(true);
         }
       };
-      socket.onmessage = (event) => {
-        let payload = event && event.data !== undefined ? event.data : event;
-        try {
-          if (typeof payload === "string") payload = JSON.parse(payload);
-        } catch (_) {
-          return;
-        }
-        if (!payload || typeof payload !== "object") return;
-        if (payload.type === "anki-card-state") updateAnkiCardState(payload);
-      };
+      socket.onmessage = handleBridgeSocketMessage;
       socket.onclose = () => {
         try {
           console.log("[iinatan overlay] bridge socket close");
@@ -5107,19 +5182,23 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const icon = config.configured ? ankiIconSvg("plus") : ankiIconSvg("error");
     const action = config.configured ? "add" : "disabled";
     return (
-      '<button type="button" class="anki-button" data-clickable="true" data-anki-context-id="' +
+      '<span class="anki-action-group" data-clickable="true" data-anki-context-id="' +
       escapeHtml(contextId) +
       '" data-anki-state="' +
       stateName +
+      '" data-anki-note-ids="[]"><button type="button" class="anki-button anki-add-anyway-button" data-clickable="true" data-anki-role="force-add" data-anki-state="ready" data-anki-action="add" title="Add another Anki card despite the duplicate" aria-label="Add another Anki card despite the duplicate" hidden disabled>' +
+      ankiIconSvg("plus") +
+      '</button><button type="button" class="anki-button anki-primary-button" data-clickable="true" data-anki-role="primary" data-anki-state="' +
+      stateName +
       '" data-anki-action="' +
       action +
-      '" data-anki-note-ids="[]" title="' +
+      '" title="' +
       escapeHtml(title) +
       '" aria-label="' +
       escapeHtml(title) +
       '">' +
       icon +
-      "</button>"
+      "</button></span>"
     );
   }
   function markElementClickable(element) {
@@ -5131,36 +5210,100 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         .forEach((el) => el.setAttribute("data-clickable", "true"));
     } catch (_) {}
   }
-  function setNoteIdsForAnkiButton(button, noteIds) {
-    if (!button || !button.dataset) return;
-    button.dataset.ankiNoteIds = JSON.stringify(
+  function ankiActionGroupForControl(control) {
+    let current = control;
+    while (current) {
+      if (current.classList && current.classList.contains("anki-action-group"))
+        return current;
+      current = current.parentNode || null;
+    }
+    return control && control.dataset ? control : null;
+  }
+  function ankiPrimaryButtonForGroup(group) {
+    if (!group) return null;
+    if (group.classList && group.classList.contains("anki-button"))
+      return group;
+    return group.querySelector(".anki-primary-button");
+  }
+  function ankiForceAddButtonForGroup(group) {
+    if (!group || (group.classList && group.classList.contains("anki-button")))
+      return null;
+    return group.querySelector(".anki-add-anyway-button");
+  }
+  function setNoteIdsForAnkiButton(control, noteIds) {
+    const group = ankiActionGroupForControl(control);
+    if (!group || !group.dataset) return;
+    group.dataset.ankiNoteIds = JSON.stringify(
       Array.isArray(noteIds) ? noteIds : [],
     );
   }
-  function setAnkiButtonState(button, status) {
-    if (!button) return;
+  function setAnkiControlDisabled(control, disabled) {
+    if (!control) return;
+    control.disabled = !!disabled;
+    if (disabled) control.setAttribute("aria-disabled", "true");
+    else control.setAttribute("aria-disabled", "false");
+  }
+  function updateAnkiForceAddLayout(group, visible) {
+    const forceButton = ankiForceAddButtonForGroup(group);
+    const visibilityChanged = !!forceButton && forceButton.hidden === !!visible;
+    if (forceButton) forceButton.hidden = !visible;
+    let current = group && group.parentNode;
+    let ownerPopup = null;
+    while (current) {
+      if (current.classList && current.classList.contains("dict-term")) {
+        if (visible) current.classList.add("has-add-anyway");
+        else current.classList.remove("has-add-anyway");
+      }
+      if (
+        current === popupEl ||
+        (current.classList && current.classList.contains("nested-popup"))
+      ) {
+        ownerPopup = current;
+        break;
+      }
+      current = current.parentNode || null;
+    }
+    if (visibilityChanged && ownerPopup)
+      setTimeout(() => {
+        if (!popupContainsNode(group)) return;
+        if (ownerPopup === popupEl) {
+          if (state.currentAnchor) placePopup(state.currentAnchor);
+          return;
+        }
+        const item = nestedPopupItemForElement(ownerPopup);
+        if (item) placeNestedPopup(item);
+      }, 0);
+  }
+  function setAnkiButtonState(control, status) {
+    const group = ankiActionGroupForControl(control);
+    const button = ankiPrimaryButtonForGroup(group);
+    const forceButton = ankiForceAddButtonForGroup(group);
+    if (!group || !button) return;
     const stateName = String((status && status.state) || "ready");
     const duplicate = !!(status && status.duplicate);
     const statusNoteIds = Array.isArray(status && status.noteIds)
       ? status.noteIds
       : null;
     const config = activeAnkiConfig();
+    group.dataset.ankiState = stateName;
+    group.dataset.ankiBusyRole = "";
     button.dataset.ankiState = stateName;
+    setAnkiControlDisabled(button, false);
+    if (forceButton) {
+      forceButton.dataset.ankiState = "ready";
+      setAnkiControlDisabled(forceButton, false);
+    }
     if (stateName === "duplicate" && duplicate) {
-      button.dataset.ankiDuplicateKnown = "duplicate";
+      group.dataset.ankiDuplicateKnown = "duplicate";
       setNoteIdsForAnkiButton(button, statusNoteIds || []);
-      if (config.duplicateMode === "allow") {
-        button.dataset.ankiAction = "add";
-        button.innerHTML = ankiIconSvg("plus");
-        button.title =
-          "Duplicate found. Click to add anyway; right-click to open existing note.";
-        button.setAttribute("aria-label", "Add duplicate Anki card");
-      } else {
-        button.dataset.ankiAction = "open";
-        button.innerHTML = ankiIconSvg("book");
-        button.title = "Duplicate found. Open existing note in Anki.";
-        button.setAttribute("aria-label", "Open existing Anki note");
-      }
+      button.dataset.ankiAction = "open";
+      button.innerHTML = ankiIconSvg("book");
+      button.title = "Duplicate found. Open existing note in Anki.";
+      button.setAttribute("aria-label", "Open existing Anki note");
+      updateAnkiForceAddLayout(
+        group,
+        config.duplicateCheck && config.duplicateMode === "allow",
+      );
     } else if (stateName === "added") {
       const addedNoteIds =
         statusNoteIds ||
@@ -5168,36 +5311,46 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
           ? [status.noteId]
           : []);
       if (addedNoteIds.length) {
-        button.dataset.ankiDuplicateKnown = "duplicate";
+        group.dataset.ankiDuplicateKnown = "duplicate";
         setNoteIdsForAnkiButton(button, addedNoteIds);
         button.dataset.ankiAction = "open";
         button.innerHTML = ankiIconSvg("book");
         button.title = "Added to Anki. Open note in Anki.";
         button.setAttribute("aria-label", "Open added Anki note");
+        updateAnkiForceAddLayout(
+          group,
+          config.duplicateCheck && config.duplicateMode === "allow",
+        );
       } else {
-        button.dataset.ankiDuplicateKnown = "";
+        group.dataset.ankiDuplicateKnown = "";
         setNoteIdsForAnkiButton(button, []);
         button.dataset.ankiAction = "add";
         button.innerHTML = ankiIconSvg("check");
         button.title = "Added to Anki";
         button.setAttribute("aria-label", "Added to Anki");
+        updateAnkiForceAddLayout(group, false);
       }
     } else if (stateName === "opened") {
-      button.dataset.ankiDuplicateKnown = "duplicate";
+      group.dataset.ankiDuplicateKnown = "duplicate";
       if (statusNoteIds) setNoteIdsForAnkiButton(button, statusNoteIds);
       button.dataset.ankiAction = "open";
       button.innerHTML = ankiIconSvg("book");
       button.title = String((status && status.message) || "Opened in Anki");
       button.setAttribute("aria-label", "Open existing Anki note");
+      updateAnkiForceAddLayout(
+        group,
+        config.duplicateCheck && config.duplicateMode === "allow",
+      );
     } else if (stateName === "error") {
-      button.dataset.ankiDuplicateKnown = "";
+      group.dataset.ankiDuplicateKnown = "";
       setNoteIdsForAnkiButton(button, []);
       button.dataset.ankiAction = "add";
       button.innerHTML = ankiIconSvg("error");
       button.title = String((status && status.message) || "Anki add failed");
       button.setAttribute("aria-label", "Anki add failed");
+      updateAnkiForceAddLayout(group, false);
     } else if (stateName === "disabled") {
-      button.dataset.ankiDuplicateKnown = "";
+      group.dataset.ankiDuplicateKnown = "";
       setNoteIdsForAnkiButton(button, []);
       button.dataset.ankiAction = "disabled";
       button.innerHTML = ankiIconSvg("error");
@@ -5205,26 +5358,42 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         (status && status.message) || "Configure Anki export in settings",
       );
       button.setAttribute("aria-label", "Configure Anki export in settings");
+      setAnkiControlDisabled(button, true);
+      updateAnkiForceAddLayout(group, false);
+    } else if (stateName === "checking" || stateName === "deferred") {
+      group.dataset.ankiDuplicateKnown = "";
+      setNoteIdsForAnkiButton(button, []);
+      button.dataset.ankiState = "checking";
+      button.dataset.ankiAction = "disabled";
+      button.innerHTML = ankiIconSvg("plus");
+      button.title = String(
+        (status && status.message) || "Checking Anki for duplicates...",
+      );
+      button.setAttribute("aria-label", "Checking Anki for duplicates");
+      setAnkiControlDisabled(button, true);
+      updateAnkiForceAddLayout(group, false);
     } else {
-      button.dataset.ankiDuplicateKnown = stateName === "ready" ? "ready" : "";
+      group.dataset.ankiDuplicateKnown = stateName === "ready" ? "ready" : "";
       setNoteIdsForAnkiButton(button, []);
       button.dataset.ankiAction = "add";
       button.innerHTML = ankiIconSvg("plus");
       button.title = String((status && status.message) || "Add Anki card");
       button.setAttribute("aria-label", "Add Anki card");
+      updateAnkiForceAddLayout(group, false);
     }
-    markElementClickable(button);
+    markElementClickable(group);
   }
-  function ankiContextForButton(button) {
-    const contextId =
-      button && button.dataset ? button.dataset.ankiContextId : "";
+  function ankiContextForButton(control) {
+    const group = ankiActionGroupForControl(control);
+    const contextId = group && group.dataset ? group.dataset.ankiContextId : "";
     return contextId ? state.ankiCardContexts[contextId] : null;
   }
-  function noteIdsForButton(button) {
+  function noteIdsForButton(control) {
+    const group = ankiActionGroupForControl(control);
     try {
       const ids = JSON.parse(
         String(
-          button && button.dataset ? button.dataset.ankiNoteIds || "[]" : "[]",
+          group && group.dataset ? group.dataset.ankiNoteIds || "[]" : "[]",
         ),
       );
       return Array.isArray(ids) ? ids : [];
@@ -5281,21 +5450,43 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     if (!text || !selectionIsInsidePopup(selection)) return "";
     return text;
   }
-  function cachePopupSelectionForAnkiButton(button) {
-    if (!button || !button.dataset) return;
-    button.dataset.ankiPopupSelectionText = popupSelectionText();
+  function cachePopupSelectionForAnkiButton(control) {
+    const group = ankiActionGroupForControl(control);
+    if (!group || !group.dataset) return;
+    group.dataset.ankiPopupSelectionText = popupSelectionText();
   }
-  function ankiPayloadContext(context, button) {
+  function ankiPayloadContext(context, control) {
+    const group = ankiActionGroupForControl(control);
     const selected =
       popupSelectionText() ||
       normalizeWhitespace(
-        button && button.dataset
-          ? button.dataset.ankiPopupSelectionText || ""
+        group && group.dataset
+          ? group.dataset.ankiPopupSelectionText || ""
           : "",
       );
-    if (button && button.dataset) button.dataset.ankiPopupSelectionText = "";
+    if (group && group.dataset) group.dataset.ankiPopupSelectionText = "";
     return Object.assign({}, context || {}, {
       popupSelectionText: selected,
+    });
+  }
+  function ankiGroupSnapshot(group) {
+    return {
+      state: String(
+        (group && group.dataset && group.dataset.ankiState) || "ready",
+      ),
+      duplicate:
+        !!group &&
+        !!group.dataset &&
+        group.dataset.ankiDuplicateKnown === "duplicate",
+      noteIds: noteIdsForButton(group),
+    };
+  }
+  function restoreAnkiGroupSnapshot(group, snapshot) {
+    if (!group || !snapshot) return;
+    setAnkiButtonState(group, {
+      state: snapshot.state,
+      duplicate: snapshot.duplicate,
+      noteIds: snapshot.noteIds,
     });
   }
   function clearPendingAnkiMessage(requestId) {
@@ -5306,23 +5497,87 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     if (pending.finalTimer) clearTimeout(pending.finalTimer);
     delete state.pendingAnkiMessages[key];
   }
+  function pendingAnkiStatusIsAttached(pending) {
+    return !!(
+      pending &&
+      pending.group &&
+      (pending.type !== "anki-card-status" || popupContainsNode(pending.group))
+    );
+  }
+  function ankiTransportPayload(payload, transport) {
+    return Object.assign({}, payload || {}, {
+      bridgeTransport: String(transport || "unknown"),
+    });
+  }
+  function sendPendingAnkiWebSocket(pending) {
+    if (!pending || pending.transports.websocket) return false;
+    const sent = sendBridgeMessage(
+      ankiTransportPayload(pending.payload, "websocket"),
+    );
+    if (!sent) return false;
+    pending.transports.websocket = true;
+    overlayDebug(
+      "Anki request dispatched transport=websocket requestId=" +
+        pending.requestId,
+    );
+    return true;
+  }
+  function sendPendingAnkiNative(pending) {
+    if (!pending || pending.transports.native) return false;
+    pending.transports.native = true;
+    const dispatched = postPluginMessage(
+      ankiTransportPayload(pending.payload, "native"),
+    );
+    overlayDebug(
+      "Anki request dispatched transport=native requestId=" +
+        pending.requestId +
+        " bestEffort=" +
+        String(dispatched),
+    );
+    return dispatched;
+  }
+  function schedulePendingAnkiAlternate(pending, preferredTransport) {
+    const attemptStartedAt = Date.now();
+    const attempt = () => {
+      if (!state.pendingAnkiMessages[pending.requestId] || pending.acked)
+        return;
+      if (!pendingAnkiStatusIsAttached(pending)) {
+        clearPendingAnkiMessage(pending.requestId);
+        return;
+      }
+      if (preferredTransport === "websocket") {
+        sendPendingAnkiNative(pending);
+        return;
+      }
+      if (sendPendingAnkiWebSocket(pending)) return;
+      if (Date.now() - attemptStartedAt >= 2000) return;
+      pending.retryTimer = setTimeout(attempt, 60);
+    };
+    pending.retryTimer = setTimeout(attempt, 750);
+  }
   function failPendingAnkiMessage(pending, message) {
     if (!pending || !pending.requestId) return;
+    overlayDebug(
+      "Anki request failed requestId=" +
+        pending.requestId +
+        " acknowledged=" +
+        String(!!pending.acked) +
+        " message=" +
+        String(message || ""),
+    );
     clearPendingAnkiMessage(pending.requestId);
     if (
-      pending.button &&
-      pending.button.dataset &&
-      pending.button.dataset.ankiRequestId === pending.requestId
+      pending.group &&
+      pending.group.dataset &&
+      pending.group.dataset.ankiRequestId === pending.requestId
     ) {
-      if (pending.type === "anki-card-status")
-        setAnkiButtonState(pending.button, {
-          state: "ready",
-          duplicate: false,
-          noteIds: [],
-          message: "Add Anki card",
-        });
+      if (
+        pending.role === "force-add" ||
+        (pending.type === "anki-card-open" && pending.snapshot)
+      )
+        restoreAnkiGroupSnapshot(pending.group, pending.snapshot);
       else
-        setAnkiButtonState(pending.button, {
+        setAnkiButtonState(pending.group, {
           state: "error",
           message: message || "Anki request timed out",
         });
@@ -5338,123 +5593,105 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const pending = state.pendingAnkiMessages[String(requestId || "")];
     if (!pending) return;
     pending.acked = true;
+    overlayDebug("Anki request acknowledged requestId=" + pending.requestId);
     if (pending.retryTimer) {
       clearTimeout(pending.retryTimer);
       pending.retryTimer = null;
     }
   }
-  function clearPendingAnkiStatusForButton(button) {
+  function clearPendingAnkiStatusForButton(control) {
+    const group = ankiActionGroupForControl(control);
     const key =
-      button && button.dataset
-        ? String(button.dataset.ankiContextId || "")
-        : "";
+      group && group.dataset ? String(group.dataset.ankiContextId || "") : "";
     if (!key || !state.pendingAnkiStatusTimers[key]) return;
     clearTimeout(state.pendingAnkiStatusTimers[key]);
     delete state.pendingAnkiStatusTimers[key];
   }
-  function completeAnkiOpenAfterSend(pending) {
-    if (!pending || !pending.requestId) return;
-    clearPendingAnkiMessage(pending.requestId);
-    if (
-      pending.button &&
-      pending.button.dataset &&
-      pending.button.dataset.ankiRequestId === pending.requestId
-    ) {
-      setAnkiButtonState(pending.button, {
-        state: "opened",
-        noteIds: pending.payload && pending.payload.noteIds,
-        message: "Reveal sent to Anki.",
-      });
-    }
-    setStatus({ message: "Reveal sent to Anki.", kind: "info", ttlMs: 2500 });
-  }
-  function trackAnkiBridgeMessage(button, payload, type) {
+  function trackAnkiBridgeMessage(group, payload, type, role, snapshot) {
     const requestId = String((payload && payload.requestId) || "");
     if (!requestId) return false;
     clearPendingAnkiMessage(requestId);
     const pending = {
       requestId,
-      button,
+      group,
       payload,
       type,
-      retries: 0,
+      role,
+      snapshot,
       acked: false,
+      transports: { websocket: false, native: false },
       retryTimer: null,
       finalTimer: null,
     };
     state.pendingAnkiMessages[requestId] = pending;
-    const retryDelay = type === "anki-card-status" ? 700 : 900;
-    const maxRetries = type === "anki-card-status" ? 0 : 1;
     const finalDelay =
       type === "anki-card-status"
-        ? 10000
+        ? 12000
         : type === "anki-card-open"
-          ? 14000
+          ? 30000
           : 45000;
-    const sendTimeout = type === "anki-card-status" ? 1800 : 9000;
-    const retryIfUnacked = () => {
-      if (!state.pendingAnkiMessages[requestId] || pending.acked) return;
-      if (pending.retries >= maxRetries) {
-        failPendingAnkiMessage(pending, "Anki bridge did not respond");
-        return;
-      }
-      pending.retries++;
-      overlayDebug(
-        "retrying Anki bridge message type=" +
-          String(type) +
-          " requestId=" +
-          requestId,
-      );
-      send();
-    };
-    const send = () =>
-      sendBridgeMessageWhenReady(
-        payload,
-        sendTimeout,
-        () => {
-          if (!state.pendingAnkiMessages[requestId] || pending.acked) return;
-          failPendingAnkiMessage(pending, "Anki bridge unavailable");
-        },
-        () => {
-          if (type === "anki-card-open") {
-            completeAnkiOpenAfterSend(pending);
-            return;
-          }
-          if (pending.retryTimer) clearTimeout(pending.retryTimer);
-          pending.retryTimer = setTimeout(retryIfUnacked, retryDelay);
-        },
-      );
     pending.finalTimer = setTimeout(() => {
       if (!state.pendingAnkiMessages[requestId]) return;
+      if (!pendingAnkiStatusIsAttached(pending)) {
+        clearPendingAnkiMessage(requestId);
+        return;
+      }
       failPendingAnkiMessage(
         pending,
-        type === "anki-card-status" ? "" : "Anki request timed out",
+        pending.acked
+          ? "Anki request timed out"
+          : "IINA message transport did not respond",
       );
     }, finalDelay);
-    const directSent = postPluginMessage(payload);
-    if (directSent && type === "anki-card-open") {
-      completeAnkiOpenAfterSend(pending);
-      return true;
-    }
-    if (directSent) {
-      pending.retryTimer = setTimeout(retryIfUnacked, retryDelay);
-      return true;
-    }
-    return send();
+    const preferredTransport = sendPendingAnkiWebSocket(pending)
+      ? "websocket"
+      : "native";
+    if (preferredTransport === "native") sendPendingAnkiNative(pending);
+    schedulePendingAnkiAlternate(pending, preferredTransport);
+    return true;
   }
-  function sendAnkiCardMessage(button, type) {
-    const context = ankiContextForButton(button);
+  function sendAnkiCardMessage(control, type) {
+    const group = ankiActionGroupForControl(control);
+    const button = ankiPrimaryButtonForGroup(group);
+    const forceButton = ankiForceAddButtonForGroup(group);
+    const role = String(
+      (control && control.dataset && control.dataset.ankiRole) || "primary",
+    );
+    const context = ankiContextForButton(group);
     if (!context) return false;
-    if (type !== "anki-card-status") clearPendingAnkiStatusForButton(button);
-    if (button.dataset.ankiState === "adding" && type === "anki-card-add") {
-      setStatus({ message: "Adding Anki card...", kind: "info" });
+    if (type !== "anki-card-status") clearPendingAnkiStatusForButton(group);
+    if (group.dataset.ankiBusyRole) {
+      setStatus({
+        message:
+          type === "anki-card-open"
+            ? "Opening in Anki..."
+            : "Adding Anki card...",
+        kind: "info",
+      });
       return true;
     }
+    const snapshot = ankiGroupSnapshot(group);
     const requestId = "anki-" + String(++state.ankiCardRequestSeq);
-    button.dataset.ankiRequestId = requestId;
-    if (type !== "anki-card-open") {
-      button.dataset.ankiState =
-        type === "anki-card-add" ? "adding" : "checking";
+    group.dataset.ankiRequestId = requestId;
+    group.dataset.ankiBusyRole = role;
+    if (type === "anki-card-status") {
+      setAnkiButtonState(group, {
+        state: "checking",
+        message: "Checking Anki for duplicates...",
+      });
+      group.dataset.ankiBusyRole = "status";
+    } else if (type === "anki-card-open") {
+      button.dataset.ankiState = "opening";
+      setAnkiControlDisabled(button, true);
+      setAnkiControlDisabled(forceButton, true);
+    } else if (role === "force-add") {
+      forceButton.dataset.ankiState = "adding";
+      setAnkiControlDisabled(forceButton, true);
+      setAnkiControlDisabled(button, true);
+    } else {
+      button.dataset.ankiState = "adding";
+      setAnkiControlDisabled(button, true);
+      setAnkiControlDisabled(forceButton, true);
     }
     if (type === "anki-card-add")
       setStatus({ message: "Adding Anki card...", kind: "info" });
@@ -5464,79 +5701,69 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       type,
       requestId,
       popupSessionId: state.popupSessionId,
-      context: ankiPayloadContext(context, button),
-      noteIds: noteIdsForButton(button),
+      context: ankiPayloadContext(context, group),
+      noteIds: noteIdsForButton(group),
       duplicateKnown:
-        button && button.dataset
-          ? String(button.dataset.ankiDuplicateKnown || "")
+        group && group.dataset
+          ? String(group.dataset.ankiDuplicateKnown || "")
           : "",
+      forceDuplicate: type === "anki-card-add" && role === "force-add",
       at: Date.now(),
     };
-    return trackAnkiBridgeMessage(button, payload, type);
+    return trackAnkiBridgeMessage(group, payload, type, role, snapshot);
   }
-  function requestAnkiCardStatus(button) {
-    if (!button || button.dataset.ankiStatusRequested === "true") return;
-    button.dataset.ankiStatusRequested = "true";
+  function requestAnkiCardStatus(control, requestedDelay) {
+    const group = ankiActionGroupForControl(control);
+    if (!group || group.dataset.ankiStatusRequested === "true") return;
+    group.dataset.ankiStatusRequested = "true";
     const key =
-      button && button.dataset
-        ? String(button.dataset.ankiContextId || "")
-        : "";
+      group && group.dataset ? String(group.dataset.ankiContextId || "") : "";
     if (!key) return;
-    state.pendingAnkiStatusTimers[key] = setTimeout(() => {
-      delete state.pendingAnkiStatusTimers[key];
-      if (!popupContainsNode(button)) return;
-      if (
-        button.dataset.ankiState === "adding" ||
-        button.dataset.ankiState === "opening"
-      )
-        return;
-      if (!sendAnkiCardMessage(button, "anki-card-status"))
-        setAnkiButtonState(button, {
-          state: "error",
-          message: "Anki bridge unavailable",
-        });
-    }, 220);
+    state.pendingAnkiStatusTimers[key] = setTimeout(
+      () => {
+        delete state.pendingAnkiStatusTimers[key];
+        if (!popupContainsNode(group)) return;
+        if (group.dataset.ankiBusyRole) return;
+        if (!sendAnkiCardMessage(group, "anki-card-status"))
+          setAnkiButtonState(group, {
+            state: "error",
+            message: "Anki bridge unavailable",
+          });
+      },
+      Math.max(0, Number(requestedDelay) || 220),
+    );
   }
   function bindPopupAnkiButtons(container) {
     const popup = container || popupEl;
     try {
-      popup.querySelectorAll(".anki-button").forEach((button) => {
-        if (button.dataset.ankiBound !== "true") {
+      popup.querySelectorAll(".anki-action-group").forEach((group) => {
+        group.querySelectorAll(".anki-button").forEach((button) => {
+          if (button.dataset.ankiBound === "true") return;
           button.dataset.ankiBound = "true";
           button.addEventListener("pointerdown", () => {
-            cachePopupSelectionForAnkiButton(button);
+            cachePopupSelectionForAnkiButton(group);
           });
           button.addEventListener("mousedown", () => {
-            cachePopupSelectionForAnkiButton(button);
+            cachePopupSelectionForAnkiButton(group);
           });
           button.addEventListener("click", (event) => {
             try {
               event.preventDefault();
               event.stopPropagation();
             } catch (_) {}
-            const config = activeAnkiConfig();
             if (
               button.dataset.ankiAction === "disabled" ||
-              button.dataset.ankiState === "disabled"
+              button.dataset.ankiState === "disabled" ||
+              button.disabled
             ) {
-              setAnkiButtonState(button, {
-                state: "disabled",
-                message: "Configure Anki export in settings",
-              });
               return;
             }
-            const duplicate =
-              button.dataset.ankiState === "duplicate" ||
-              button.dataset.ankiDuplicateKnown === "duplicate";
-            const hasDuplicateIds = noteIdsForButton(button).length > 0;
-            const openAction =
-              button.dataset.ankiAction === "open" ||
-              (duplicate &&
-                hasDuplicateIds &&
-                config.duplicateMode !== "allow");
-            const type = openAction ? "anki-card-open" : "anki-card-add";
+            const type =
+              button.dataset.ankiAction === "open"
+                ? "anki-card-open"
+                : "anki-card-add";
             if (!sendAnkiCardMessage(button, type))
-              setAnkiButtonState(button, {
+              setAnkiButtonState(group, {
                 state: "error",
                 message: "Anki bridge unavailable",
               });
@@ -5546,14 +5773,19 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
               event.preventDefault();
               event.stopPropagation();
             } catch (_) {}
+            if (
+              button.dataset.ankiRole !== "primary" ||
+              !noteIdsForButton(group).length
+            )
+              return;
             if (!sendAnkiCardMessage(button, "anki-card-open"))
-              setAnkiButtonState(button, {
+              setAnkiButtonState(group, {
                 state: "error",
                 message: "Anki bridge unavailable",
               });
           });
-        }
-        requestAnkiCardStatus(button);
+        });
+        requestAnkiCardStatus(group);
       });
     } catch (_) {}
   }
@@ -8396,17 +8628,65 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       markPendingAnkiMessageAcked(requestId);
       return;
     }
+    overlayDebug(
+      "Anki request completed requestId=" +
+        requestId +
+        " state=" +
+        String((payload && payload.state) || "unknown"),
+    );
     const pending = state.pendingAnkiMessages[String(requestId || "")];
     const pendingType = pending && pending.type ? String(pending.type) : "";
     clearPendingAnkiMessage(requestId);
+    let targetGroup = pending && pending.group ? pending.group : null;
     try {
-      allPopupContainers().forEach((popup) => {
-        popup.querySelectorAll(".anki-button").forEach((button) => {
-          if (button.dataset.ankiRequestId !== requestId) return;
-          setAnkiButtonState(button, payload || {});
+      if (!targetGroup)
+        allPopupContainers().some((popup) => {
+          const groups = popup.querySelectorAll(".anki-action-group");
+          for (let index = 0; index < groups.length; index++) {
+            if (groups[index].dataset.ankiRequestId !== requestId) continue;
+            targetGroup = groups[index];
+            return true;
+          }
+          return false;
         });
-      });
     } catch (_) {}
+    if (targetGroup) {
+      if (payload && payload.state === "deferred") {
+        setAnkiButtonState(targetGroup, {
+          state: "checking",
+          message: payload.message || "Waiting to check Anki...",
+        });
+        const retryCount = Math.max(
+          0,
+          Number(targetGroup.dataset.ankiStatusRetryCount) || 0,
+        );
+        const retryDelays = [300, 600, 1200, 1500];
+        const retryDelay = Math.max(
+          Number(payload.retryAfterMs) || 0,
+          retryDelays[Math.min(retryCount, retryDelays.length - 1)],
+        );
+        targetGroup.dataset.ankiStatusRetryCount = String(retryCount + 1);
+        targetGroup.dataset.ankiStatusRequested = "";
+        requestAnkiCardStatus(targetGroup, retryDelay);
+      } else if (payload && payload.ok === false && payload.staleNoteIds) {
+        setAnkiButtonState(targetGroup, {
+          state: "checking",
+          message: "Refreshing Anki duplicate status...",
+        });
+        targetGroup.dataset.ankiStatusRequested = "";
+        requestAnkiCardStatus(targetGroup, 300);
+      } else if (
+        payload &&
+        payload.ok === false &&
+        pending &&
+        (pending.role === "force-add" || pending.type === "anki-card-open")
+      ) {
+        restoreAnkiGroupSnapshot(targetGroup, pending.snapshot);
+      } else {
+        targetGroup.dataset.ankiStatusRetryCount = "0";
+        setAnkiButtonState(targetGroup, payload || {});
+      }
+    }
     if (
       payload &&
       payload.ok === false &&

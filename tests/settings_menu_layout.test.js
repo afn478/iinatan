@@ -730,14 +730,15 @@ assert(
 );
 assert(
   /allowDuplicate/.test(ankiDuplicateSource) &&
-    /options:\s*ankiDuplicateOptions\(prefs\)/.test(ankiSource),
-  "Anki duplicate settings should be shaped separately and passed to addNote",
+    /ankiDuplicateCheckOptions\(prefs, forceDuplicate\)/.test(ankiSource) &&
+    /ankiDuplicateOptions\(prefs\)/.test(ankiSource),
+  "Anki duplicate settings should distinguish protected primary adds from force-add requests",
 );
 assert(
   /function ankiDuplicateNotesForAdd/.test(ankiSource) &&
-    /ankiCachedPassiveStatus/.test(ankiSource) &&
+    /ankiStatusInFlight\[cacheKey\]/.test(ankiSource) &&
     /ankiErrorLooksDuplicate/.test(ankiSource),
-  "Anki add requests should reuse ready preflights and recover authoritative duplicate races",
+  "Anki add requests should join active preflights and recover authoritative duplicate races",
 );
 assert(
   /ankiActiveBridgeRequests/.test(ankiSource),
@@ -789,7 +790,7 @@ const overlaySource = fs.readFileSync(
   "utf8",
 );
 assert(
-  /class="anki-button"/.test(overlaySource),
+  /class="anki-button anki-primary-button"/.test(overlaySource),
   "Overlay should render an Anki action button",
 );
 assert(
@@ -837,8 +838,9 @@ assert(
   "Overlay should use explicit open action state for duplicate book buttons",
 );
 assert(
-  /right-click to open existing/.test(overlaySource),
-  "Anki add-anyway mode should still expose open-existing behavior",
+  /data-anki-role="force-add"/.test(overlaySource) &&
+    /anki-add-anyway-button/.test(overlaySource),
+  "Anki add-anyway mode should expose a separate force-add control",
 );
 
 const lifecycleSource = fs.readFileSync(

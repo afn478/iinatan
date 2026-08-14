@@ -76,6 +76,7 @@ const context = {
     overlayMessages.push({ name, payload });
   },
   postToDictionaryManager() {},
+  debugVerbose() {},
   debugWarn() {},
   http: {
     async post() {
@@ -171,6 +172,74 @@ async function flushAsyncWork() {
     await Promise.resolve();
     await new Promise((resolve) => setImmediate(resolve));
   }
+}
+
+async function testOverlayBridgePromiseSemantics() {
+  const sends = [];
+  let resultForConnection = {
+    connected: "success",
+    stale: "no_connection",
+  };
+  const iinaConsole = { log() {}, info() {}, warn() {}, error() {} };
+  const bridgeContext = vm.createContext({
+    Date,
+    JSON,
+    Math,
+    Object,
+    Promise,
+    String,
+    clearInterval,
+    clearTimeout,
+    setInterval,
+    setTimeout,
+    iina: {
+      core: {},
+      mpv: {},
+      event: {},
+      overlay: {},
+      menu: {},
+      input: {},
+      ws: {
+        sendText(connection, message) {
+          sends.push({ connection, message });
+          const result = resultForConnection[String(connection)];
+          return result instanceof Error
+            ? Promise.reject(result)
+            : Promise.resolve(result);
+        },
+      },
+      preferences: {},
+      console: iinaConsole,
+      file: {},
+      http: {},
+      utils: {},
+      standaloneWindow: {},
+    },
+  });
+  vm.runInContext(
+    fs.readFileSync(
+      path.join(root, "src/main/00_context_state_paths.js"),
+      "utf8",
+    ) +
+      "\nthis.__bridgeTransport={rememberOverlayBridgeConnection,postToOverlayBridge,connections:()=>Object.keys(overlayBridgeConnections)};",
+    bridgeContext,
+  );
+  const transport = bridgeContext.__bridgeTransport;
+  transport.rememberOverlayBridgeConnection("connected");
+  transport.rememberOverlayBridgeConnection("stale");
+  const sent = await transport.postToOverlayBridge({ type: "anki-card-state" });
+  assert(
+    sent === true &&
+      sends.length === 2 &&
+      transport.connections().join(",") === "connected",
+    "IINA WebSocket sends should count only resolved success values and forget no_connection results",
+  );
+  resultForConnection = { connected: new Error("socket closed") };
+  const rejected = await transport.postToOverlayBridge({ type: "retry" });
+  assert(
+    rejected === false && transport.connections().length === 0,
+    "Rejected IINA sendText promises should be observed and remove dead connections",
+  );
 }
 
 async function waitForOverlayMessage(predicate) {
@@ -303,23 +372,25 @@ async function testAnkiBridgeActions() {
   context.ankiConnectInvoke = (action, params, options) => {
     openCalls.push({ action, params, options });
     if (action === "version") return Promise.resolve(6);
-    if (action === "guiBrowse") return new Promise(() => {});
+    if (action === "findNotes") return Promise.resolve([23456, 12345]);
+    if (action === "guiBrowse") return Promise.resolve(null);
     return Promise.resolve(null);
   };
   context.handleBridgeAnkiCardOpen({
     requestId: "open-known",
-    noteIds: [12345],
+    noteIds: [12345, 23456],
     context: {
       expression: "猫",
       entry: { term: { expression: "猫", glossaries: [] } },
     },
   });
+  await flushAsyncWork();
   assert(
     openCalls.some(
       (call) =>
-        call.action === "guiBrowse" && call.params.query === "nid:12345",
+        call.action === "guiBrowse" && call.params.query === "nid:12345,23456",
     ),
-    "Open requests with known duplicate IDs should browse directly to that nid",
+    "Open requests should browse every known duplicate note ID",
   );
   assert(
     context.__overlayMessages.some(
@@ -328,7 +399,30 @@ async function testAnkiBridgeActions() {
         message.payload.requestId === "open-known" &&
         message.payload.state === "opened",
     ),
-    "Open requests should report opened without waiting for guiBrowse",
+    "Open requests should report opened after guiBrowse and foreground activation succeed",
+  );
+
+  context.__overlayMessages.length = 0;
+  context.ankiConnectInvoke = (action) =>
+    Promise.resolve(action === "findNotes" ? [] : null);
+  context.handleBridgeAnkiCardOpen({
+    requestId: "open-deleted",
+    noteIds: [12345],
+    context: {
+      expression: "猫",
+      entry: { term: { expression: "猫" } },
+    },
+  });
+  await flushAsyncWork();
+  assert(
+    context.__overlayMessages.some(
+      (message) =>
+        message.payload &&
+        message.payload.requestId === "open-deleted" &&
+        message.payload.state === "error" &&
+        message.payload.staleNoteIds === true,
+    ),
+    "Deleted reveal targets should be identified as stale note IDs",
   );
 
   const fallbackCalls = [];
@@ -346,6 +440,7 @@ async function testAnkiBridgeActions() {
       entry: { term: { expression: "猫", glossaries: [{ glossary: "cat" }] } },
     },
   });
+  await flushAsyncWork();
   assert(
     !fallbackCalls.some(
       (call) => call.action === "findNotes" || call.action === "guiBrowse",
@@ -376,7 +471,7 @@ async function testAnkiBridgeActions() {
         },
       ]);
     if (action === "findNotes") return Promise.resolve([34567]);
-    if (action === "guiBrowse") return new Promise(() => {});
+    if (action === "guiBrowse") return Promise.resolve([70002]);
     if (action === "addNote")
       throw new Error("addNote should not run for prevent-mode duplicates");
     return Promise.resolve(null);
@@ -472,6 +567,55 @@ async function testAnkiBridgeActions() {
     "Successful add responses should preserve the new note ID for reveal",
   );
 
+  setActiveAnkiPrefs(
+    makeConfiguredAnkiPrefs({
+      ankiConnectUrl: "http://127.0.0.1:18763",
+    }),
+  );
+  const activeDeliveryCalls = [];
+  let releaseActivePreflight = null;
+  const activePreflight = new Promise((resolve) => {
+    releaseActivePreflight = resolve;
+  });
+  context.__overlayMessages.length = 0;
+  context.ankiConnectInvoke = async (action, params, options) => {
+    activeDeliveryCalls.push({ action, params, options });
+    if (action === "modelFieldNames") return ["Front", "Back"];
+    if (action === "multi") {
+      await activePreflight;
+      return [
+        { result: [{ canAdd: true, error: null }], error: null },
+        { result: [], error: null },
+      ];
+    }
+    if (action === "addNote") return 49999;
+    return null;
+  };
+  const activeDeliveryPayload = {
+    type: "anki-card-add",
+    requestId: "active-channel-delivery",
+    popupSessionId: "popup-active",
+    context: {
+      expression: "犬",
+      entry: { term: { expression: "犬", glossaries: [{ glossary: "dog" }] } },
+    },
+  };
+  context.handleBridgeAnkiCardAdd(activeDeliveryPayload);
+  await flushAsyncWork();
+  context.handleBridgeAnkiCardAdd(
+    Object.assign({}, activeDeliveryPayload, { bridgeTransport: "native" }),
+  );
+  await flushAsyncWork();
+  releaseActivePreflight();
+  await flushAsyncWork();
+  assert(
+    activeDeliveryCalls.filter((call) => call.action === "multi").length ===
+      1 &&
+      activeDeliveryCalls.filter((call) => call.action === "addNote").length ===
+        1,
+    "Duplicate channel delivery while a request is active should execute its preflight and addNote only once",
+  );
+
   const reusedRequestCalls = [];
   context.__overlayMessages.length = 0;
   let reusedNoteId = 50000;
@@ -493,12 +637,23 @@ async function testAnkiBridgeActions() {
     context: reusedContext,
   });
   await flushAsyncWork();
+  context.__overlayMessages.length = 0;
   context.handleBridgeAnkiCardAdd({
     requestId: "anki-1",
     popupSessionId: "popup-a",
     context: reusedContext,
   });
   await flushAsyncWork();
+  assert(
+    context.__overlayMessages.some(
+      (message) =>
+        message.payload &&
+        message.payload.popupSessionId === "popup-a" &&
+        message.payload.state === "added" &&
+        message.payload.ack !== true,
+    ),
+    "Completed duplicate deliveries should replay the final result rather than only acknowledging it",
+  );
   context.handleBridgeAnkiCardAdd({
     requestId: "anki-1",
     popupSessionId: "popup-b",
@@ -529,6 +684,166 @@ async function testAnkiBridgeActions() {
         message.payload.state === "added",
     ),
     "A recreated popup session should receive its own add result",
+  );
+
+  setActiveAnkiPrefs(
+    makeConfiguredAnkiPrefs({
+      ankiConnectUrl: "http://127.0.0.1:18764",
+      ankiDuplicateMode: "allow",
+    }),
+  );
+  const allowPrimaryCalls = [];
+  context.__overlayMessages.length = 0;
+  context.ankiConnectInvoke = async (action, params, options) => {
+    allowPrimaryCalls.push({ action, params, options });
+    if (action === "multi")
+      return [
+        {
+          result: [
+            {
+              canAdd: false,
+              error: "cannot create note because it is a duplicate",
+            },
+          ],
+          error: null,
+        },
+        { result: [12345, 23456], error: null },
+      ];
+    if (action === "findNotes") return [23456, 12345];
+    if (action === "guiBrowse") return null;
+    if (action === "addNote")
+      throw new Error("Allow-mode primary duplicate must not be added");
+    return null;
+  };
+  context.handleBridgeAnkiCardAdd({
+    requestId: "allow-primary-error-state",
+    popupSessionId: "popup-force",
+    duplicateKnown: "",
+    noteIds: [],
+    context: {
+      expression: "猫",
+      entry: { term: { expression: "猫", glossaries: [{ glossary: "cat" }] } },
+    },
+  });
+  await flushAsyncWork();
+  assert(
+    !allowPrimaryCalls.some((call) => call.action === "addNote") &&
+      allowPrimaryCalls.some(
+        (call) =>
+          call.action === "guiBrowse" &&
+          call.params.query === "nid:12345,23456",
+      ) &&
+      context.__overlayMessages.some(
+        (message) =>
+          message.payload &&
+          message.payload.requestId === "allow-primary-error-state" &&
+          message.payload.state === "opened",
+      ),
+    "An allow-mode primary click from an unknown/error state should authoritatively detect and reveal duplicates",
+  );
+
+  const forceAddCalls = [];
+  let forcedNoteId = 56788;
+  context.__overlayMessages.length = 0;
+  context.ankiConnectInvoke = async (action, params, options) => {
+    forceAddCalls.push({ action, params, options });
+    if (action === "addNote") return ++forcedNoteId;
+    return null;
+  };
+  context.handleBridgeAnkiCardAdd({
+    requestId: "force-add",
+    popupSessionId: "popup-force",
+    forceDuplicate: true,
+    duplicateKnown: "duplicate",
+    noteIds: [12345, 23456],
+    context: {
+      expression: "猫",
+      entry: { term: { expression: "猫", glossaries: [{ glossary: "cat" }] } },
+    },
+  });
+  await flushAsyncWork();
+  const forcedAdd = forceAddCalls.find((call) => call.action === "addNote");
+  assert(
+    forcedAdd && forcedAdd.params.note.options.allowDuplicate === true,
+    "Force-add requests should submit addNote with duplicate allowance",
+  );
+  assert(
+    !forceAddCalls.some(
+      (call) =>
+        call.action === "canAddNotesWithErrorDetail" ||
+        call.action === "findNotes",
+    ),
+    "Force-add requests should bypass duplicate preflights",
+  );
+  assert(
+    context.__overlayMessages.some(
+      (message) =>
+        message.payload &&
+        message.payload.state === "added" &&
+        message.payload.forceDuplicate === true &&
+        message.payload.noteIds.join(",") === "12345,23456,56789",
+    ),
+    "Force-add responses should merge existing and newly added note IDs",
+  );
+  context.__overlayMessages.length = 0;
+  context.handleBridgeAnkiCardAdd({
+    requestId: "force-add-again",
+    popupSessionId: "popup-force",
+    forceDuplicate: true,
+    duplicateKnown: "duplicate",
+    noteIds: [12345, 23456, 56789],
+    context: reusedContext,
+  });
+  await flushAsyncWork();
+  assert(
+    context.__overlayMessages.some(
+      (message) =>
+        message.payload &&
+        message.payload.requestId === "force-add-again" &&
+        message.payload.state === "added" &&
+        message.payload.noteIds.join(",") === "12345,23456,56789,56790",
+    ),
+    "Repeated force-add requests should retain every known note ID",
+  );
+  context.__overlayMessages.length = 0;
+  context.handleBridgeAnkiCardAdd({
+    requestId: "force-add-unconfirmed",
+    popupSessionId: "popup-force",
+    forceDuplicate: true,
+    duplicateKnown: "ready",
+    noteIds: [12345],
+    context: reusedContext,
+  });
+  await flushAsyncWork();
+  assert(
+    forceAddCalls.filter((call) => call.action === "addNote").length === 2 &&
+      context.__overlayMessages.some(
+        (message) =>
+          message.payload &&
+          message.payload.requestId === "force-add-unconfirmed" &&
+          message.payload.ok === false &&
+          /Confirm the existing Anki card/i.test(message.payload.message || ""),
+      ),
+    "Force-add should reject payloads that do not carry a confirmed duplicate state",
+  );
+
+  setActiveAnkiPrefs(makeConfiguredAnkiPrefs());
+  context.__overlayMessages.length = 0;
+  context.handleBridgeAnkiCardAdd({
+    requestId: "force-add-disabled",
+    forceDuplicate: true,
+    context: reusedContext,
+  });
+  await flushAsyncWork();
+  assert(
+    context.__overlayMessages.some(
+      (message) =>
+        message.payload &&
+        message.payload.requestId === "force-add-disabled" &&
+        message.payload.ok === false &&
+        /not enabled/i.test(message.payload.message || ""),
+    ),
+    "Force-add requests should be rejected unless allow mode is active",
   );
 }
 
@@ -585,6 +900,81 @@ async function testPassiveAnkiStatusCoalesces() {
   context.ankiConnectInvoke = previousInvoke;
 }
 
+async function testPassiveAnkiStatusDefersWithoutFalseReady() {
+  setActiveAnkiPrefs(
+    makeConfiguredAnkiPrefs({
+      ankiConnectUrl: "http://127.0.0.1:18766",
+      ankiDuplicateCheck: true,
+    }),
+  );
+  vm.runInContext(
+    "ankiStatusCache = Object.create(null); ankiStatusInFlight = Object.create(null); ankiStatusQueue = []; ankiStatusActiveCount = 0;",
+    context,
+  );
+  const previousInvoke = context.ankiConnectInvoke;
+  let releaseChecks = null;
+  let duplicateRetry = false;
+  const checksBlocked = new Promise((resolve) => {
+    releaseChecks = resolve;
+  });
+  context.ankiConnectInvoke = async (action) => {
+    if (action === "version") return 6;
+    if (action === "canAddNotesWithErrorDetail") {
+      if (!duplicateRetry) await checksBlocked;
+      return [
+        duplicateRetry
+          ? {
+              canAdd: false,
+              error: "cannot create note because it is a duplicate",
+            }
+          : { canAdd: true, error: null },
+      ];
+    }
+    if (action === "findNotes") return [88019];
+    return null;
+  };
+  const statusPromises = [];
+  for (let index = 0; index < 19; index++) {
+    statusPromises.push(
+      context.ankiCardStatusForContext({
+        context: {
+          expression: "queued-" + String(index),
+          entry: {
+            term: {
+              expression: "queued-" + String(index),
+              glossaries: [{ glossary: "queued" }],
+            },
+          },
+        },
+      }),
+    );
+  }
+  const deferred = await statusPromises[18];
+  assert(
+    deferred.state === "deferred" && deferred.state !== "ready",
+    "A saturated passive queue should defer instead of fabricating a ready result",
+  );
+  releaseChecks();
+  await Promise.all(statusPromises.slice(0, 18));
+  duplicateRetry = true;
+  const retried = await context.ankiCardStatusForContext({
+    context: {
+      expression: "queued-18",
+      entry: {
+        term: {
+          expression: "queued-18",
+          glossaries: [{ glossary: "queued" }],
+        },
+      },
+    },
+  });
+  assert(
+    retried.state === "duplicate" && retried.noteIds[0] === 88019,
+    "A deferred passive status should retry to the authoritative duplicate result",
+  );
+  context.ankiConnectInvoke = previousInvoke;
+}
+
 async function testExportFastPathsPreserveDuplicateHandling() {
   const previousInvoke = context.ankiConnectInvoke;
   const cardContext = {
@@ -614,9 +1004,22 @@ async function testExportFastPathsPreserveDuplicateHandling() {
     await flushAsyncWork();
     assert(
       calls.filter((action) => action === "canAddNotesWithErrorDetail")
-        .length === 1 &&
+        .length === 2 &&
         calls.filter((action) => action === "addNote").length === 1,
-      "A recent ready preflight should not repeat the same duplicate probe on add",
+      "A prevent-mode add should authoritatively recheck a cached ready preflight",
+    );
+    setActiveAnkiPrefs(
+      makeConfiguredAnkiPrefs({
+        ankiConnectUrl: "http://127.0.0.1:28765",
+        ankiDuplicateCheck: false,
+      }),
+    );
+    const uncheckedStatus = await context.ankiCardStatusForContext({
+      context: cardContext,
+    });
+    assert(
+      uncheckedStatus.state === "ready" && !uncheckedStatus.duplicate,
+      "Disabling duplicate checks should ignore previously cached duplicate hints",
     );
 
     setActiveAnkiPrefs(
@@ -626,9 +1029,18 @@ async function testExportFastPathsPreserveDuplicateHandling() {
       }),
     );
     calls = [];
-    context.ankiConnectInvoke = async (action) => {
+    let allowPrimaryOptions = null;
+    context.ankiConnectInvoke = async (action, params) => {
       calls.push(action);
-      if (action === "addNote") return 60002;
+      if (action === "multi")
+        return [
+          { result: [{ canAdd: true, error: null }], error: null },
+          { result: [], error: null },
+        ];
+      if (action === "addNote") {
+        allowPrimaryOptions = params.note.options;
+        return 60002;
+      }
       return null;
     };
     context.handleBridgeAnkiCardAdd({
@@ -639,9 +1051,10 @@ async function testExportFastPathsPreserveDuplicateHandling() {
     await flushAsyncWork();
     assert(
       calls.includes("addNote") &&
-        !calls.includes("canAddNotesWithErrorDetail") &&
-        !calls.includes("findNotes"),
-      "Allow-duplicate exports should go directly to Anki's authoritative addNote check",
+        calls.includes("multi") &&
+        allowPrimaryOptions &&
+        allowPrimaryOptions.allowDuplicate === false,
+      "Allow-mode primary adds should preflight and keep Anki's duplicate protection enabled",
     );
 
     setActiveAnkiPrefs(
@@ -659,7 +1072,7 @@ async function testExportFastPathsPreserveDuplicateHandling() {
         throw new Error("cannot create note because it is a duplicate");
       }
       if (action === "findNotes" && adding) return [60003];
-      if (action === "guiBrowse") return new Promise(() => {});
+      if (action === "guiBrowse") return [70003];
       return null;
     };
     await context.ankiCardStatusForContext({ context: cardContext });
@@ -1140,10 +1553,12 @@ assert(
   "Duplicate queries should match Yomitan-style first-field lookups case-insensitively",
 );
 
-testNestedCardSkipsCurrentMediaCapture()
+testOverlayBridgePromiseSemantics()
+  .then(testNestedCardSkipsCurrentMediaCapture)
   .then(testAnkiBridgeRecoversAfterConnectTimeout)
   .then(testAnkiBridgeActions)
   .then(testPassiveAnkiStatusCoalesces)
+  .then(testPassiveAnkiStatusDefersWithoutFalseReady)
   .then(testExportFastPathsPreserveDuplicateHandling)
   .then(testAnkiMediaSetupCachesProcessWork)
   .then(testStreamingSentenceAudioSources)

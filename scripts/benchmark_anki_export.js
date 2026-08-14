@@ -95,6 +95,10 @@ function makeHarness(ref, scenario) {
 
   function actionResult(payload) {
     const action = String((payload && payload.action) || "");
+    if (action === "multi")
+      return ((payload.params && payload.params.actions) || []).map(
+        (nested) => ({ result: actionResult(nested), error: null }),
+      );
     if (action === "version") return 6;
     if (action === "modelFieldNames") return Object.keys(templates);
     if (action === "canAddNotesWithErrorDetail")
@@ -107,6 +111,7 @@ function makeHarness(ref, scenario) {
           : { canAdd: true, error: null },
       ];
     if (action === "findNotes") return scenario.duplicate ? [7654321] : [];
+    if (action === "guiBrowse") return null;
     if (action === "storeMediaFile")
       return String(payload.params && payload.params.filename);
     if (action === "addNote") return 1234567;
@@ -122,7 +127,9 @@ function makeHarness(ref, scenario) {
           : 20
         : action === "addNote"
           ? 20
-          : action === "canAddNotesWithErrorDetail" || action === "findNotes"
+          : action === "multi" ||
+              action === "canAddNotesWithErrorDetail" ||
+              action === "findNotes"
             ? 10
             : 5;
     return (transport === "curl" ? 25 : 2) + server;

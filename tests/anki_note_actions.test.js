@@ -13,6 +13,7 @@ const sources = [
 const calls = [];
 const warnings = [];
 const context = {
+  ANKI_CONNECT_VERSION: 6,
   console,
   Math,
   Number,
@@ -24,6 +25,15 @@ const context = {
   },
   debugWarn(message) {
     warnings.push(String(message || ""));
+  },
+  dataRoot() {
+    return "/data";
+  },
+  utils: {
+    async exec(command, args) {
+      calls.push({ action: "exec", command, args });
+      return { status: 0, stdout: "", stderr: "" };
+    },
   },
   ankiConnectInvoke(action, params, options) {
     calls.push({ action, params, options });
@@ -83,8 +93,8 @@ async function testNoteIdFormatting() {
     "Note ID normalization should trim, filter non-IDs, and dedupe by ID text",
   );
   assert(
-    actions.ankiNoteIdQuery(noteIds) === "nid:123",
-    "Note ID queries should target the first valid normalized ID",
+    actions.ankiNoteIdQuery(noteIds) === "nid:123,001,9007199254740993",
+    "Note ID queries should target every valid normalized ID",
   );
   assertDeepEqual(
     actions.ankiDisplayNoteIds(noteIds),
@@ -97,7 +107,7 @@ async function testRevealRequiresNoteId() {
   resetCalls();
   let errorMessage = "";
   try {
-    actions.ankiOpenDuplicateNotes(prefs, ["", null, "x"]);
+    await actions.ankiOpenDuplicateNotes(prefs, ["", null, "x"]);
   } catch (error) {
     errorMessage = error.message;
   }
@@ -112,10 +122,11 @@ async function testGuiBrowseDispatch() {
   resetCalls();
   context.ankiConnectInvoke = (action, params, options) => {
     calls.push({ action, params, options });
-    if (action === "guiBrowse") return new Promise(() => {});
+    if (action === "findNotes") return [45678, 34567];
+    if (action === "guiBrowse") return null;
     return null;
   };
-  const displayed = actions.ankiOpenDuplicateNotes(prefs, [
+  const displayed = await actions.ankiOpenDuplicateNotes(prefs, [
     "bad",
     "34567",
     "45678",
@@ -127,10 +138,65 @@ async function testGuiBrowseDispatch() {
     "Reveal should return display IDs after filtering and deduping",
   );
   assert(
-    calls.length === 1 &&
-      calls[0].action === "guiBrowse" &&
-      calls[0].params.query === "nid:34567",
-    "Reveal should dispatch guiBrowse for the first valid note ID",
+    calls.length === 3 &&
+      calls[0].action === "findNotes" &&
+      calls[0].params.query === "nid:34567,45678" &&
+      calls[1].action === "guiBrowse" &&
+      calls[1].params.query === "nid:34567,45678",
+    "Reveal should validate and browse every valid note ID",
+  );
+  assert(
+    calls[2].action === "exec" &&
+      calls[2].command === "/usr/bin/open" &&
+      calls[2].args.join(" ") === "-a Anki",
+    "Reveal should accept a null guiBrowse result and then foreground Anki",
+  );
+}
+
+async function testGuiBrowsePrunesMissingNotes() {
+  resetCalls();
+  context.ankiConnectInvoke = (action, params, options) => {
+    calls.push({ action, params, options });
+    if (action === "findNotes") return [45678];
+    if (action === "guiBrowse") return [99999];
+    return null;
+  };
+  const displayed = await actions.ankiOpenDuplicateNotes(prefs, [34567, 45678]);
+  assertDeepEqual(
+    displayed,
+    [45678],
+    "Reveal should return only note IDs that still exist",
+  );
+  assert(
+    calls[1].action === "guiBrowse" && calls[1].params.query === "nid:45678",
+    "Reveal should remove deleted IDs before opening Anki's browser",
+  );
+}
+
+async function testForegroundFailureIsReported() {
+  resetCalls();
+  const previousExec = context.utils.exec;
+  context.ankiConnectInvoke = (action, params, options) => {
+    calls.push({ action, params, options });
+    if (action === "findNotes") return [34567];
+    if (action === "guiBrowse") return null;
+    return null;
+  };
+  context.utils.exec = async (command, args) => {
+    calls.push({ action: "exec", command, args });
+    return { status: 1, stdout: "", stderr: "activation failed" };
+  };
+  let errorMessage = "";
+  try {
+    await actions.ankiOpenDuplicateNotes(prefs, [34567]);
+  } catch (error) {
+    errorMessage = error.message;
+  } finally {
+    context.utils.exec = previousExec;
+  }
+  assert(
+    /could not be foregrounded/i.test(errorMessage),
+    "Reveal should report Launch Services foregrounding failures",
   );
 }
 
@@ -138,14 +204,19 @@ async function testDuplicateDetectionWithErrorDetail() {
   resetCalls();
   context.ankiConnectInvoke = (action, params, options) => {
     calls.push({ action, params, options });
-    if (action === "canAddNotesWithErrorDetail")
+    if (action === "multi")
       return [
         {
-          canAdd: false,
-          error: "cannot create note because it is a duplicate",
+          result: [
+            {
+              canAdd: false,
+              error: "cannot create note because it is a duplicate",
+            },
+          ],
+          error: null,
         },
+        { result: [34567], error: null },
       ];
-    if (action === "findNotes") return [34567];
     return null;
   };
   const duplicates = await actions.ankiFindDuplicateNotes(
@@ -159,9 +230,11 @@ async function testDuplicateDetectionWithErrorDetail() {
     "Duplicate detail errors should trigger duplicate note lookup",
   );
   assert(
-    calls[0].action === "canAddNotesWithErrorDetail" &&
-      calls[1].action === "findNotes",
-    "Duplicate detail detection should probe before finding notes",
+    calls.length === 1 &&
+      calls[0].action === "multi" &&
+      calls[0].params.actions[0].action === "canAddNotesWithErrorDetail" &&
+      calls[0].params.actions[1].action === "findNotes",
+    "Duplicate detail detection should batch the probe and note lookup",
   );
 }
 
@@ -169,6 +242,7 @@ async function testDuplicateDetectionFallback() {
   resetCalls();
   context.ankiConnectInvoke = (action, params, options) => {
     calls.push({ action, params, options });
+    if (action === "multi") throw new Error("unsupported action");
     if (action === "canAddNotesWithErrorDetail")
       throw new Error("unsupported action");
     if (action === "canAddNotes") {
@@ -258,6 +332,8 @@ async function testTagsAndAddedNoteIds() {
   await testNoteIdFormatting();
   await testRevealRequiresNoteId();
   await testGuiBrowseDispatch();
+  await testGuiBrowsePrunesMissingNotes();
+  await testForegroundFailureIsReported();
   await testDuplicateDetectionWithErrorDetail();
   await testDuplicateDetectionFallback();
   await testDuplicateCheckDisabledSkips();

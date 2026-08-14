@@ -290,6 +290,7 @@
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
     .dict-term { position: relative; min-width: 0; min-height: 28px; color: var(--popup-heading); font-size: 30px; font-weight: 700; line-height: 1.15; margin: 0 0 4px; letter-spacing: -0.02em; }
     .dict-term.has-actions { padding-right: 66px; }
+    .dict-term.has-actions.has-add-anyway { padding-right: 91px; }
     .dict-term-text { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 600; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
@@ -300,6 +301,12 @@
       gap: 5px;
       flex: 0 0 auto;
       margin: 1px 0 0 auto;
+    }
+    .anki-action-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
     }
     .audio-button, .anki-button {
       position: relative;
@@ -324,6 +331,15 @@
     .audio-button:active, .anki-button:active { filter: brightness(0.85); }
     .audio-button:focus-visible, .anki-button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--popup-focus-ring); }
     .dict-term-actions { position: absolute; top: 1px; right: 0; display: inline-flex; align-items: center; gap: 5px; }
+    .anki-add-anyway-button {
+      width: 20px;
+      height: 20px;
+    }
+    .anki-add-anyway-button[hidden] { display: none; }
+    .anki-add-anyway-button .anki-icon {
+      width: 12px;
+      height: 12px;
+    }
     .audio-button[data-audio-state="loading"] { opacity: 0.72; }
     .audio-button[data-audio-state="loading"] .audio-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .audio-button[data-audio-state="missing"] { color: var(--popup-error); border-color: var(--popup-error-border); }
@@ -355,9 +371,11 @@
       stroke-linejoin: round;
     }
     .anki-button[data-anki-state="checking"],
-    .anki-button[data-anki-state="adding"] { opacity: 0.72; }
+    .anki-button[data-anki-state="adding"],
+    .anki-button[data-anki-state="opening"] { opacity: 0.72; }
     .anki-button[data-anki-state="checking"] .anki-icon,
-    .anki-button[data-anki-state="adding"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
+    .anki-button[data-anki-state="adding"] .anki-icon,
+    .anki-button[data-anki-state="opening"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .anki-button[data-anki-state="duplicate"] {
       color: var(--popup-heading);
       border-color: var(--popup-border);

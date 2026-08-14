@@ -1384,6 +1384,21 @@ assert(
   "Secondary entry headword rows should reserve space for action buttons",
 );
 assert(
+  /\.dict-term\.has-actions\.has-add-anyway \{[^}]*padding-right: 91px;[^}]*\}/.test(
+    css,
+  ) &&
+    /\.anki-action-group \{[^}]*display: inline-flex;[^}]*gap: 4px;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.anki-add-anyway-button \{[^}]*width: 20px;[^}]*height: 20px;[^}]*\}/.test(
+      css,
+    ) &&
+    /\.anki-add-anyway-button \.anki-icon \{[^}]*width: 12px;[^}]*height: 12px;[^}]*\}/.test(
+      css,
+    ),
+  "Add-anyway actions should be smaller, ordered in the Anki group, and reserve entry space",
+);
+assert(
   /\.audio-button, \.anki-button \{[^}]*width: 28px;[^}]*height: 28px;[^}]*transition:[^}]*filter 100ms ease-out;[^}]*\}/.test(
     css,
   ) &&

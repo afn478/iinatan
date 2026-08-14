@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Made passive Anki duplicate checks reliable under load, changed confirmed duplicates to reveal every matching note in a foregrounded Anki Browser, and added a separate compact add-anyway control when duplicate adding is enabled.
+- Corrected Anki delivery for IINA's asynchronous native and binary WebSocket channels, kept the primary action duplicate-safe in add-anyway mode, and made reveals compatible with current AnkiConnect versions whose `guiBrowse` result is empty.
 - Kept the popup scrollbar fully rounded and inside the material surface by widening its transparent gutter and reserving space above and below the track for the popup's curved corners.
 - Removed redundant horizontal padding from self-framed inline metadata across dictionary bracket styles, indented definition content without moving dictionary names or source headwords, and tightened dictionary-section spacing without dividers.
 
