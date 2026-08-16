@@ -1040,6 +1040,12 @@ function ankiBuildCardContextUncached(payload, host) {
   const reading = ankiNormalizeWhitespace(
     raw.reading || ankiDisplayReading(entry, expression),
   );
+  const audioReading = ankiNormalizeWhitespace(
+    raw.audioReading ||
+      raw.reading ||
+      (entry && entry.term && entry.term.reading) ||
+      reading,
+  );
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
@@ -1131,7 +1137,7 @@ function ankiBuildCardContextUncached(payload, host) {
     timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
     audioTerm: expression,
-    audioReading: reading,
+    audioReading,
   };
 }
 function ankiBuildCardContext(payload, host) {

@@ -188,6 +188,34 @@ assert(
   "Cloze suffix should preserve the rest of the subtitle",
 );
 
+const kanaOnlyContext = buildCardContext({
+  context: {
+    sentence: "わあ！",
+    position: 0,
+    expression: "わあ",
+    reading: "",
+    surface: "わあ",
+    entry: {
+      matched: "わあ",
+      term: {
+        expression: "わあ",
+        reading: "わあ",
+        glossaries: [{ glossary: "wow" }],
+      },
+    },
+    result: {
+      text: "わあ！",
+      lookupStart: 0,
+      lookupEnd: 2,
+      language: "ja",
+    },
+  },
+});
+assert(
+  kanaOnlyContext.reading === "" && kanaOnlyContext.audioReading === "わあ",
+  "Kana-only cards should hide redundant display readings without dropping the audio-source reading",
+);
+
 const rendered = context.renderAnkiFields(
   {
     Expression: "{expression}",

@@ -626,6 +626,18 @@
       },
     ];
   }
+  function isJapanesePod101AudioUrl(url) {
+    return /^https?:\/\/(?:[^/?#]+\.)?languagepod101\.com(?::\d+)?\/dictionary\/japanese\/audiomp3\.php(?:[?#]|$)/i.test(
+      String(url || ""),
+    );
+  }
+  function isJapanesePod101UnavailableAudio(audio, url) {
+    if (!isJapanesePod101AudioUrl(url)) return false;
+    const duration = Number(audio && audio.duration);
+    // The same placeholder decodes to slightly different durations across
+    // browser engines; keep this check scoped to the JapanesePod101 endpoint.
+    return duration >= 5.64 && duration <= 5.71;
+  }
   async function resolveAudioCandidateUrls(source, term, reading) {
     const sourceUrl = safeAudioUrl(
       audioUrlFromTemplate(source && source.url, term, reading),
@@ -819,6 +831,8 @@
         const candidate = candidates[candidateIndex];
         try {
           const audio = await createPlayableAudio(candidate.url);
+          if (isJapanesePod101UnavailableAudio(audio, candidate.url))
+            throw new Error("JapanesePod101 audio is unavailable");
           const sourceName =
             candidate.name ||
             source.name ||

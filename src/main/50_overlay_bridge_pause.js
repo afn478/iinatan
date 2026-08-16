@@ -199,7 +199,11 @@ function audioCandidatesFromSourceJson(rawJson, sourceUrl) {
   try {
     parsed = JSON.parse(String(rawJson || ""));
   } catch (error) {
-    throw new Error("Audio source did not return JSON: " + compactError(error));
+    const invalidJsonError = new Error(
+      "Audio source did not return JSON: " + compactError(error),
+    );
+    invalidJsonError.audioSourceResponseNotJson = true;
+    throw invalidJsonError;
   }
   if (
     !parsed ||

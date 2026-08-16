@@ -26,6 +26,8 @@ const played = [];
 context.Audio = function TestAudio(url) {
   this.url = String(url);
   this.readyState = 0;
+  this.duration =
+    this.url.indexOf(encodeURIComponent("どうしよう")) >= 0 ? 5.67 : 1;
   this.listeners = Object.create(null);
 };
 context.Audio.prototype.addEventListener = function addEventListener(
@@ -236,6 +238,38 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(
     directButton.dataset.audioState === "ready",
     "Direct audio fallback should leave the button ready",
+  );
+
+  overlay.applyConfig({
+    audioSources: [
+      {
+        name: "JapanesePod101",
+        url: "https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?kanji={term}&kana={reading}",
+      },
+      { name: "Backup", url: "https://audio.invalid/{term}.mp3" },
+    ],
+  });
+  const unavailableButton = context.document.createElement("button");
+  unavailableButton.className = "audio-button";
+  unavailableButton.dataset.audioKey = overlay.audioTermReadingKey(
+    "どうしよう",
+    "どうしよう",
+  );
+  context.__elements.popup.appendChild(unavailableButton);
+  const beforeUnavailable = context.__sent.length;
+  const unavailablePromise = overlay.playAudioForTerm(
+    "どうしよう",
+    "どうしよう",
+    unavailableButton,
+    {},
+  );
+  respondToAudioSourceRequest(beforeUnavailable, [], false);
+  const usedBackup = await unavailablePromise;
+  assert(
+    usedBackup &&
+      played[played.length - 1].indexOf("audio.invalid") >= 0 &&
+      unavailableButton.dataset.audioState === "ready",
+    "JapanesePod101's unavailable placeholder should fall through to the next source",
   );
 
   overlay.applyConfig({

@@ -99,6 +99,15 @@ vm.runInContext(
     candidates[1].url === "https://audio-cdn.invalid/jpod/audio.mp3",
     "Absolute audio URLs should pass through",
   );
+  try {
+    context.audioCandidatesFromSourceJson("not json", sourceUrl);
+    assert(false, "Non-JSON audio responses should reject");
+  } catch (error) {
+    assert(
+      error && error.audioSourceResponseNotJson === true,
+      "Non-JSON audio responses should be marked as possible direct audio",
+    );
+  }
 
   console.log("audio bridge tests passed");
 })().catch((error) => {

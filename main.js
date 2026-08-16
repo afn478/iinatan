@@ -13551,7 +13551,11 @@ function audioCandidatesFromSourceJson(rawJson, sourceUrl) {
   try {
     parsed = JSON.parse(String(rawJson || ""));
   } catch (error) {
-    throw new Error("Audio source did not return JSON: " + compactError(error));
+    const invalidJsonError = new Error(
+      "Audio source did not return JSON: " + compactError(error),
+    );
+    invalidJsonError.audioSourceResponseNotJson = true;
+    throw invalidJsonError;
   }
   if (
     !parsed ||
@@ -15502,6 +15506,12 @@ function ankiBuildCardContextUncached(payload, host) {
   const reading = ankiNormalizeWhitespace(
     raw.reading || ankiDisplayReading(entry, expression),
   );
+  const audioReading = ankiNormalizeWhitespace(
+    raw.audioReading ||
+      raw.reading ||
+      (entry && entry.term && entry.term.reading) ||
+      reading,
+  );
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
@@ -15593,7 +15603,7 @@ function ankiBuildCardContextUncached(payload, host) {
     timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
     audioTerm: expression,
-    audioReading: reading,
+    audioReading,
   };
 }
 function ankiBuildCardContext(payload, host) {
@@ -16338,18 +16348,20 @@ async function ankiStoreMediaFile(filename, path, prefs) {
   );
   return String(stored || filename);
 }
-async function ankiStoreMediaUrl(filename, url, prefs) {
+async function ankiStoreMediaUrl(filename, url, prefs, skipHash) {
   if (!filename || !url) return "";
-  const stored = await ankiConnectInvoke(
-    "storeMediaFile",
-    {
-      filename,
-      url,
-      deleteExisting: true,
-    },
-    { url: prefs.ankiConnectUrl, timeoutSeconds: 20, preferences: prefs },
-  );
-  return String(stored || filename);
+  const params = {
+    filename,
+    url,
+    deleteExisting: true,
+  };
+  if (skipHash) params.skipHash = skipHash;
+  const stored = await ankiConnectInvoke("storeMediaFile", params, {
+    url: prefs.ankiConnectUrl,
+    timeoutSeconds: 20,
+    preferences: prefs,
+  });
+  return stored ? String(stored) : "";
 }
 async function ankiMediaFileHashHex(path) {
   try {
@@ -16670,41 +16682,60 @@ function ankiAudioExtensionFromUrl(url) {
   const ext = match ? match[1].toLowerCase() : "";
   return /^(mp3|m4a|aac|ogg|oga|opus|wav|webm)$/.test(ext) ? ext : "mp3";
 }
-async function ankiResolveWordAudioUrl(context, prefs) {
+function ankiJapanesePod101SkipHash(url) {
+  return /^https?:\/\/(?:[^/?#]+\.)?languagepod101\.com(?::\d+)?\/dictionary\/japanese\/audiomp3\.php(?:[?#]|$)/i.test(
+    String(url || ""),
+  )
+    ? "7e2c2f954ef6051373ba916f000168dc"
+    : "";
+}
+async function ankiResolveWordAudioSourceUrls(source, context, prefs) {
+  const sourceUrl = safeAnkiConnectUrl(
+    ankiAudioUrlFromTemplate(source && source.url, context, prefs),
+  );
+  if (!sourceUrl) return [];
+  if (ankiUrlLooksLikeAudioFile(sourceUrl)) return [sourceUrl];
+  if (typeof fetchAudioSourceCandidates !== "function") return [sourceUrl];
+  try {
+    const candidates = await fetchAudioSourceCandidates(sourceUrl);
+    return (Array.isArray(candidates) ? candidates : [])
+      .map((candidate) => safeAnkiConnectUrl(candidate && candidate.url))
+      .filter(Boolean);
+  } catch (error) {
+    if (error && error.audioSourceResponseNotJson) return [sourceUrl];
+    debugVerbose("Anki word audio source failed: " + compactError(error));
+    return [];
+  }
+}
+async function ankiStoreWordAudio(context, prefs) {
   const sources = normalizeAudioSources(prefs && prefs.audioSourcesJson);
-  for (let i = 0; i < sources.length; i++) {
-    const source = sources[i];
-    const sourceUrl = safeAnkiConnectUrl(
-      ankiAudioUrlFromTemplate(source && source.url, context, prefs),
+  for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+    const urls = await ankiResolveWordAudioSourceUrls(
+      sources[sourceIndex],
+      context,
+      prefs,
     );
-    if (!sourceUrl) continue;
-    if (ankiUrlLooksLikeAudioFile(sourceUrl)) return sourceUrl;
-    try {
-      if (typeof fetchAudioSourceCandidates === "function") {
-        const candidates = await fetchAudioSourceCandidates(sourceUrl);
-        if (Array.isArray(candidates) && candidates.length && candidates[0].url)
-          return candidates[0].url;
+    for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+      const url = urls[urlIndex];
+      const filename = ankiMediaFilename(
+        context.documentTitle || context.expression || "word",
+        ankiRandomHex(12),
+        ankiAudioExtensionFromUrl(url),
+      );
+      try {
+        const stored = await ankiStoreMediaUrl(
+          filename,
+          url,
+          prefs,
+          ankiJapanesePod101SkipHash(url),
+        );
+        if (stored) return stored;
+      } catch (error) {
+        debugVerbose("Anki word audio unavailable: " + compactError(error));
       }
-    } catch (error) {
-      debugVerbose("Anki word audio source failed: " + compactError(error));
     }
   }
   return "";
-}
-async function ankiStoreWordAudio(context, prefs) {
-  try {
-    const url = await ankiResolveWordAudioUrl(context, prefs);
-    if (!url) return "";
-    const filename = ankiMediaFilename(
-      context.documentTitle || context.expression || "word",
-      ankiRandomHex(12),
-      ankiAudioExtensionFromUrl(url),
-    );
-    return await ankiStoreMediaUrl(filename, url, prefs);
-  } catch (error) {
-    debugVerbose("Anki word audio unavailable: " + compactError(error));
-    return "";
-  }
 }
 async function ankiCaptureNeededMedia(needs, context, prefs) {
   const media = {};

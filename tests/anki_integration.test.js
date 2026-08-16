@@ -1166,6 +1166,111 @@ async function testAnkiMediaSetupCachesProcessWork() {
   }
 }
 
+async function testDirectWordAudioSourceExport() {
+  const hadCandidateResolver = Object.prototype.hasOwnProperty.call(
+    context,
+    "fetchAudioSourceCandidates",
+  );
+  const previousCandidateResolver = context.fetchAudioSourceCandidates;
+  const previousInvoke = context.ankiConnectInvoke;
+  const storeRequests = [];
+  context.fetchAudioSourceCandidates = async () => {
+    const error = new Error("Audio source did not return JSON");
+    error.audioSourceResponseNotJson = true;
+    throw error;
+  };
+  context.ankiConnectInvoke = async (action, params) => {
+    storeRequests.push({ action, params: Object.assign({}, params) });
+    return params.filename;
+  };
+  try {
+    const podPrefs = {
+      ankiConnectUrl: "http://127.0.0.1:8765",
+      lookupLanguage: "ja",
+      audioSourcesJson: JSON.stringify([
+        {
+          url: "https://assets.languagepod101.com/dictionary/japanese/audiomp3.php?kanji={term}&kana={reading}",
+        },
+      ]),
+    };
+    const podFilename = await context.ankiStoreWordAudio(
+      { expression: "猫", reading: "ねこ" },
+      podPrefs,
+    );
+    assert(
+      podFilename &&
+        storeRequests[0].action === "storeMediaFile" &&
+        storeRequests[0].params.url.includes(
+          "kanji=%E7%8C%AB&kana=%E3%81%AD%E3%81%93",
+        ) &&
+        storeRequests[0].params.skipHash === "7e2c2f954ef6051373ba916f000168dc",
+      "JapanesePod101 direct audio should export with its unavailable-placeholder hash",
+    );
+
+    context.ankiConnectInvoke = async () => null;
+    const unavailableFilename = await context.ankiStoreWordAudio(
+      { expression: "どうしよう", reading: "どうしよう" },
+      podPrefs,
+    );
+    assert(
+      unavailableFilename === "",
+      "Rejected JapanesePod101 placeholder audio should not be referenced by the Anki card",
+    );
+
+    storeRequests.length = 0;
+    context.ankiConnectInvoke = async (action, params) => {
+      storeRequests.push({ action, params: Object.assign({}, params) });
+      return params.skipHash ? null : params.filename;
+    };
+    const fallbackFilename = await context.ankiStoreWordAudio(
+      { expression: "どうしよう", reading: "どうしよう" },
+      Object.assign({}, podPrefs, {
+        audioSourcesJson: JSON.stringify([
+          JSON.parse(podPrefs.audioSourcesJson)[0],
+          { url: "https://audio.invalid/backup/{term}.mp3" },
+        ]),
+      }),
+    );
+    assert(
+      fallbackFilename &&
+        storeRequests.length === 2 &&
+        storeRequests[1].params.url.includes("audio.invalid/backup/"),
+      "Rejected JapanesePod101 placeholder audio should fall through to the next export source",
+    );
+
+    storeRequests.length = 0;
+    context.ankiConnectInvoke = async (action, params) => {
+      storeRequests.push({ action, params: Object.assign({}, params) });
+      return params.filename;
+    };
+    const genericFilename = await context.ankiStoreWordAudio(
+      { expression: "chat", reading: "" },
+      {
+        ankiConnectUrl: "http://127.0.0.1:8765",
+        lookupLanguage: "fr",
+        audioSourcesJson: JSON.stringify([
+          { url: "https://audio.invalid/pronounce?term={term}" },
+        ]),
+      },
+    );
+    assert(
+      genericFilename &&
+        storeRequests[0].params.url ===
+          "https://audio.invalid/pronounce?term=chat" &&
+        !Object.prototype.hasOwnProperty.call(
+          storeRequests[0].params,
+          "skipHash",
+        ),
+      "Generic direct audio endpoints should export without source-specific metadata",
+    );
+  } finally {
+    context.ankiConnectInvoke = previousInvoke;
+    if (hadCandidateResolver)
+      context.fetchAudioSourceCandidates = previousCandidateResolver;
+    else delete context.fetchAudioSourceCandidates;
+  }
+}
+
 async function testStreamingSentenceAudioSources() {
   const previous = {
     exec: context.utils.exec,
@@ -1566,6 +1671,7 @@ testOverlayBridgePromiseSemantics()
   .then(testPassiveAnkiStatusDefersWithoutFalseReady)
   .then(testExportFastPathsPreserveDuplicateHandling)
   .then(testAnkiMediaSetupCachesProcessWork)
+  .then(testDirectWordAudioSourceExport)
   .then(testStreamingSentenceAudioSources)
   .then(() => {
     console.log("anki integration tests passed");
