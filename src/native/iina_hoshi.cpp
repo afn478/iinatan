@@ -73,6 +73,10 @@ static void print_string_array(const std::vector<std::string>& values) {
   for (size_t i = 0; i < values.size(); ++i) { if (i) std::cout << ","; std::cout << json_quote(values[i]); }
   std::cout << "]";
 }
+static size_t summary_meta_count(const SummaryMetaCount& counts, const std::string& name) {
+  const auto entry = counts.find(name);
+  return entry == counts.end() ? 0 : entry->second;
+}
 static int to_int(const std::string& s, int fallback) { try { return std::stoi(s); } catch (...) { return fallback; } }
 static bool to_bool(const std::string& s, bool fallback) {
   std::string value;
@@ -502,6 +506,14 @@ static void append_int_array(std::ostringstream& out, const std::vector<int>& va
   }
   out << "]";
 }
+static void append_pitch_positions(std::ostringstream& out, const std::vector<Pitch>& pitches) {
+  out << "[";
+  for (size_t i = 0; i < pitches.size(); ++i) {
+    if (i) out << ",";
+    out << pitches[i].position;
+  }
+  out << "]";
+}
 static void append_term_metadata_json(std::ostringstream& out, const TermResult& term) {
   out << ",\"frequencies\":[";
   for (size_t i = 0; i < term.frequencies.size(); ++i) {
@@ -522,7 +534,7 @@ static void append_term_metadata_json(std::ostringstream& out, const TermResult&
     if (i) out << ",";
     out << "{\"dict\":" << json_quote(entry.dict_name)
         << ",\"positions\":";
-    append_int_array(out, entry.pitch_positions);
+    append_pitch_positions(out, entry.pitches);
     out << ",\"transcriptions\":[";
     for (size_t j = 0; j < entry.transcriptions.size(); ++j) {
       if (j) out << ",";
@@ -729,12 +741,22 @@ static void cmd_import(int argc, char** argv) {
   bool low_ram = true;
   for (int i = 4; i < argc; ++i) { std::string arg = argv[i]; if (arg == "--normal-ram") low_ram = false; if (arg == "--low-ram") low_ram = true; }
   auto r = dictionary_importer::import(zip_path, output_dir, low_ram);
+  std::vector<std::string> errors;
+  if (!r.error.empty()) errors.push_back(r.error);
+  const auto& counts = r.summary.counts;
+  const size_t meta_count = summary_meta_count(counts.termMeta, "total");
+  const size_t freq_count = summary_meta_count(counts.termMeta, "freq");
+  const size_t pitch_count = summary_meta_count(counts.termMeta, "pitch") +
+                             summary_meta_count(counts.termMeta, "ipa");
   std::cout << "{\"ok\":" << (r.success ? "true" : "false") << ",\"title\":" << json_quote(r.title)
-            << ",\"term_count\":" << r.term_count << ",\"meta_count\":" << r.meta_count
-            << ",\"freq_count\":" << r.freq_count << ",\"pitch_count\":" << r.pitch_count
-            << ",\"media_count\":" << r.media_count << ",\"tag_count\":0,\"errors\":";
-  print_string_array(r.errors);
-  if (!r.success && !r.errors.empty()) std::cout << ",\"error\":" << json_quote(r.errors.front());
+            << ",\"term_count\":" << counts.terms.total
+            << ",\"meta_count\":" << meta_count
+            << ",\"freq_count\":" << freq_count
+            << ",\"pitch_count\":" << pitch_count
+            << ",\"media_count\":" << counts.media.total
+            << ",\"tag_count\":" << counts.tagMeta.total << ",\"errors\":";
+  print_string_array(errors);
+  if (!r.success && !r.error.empty()) std::cout << ",\"error\":" << json_quote(r.error);
   std::cout << "}\n";
   if (!r.success) std::exit(1);
 }

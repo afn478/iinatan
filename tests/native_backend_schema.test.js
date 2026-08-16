@@ -34,12 +34,26 @@ assert(
   "Native bridge should emit pitch metadata",
 );
 assert(
+  /append_pitch_positions\(out, entry\.pitches\)/.test(nativeSource) &&
+    /pitches\[i\]\.position/.test(nativeSource),
+  "Native bridge should adapt HoshiDicts pitch objects to the existing positions contract",
+);
+assert(
   /add_freq_dict/.test(nativeSource),
   "Native bridge should load frequency dictionaries",
 );
 assert(
   /add_pitch_dict/.test(nativeSource),
   "Native bridge should load pitch dictionaries",
+);
+assert(
+  /const auto& counts = r\.summary\.counts/.test(nativeSource) &&
+    /summary_meta_count\(counts\.termMeta, "total"\)/.test(nativeSource) &&
+    /counts\.tagMeta\.total/.test(nativeSource) &&
+    /if \(!r\.error\.empty\(\)\) errors\.push_back\(r\.error\)/.test(
+      nativeSource,
+    ),
+  "Native import bridge should adapt the current HoshiDicts summary and error API",
 );
 assert(
   /prefix_lookup_to_json/.test(nativeSource),

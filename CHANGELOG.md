@@ -4,7 +4,7 @@
 
 ### Improved
 
-- Updated the bundled HoshiDicts backend to upstream commit `8993838` while retaining compatibility with non-Japanese Yomitan dictionary metadata.
+- Updated the bundled HoshiDicts backend to upstream commit `8993838` while retaining compatibility with non-Japanese Yomitan metadata and previously imported dictionaries.
 - Reworked the dictionary manager settings window with opaque macOS-style surfaces, light/dark system color tokens that follow the system accent, segmented tabs, toggle switches, native icon controls, and native profile confirmation dialogs while preserving existing settings behavior.
 - Kept settings help popovers within the visible window and added internal scrolling for long help text.
 
