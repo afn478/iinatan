@@ -78,6 +78,7 @@
     lookupRequestSeq: 0,
     audioPlaying: null,
     audioCache: Object.create(null),
+    audioCandidateCache: Object.create(null),
     audioAutoPlayed: Object.create(null),
     audioSourceRequestSeq: 0,
     pendingAudioSourceRequests: Object.create(null),
@@ -109,6 +110,7 @@
   };
   const LOOKUP_RETRY_INTERVAL_MS = 60;
   const AUDIO_CACHE_MAX_ENTRIES = 32;
+  const AUDIO_CANDIDATE_CACHE_MAX_ENTRIES = 64;
   const JAPANESE_KANJI_RANGE = "\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3005";
   const JAPANESE_KANJI_PATTERN = new RegExp("[" + JAPANESE_KANJI_RANGE + "]");
   const JAPANESE_KANJI_SEGMENT_PATTERN = new RegExp(
@@ -130,13 +132,23 @@
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
-  function rememberAudioCache(key, value) {
-    if (!Object.prototype.hasOwnProperty.call(state.audioCache, key)) {
-      const keys = Object.keys(state.audioCache);
-      while (keys.length >= AUDIO_CACHE_MAX_ENTRIES)
-        delete state.audioCache[keys.shift()];
+  function rememberBoundedCache(cache, key, value, maxEntries) {
+    if (!Object.prototype.hasOwnProperty.call(cache, key)) {
+      const keys = Object.keys(cache);
+      while (keys.length >= maxEntries) delete cache[keys.shift()];
     }
-    state.audioCache[key] = value;
+    cache[key] = value;
+  }
+  function rememberAudioCache(key, value) {
+    rememberBoundedCache(state.audioCache, key, value, AUDIO_CACHE_MAX_ENTRIES);
+  }
+  function rememberAudioCandidates(key, candidates) {
+    rememberBoundedCache(
+      state.audioCandidateCache,
+      key,
+      candidates,
+      AUDIO_CANDIDATE_CACHE_MAX_ENTRIES,
+    );
   }
   function normalizeWhitespace(s) {
     return String(s || "")
@@ -490,6 +502,20 @@
       audioSourcesSignature(sources || activeAudioSources()),
     ]);
   }
+  function audioCandidateCacheKey(term, reading, source) {
+    return JSON.stringify([
+      String(term || ""),
+      String(reading || ""),
+      audioLanguageCode(),
+      String((source && source.url) || ""),
+    ]);
+  }
+  function cachedAudioCandidates(term, reading, source) {
+    const key = audioCandidateCacheKey(term, reading, source);
+    return Object.prototype.hasOwnProperty.call(state.audioCandidateCache, key)
+      ? state.audioCandidateCache[key]
+      : null;
+  }
   function audioUrlFromTemplate(template, term, reading) {
     const values = {
       term: String(term || ""),
@@ -639,13 +665,22 @@
     return duration >= 5.64 && duration <= 5.71;
   }
   async function resolveAudioCandidateUrls(source, term, reading) {
+    const cacheKey = audioCandidateCacheKey(term, reading, source);
+    const cached = cachedAudioCandidates(term, reading, source);
+    if (cached) return cached;
     const sourceUrl = safeAudioUrl(
       audioUrlFromTemplate(source && source.url, term, reading),
       "",
     );
-    if (!sourceUrl) return [];
-    if (urlLooksLikeAudioFile(sourceUrl))
-      return directAudioCandidateForSource(source, sourceUrl);
+    if (!sourceUrl) {
+      rememberAudioCandidates(cacheKey, []);
+      return [];
+    }
+    if (urlLooksLikeAudioFile(sourceUrl)) {
+      const candidates = directAudioCandidateForSource(source, sourceUrl);
+      rememberAudioCandidates(cacheKey, candidates);
+      return candidates;
+    }
     const bridgeResult = await requestAudioCandidatesFromPlugin(sourceUrl);
     if (
       bridgeResult &&
@@ -662,6 +697,7 @@
           " candidates=" +
           candidates.length,
       );
+      rememberAudioCandidates(cacheKey, candidates);
       return candidates;
     }
     if (bridgeResult && bridgeResult.ok === false) {
@@ -671,7 +707,9 @@
           " error=" +
           JSON.stringify(String(bridgeResult.error || "")),
       );
-      return directAudioCandidateForSource(source, sourceUrl);
+      const candidates = directAudioCandidateForSource(source, sourceUrl);
+      rememberAudioCandidates(cacheKey, candidates);
+      return candidates;
     }
     try {
       const text = await fetchTextWithTimeout(
@@ -693,6 +731,7 @@
             " candidates=" +
             jsonUrls.length,
         );
+        rememberAudioCandidates(cacheKey, jsonUrls);
         return jsonUrls;
       }
     } catch (error) {
@@ -703,7 +742,9 @@
           String(error && error.message ? error.message : error),
       );
     }
-    return directAudioCandidateForSource(source, sourceUrl);
+    const candidates = directAudioCandidateForSource(source, sourceUrl);
+    rememberAudioCandidates(cacheKey, candidates);
+    return candidates;
   }
   function waitForAudioData(audio, timeoutMs) {
     return new Promise((resolve, reject) => {
@@ -808,13 +849,69 @@
       });
     } catch (_) {}
   }
-  async function findPlayableAudio(term, reading, sources) {
+  async function loadPlayableAudioCandidate(
+    candidate,
+    source,
+    sourceIndex,
+    candidateIndex,
+  ) {
+    const audio = await createPlayableAudio(candidate.url);
+    if (isJapanesePod101UnavailableAudio(audio, candidate.url))
+      throw new Error("JapanesePod101 audio is unavailable");
+    return {
+      url: candidate.url,
+      sourceIndex,
+      candidateIndex,
+      sourceName:
+        candidate.name || audioSourceDisplayLabel(source, sourceIndex),
+      audio,
+    };
+  }
+  function cachePlayableAudio(cacheKey, result) {
+    rememberAudioCache(cacheKey, {
+      url: result.url,
+      sourceIndex: result.sourceIndex,
+      candidateIndex: result.candidateIndex,
+      sourceName: result.sourceName,
+    });
+  }
+  async function findPlayableAudio(term, reading, sources, selection) {
     const configuredSources = sources || activeAudioSources();
     const cacheKey = audioCacheKey(term, reading, configuredSources);
+    if (selection && selection.candidate && configuredSources.length) {
+      try {
+        const result = await loadPlayableAudioCandidate(
+          selection.candidate,
+          configuredSources[0],
+          0,
+          Number(selection.candidateIndex) || 0,
+        );
+        cachePlayableAudio(cacheKey, result);
+        return result;
+      } catch (error) {
+        overlayDebug(
+          "selected audio candidate failed url=" +
+            JSON.stringify(selection.candidate.url) +
+            " error=" +
+            String(error && error.message ? error.message : error),
+        );
+        return null;
+      }
+    }
     const cached = state.audioCache[cacheKey];
     if (cached && cached.url) {
-      const audio = await createPlayableAudio(cached.url);
-      return Object.assign({}, cached, { audio });
+      try {
+        const audio = await createPlayableAudio(cached.url);
+        return Object.assign({}, cached, { audio });
+      } catch (error) {
+        delete state.audioCache[cacheKey];
+        overlayDebug(
+          "cached audio candidate failed url=" +
+            JSON.stringify(cached.url) +
+            " error=" +
+            String(error && error.message ? error.message : error),
+        );
+      }
     }
     for (
       let sourceIndex = 0;
@@ -830,21 +927,14 @@
       ) {
         const candidate = candidates[candidateIndex];
         try {
-          const audio = await createPlayableAudio(candidate.url);
-          if (isJapanesePod101UnavailableAudio(audio, candidate.url))
-            throw new Error("JapanesePod101 audio is unavailable");
-          const sourceName =
-            candidate.name ||
-            source.name ||
-            "Source " + String(sourceIndex + 1);
-          const result = {
-            url: candidate.url,
+          const result = await loadPlayableAudioCandidate(
+            candidate,
+            source,
             sourceIndex,
             candidateIndex,
-            sourceName,
-          };
-          rememberAudioCache(cacheKey, result);
-          return Object.assign({}, result, { audio });
+          );
+          cachePlayableAudio(cacheKey, result);
+          return result;
         } catch (error) {
           overlayDebug(
             "audio candidate failed url=" +
@@ -869,7 +959,10 @@
     if (button) button.dataset.audioKey = key;
     setAudioButtonsStateForKey(key, "loading", "Finding audio...");
     try {
-      const result = await findPlayableAudio(term, reading, sources);
+      const result = await findPlayableAudio(term, reading, sources, {
+        candidate: options.candidate || null,
+        candidateIndex: options.candidateIndex,
+      });
       if (!result || !result.audio) {
         setAudioButtonsStateForKey(key, "missing", "Could not find audio");
         return false;
@@ -1008,16 +1101,24 @@
     menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "Audio sources");
     menu.setAttribute("data-clickable", "true");
-    sources.forEach((source, index) => {
-      const label = audioSourceDisplayLabel(source, index);
+    const appendMenuItem = (source, sourceIndex, candidate, candidateIndex) => {
+      const sourceLabel = audioSourceDisplayLabel(source, sourceIndex);
+      const candidateLabel = candidate
+        ? candidate.name || "Audio " + String(candidateIndex + 1)
+        : "";
       const item = document.createElement("button");
       item.type = "button";
-      item.className = "audio-source-menu-item";
-      item.textContent = label;
-      item.title = source.url || label;
-      item.dataset.audioSourceIndex = String(index);
+      item.className = candidate
+        ? "audio-source-menu-item audio-source-menu-candidate"
+        : "audio-source-menu-item";
+      item.textContent = candidateLabel || sourceLabel;
+      item.title = (candidate && candidate.url) || source.url || sourceLabel;
+      item.dataset.audioSourceIndex = String(sourceIndex);
+      if (candidate) item.dataset.audioCandidateIndex = String(candidateIndex);
       item.setAttribute("role", "menuitem");
       item.setAttribute("data-clickable", "true");
+      if (candidate)
+        item.setAttribute("aria-label", sourceLabel + ": " + candidateLabel);
       item.addEventListener("click", (clickEvent) => {
         try {
           clickEvent.preventDefault();
@@ -1026,10 +1127,28 @@
         hideAudioSourceMenu();
         playAudioForTerm(term, reading, button, {
           userGesture: true,
-          sources: [Object.assign({}, source, { name: label })],
+          sources: [source],
+          candidate,
+          candidateIndex,
         }).catch(() => {});
       });
       menu.appendChild(item);
+    };
+    sources.forEach((source, index) => {
+      const label = audioSourceDisplayLabel(source, index);
+      const candidates = cachedAudioCandidates(term, reading, source);
+      if (candidates && candidates.length > 1) {
+        const heading = document.createElement("div");
+        heading.className = "audio-source-menu-label";
+        heading.textContent = label;
+        heading.setAttribute("role", "presentation");
+        menu.appendChild(heading);
+        candidates.forEach((candidate, candidateIndex) =>
+          appendMenuItem(source, index, candidate, candidateIndex),
+        );
+        return;
+      }
+      appendMenuItem(source, index, null, 0);
     });
     menu.addEventListener("click", (clickEvent) => {
       try {
@@ -1344,6 +1463,7 @@
       audioSourcesSignature(state.config.audioSources)
     ) {
       state.audioCache = Object.create(null);
+      state.audioCandidateCache = Object.create(null);
     }
     if (
       previousNativeLookupHighlight !==

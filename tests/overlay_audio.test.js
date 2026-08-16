@@ -146,8 +146,12 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   const beforeFirst = context.__sent.length;
   const playPromise = overlay.playAudioForTerm("読む", "よむ", button, {});
   const request = respondToAudioSourceRequest(beforeFirst, [
-    { name: "bad", url: "http://127.0.0.1:5050/bad.mp3" },
-    { name: "good", url: "http://127.0.0.1:5050/good.mp3" },
+    { name: "Bad recording", url: "http://127.0.0.1:5050/bad.mp3" },
+    { name: "Good recording", url: "http://127.0.0.1:5050/good.mp3" },
+    {
+      name: "Alternate recording",
+      url: "http://127.0.0.1:5050/alternate.mp3",
+    },
   ]);
   const ok = await playPromise;
   assert(ok, "Audio playback should succeed when a later candidate works");
@@ -174,6 +178,50 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(
     button.dataset.audioState === "ready",
     "Successful audio should leave the button available without a missing badge",
+  );
+
+  button.dataset.audioTerm = "読む";
+  button.dataset.audioReading = "よむ";
+  assert(
+    overlay.showAudioSourceMenu(button, {
+      clientX: 220,
+      clientY: 160,
+      preventDefault() {},
+      stopPropagation() {},
+    }),
+    "A loaded local source should still open its audio menu",
+  );
+  const localMenu = context.__body.querySelector(".audio-source-menu");
+  const localHeading = localMenu.querySelector(".audio-source-menu-label");
+  const localCandidates = localMenu.querySelectorAll(
+    ".audio-source-menu-candidate",
+  );
+  assert(
+    localHeading && localHeading.textContent === "Local audio",
+    "Loaded local candidates should remain grouped under their source",
+  );
+  assert(
+    localCandidates.length === 3 &&
+      localCandidates[0].textContent === "Bad recording" &&
+      localCandidates[1].textContent === "Good recording" &&
+      localCandidates[2].textContent === "Alternate recording",
+    "The audio menu should expose every name returned by a local source",
+  );
+  const beforeCandidatePlay = context.__sent.length;
+  localCandidates[2].listeners.click({
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert(
+    played[played.length - 1] === "http://127.0.0.1:5050/alternate.mp3",
+    "Choosing a named local candidate should play that exact clip",
+  );
+  assert(
+    !context.__sent
+      .slice(beforeCandidatePlay)
+      .some((item) => item.type === "audio-source"),
+    "Choosing a cached local candidate should not resolve the source again",
   );
 
   const missingKey = overlay.audioTermReadingKey("無音", "");

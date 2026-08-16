@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Exposed every named clip returned by local Yomitan audio sources after loading them, allowing an exact recording to be selected from the audio context menu.
 - Exported word audio from direct dynamic URLs that do not return Yomitan JSON, preserved kana-only readings for audio lookup, and rejected JapanesePod101's known unavailable-audio placeholder during playback and Anki export.
 - Applied mpv's current subtitle delay to Anki sentence-audio clip boundaries, keeping exported audio aligned with the displayed subtitle.
 - Limited Lapis Anki field autodetection to the note-type selection that triggered it, so intentionally cleared field mappings stay empty across settings refreshes.
