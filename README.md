@@ -47,6 +47,10 @@ Use this only if you want the newest in-progress changes and are comfortable wit
 6. Install the recommended dictionary, or import a Yomitan-compatible dictionary ZIP.
 7. Toggle iinatan with **Shift+H**.
 
+## Customize the Popup
+
+Use the [custom popup CSS guide](docs/custom-popup-css.md) for ready-to-paste recipes that change fonts, text sizes, spacing, colors, dictionary sections, Jitendex content, buttons, and other popup details. It also explains how to test changes in the repository's browser preview before adding them to IINA.
+
 ## Quick Start
 
 1. Open **Plugins -> iinatan -> Settings...**.

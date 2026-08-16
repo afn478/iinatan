@@ -10,6 +10,7 @@ const { context, overlay } = loadOverlayForTest([
   "state",
   "applyConfig",
   "renderGlossaryPayload",
+  "renderDictionarySectionOpenTag",
   "renderStructuredNode",
   "renderPlainGlossaryText",
   "renderEntryMetadata",
@@ -68,6 +69,25 @@ assert(
     context.__head.children[0].textContent,
   ),
   "Root-popup custom CSS should also style nested popup entries",
+);
+
+const jitendexSectionOpen = overlay.renderDictionarySectionOpenTag({
+  dict: "Jitendex.org [2026] & Examples",
+  glossary: "plain definition",
+});
+assert(
+  jitendexSectionOpen ===
+    '<div class="dict-section" data-dictionary="Jitendex.org [2026] &amp; Examples" data-dictionary-type="jitendex">',
+  "Dictionary sections should expose escaped names and a Jitendex type for custom CSS",
+);
+const wiktionarySectionOpen = overlay.renderDictionarySectionOpenTag({
+  dict: "wty-en-de",
+  glossary: "plain definition",
+});
+assert(
+  /data-dictionary="wty-en-de"/.test(wiktionarySectionOpen) &&
+    /data-dictionary-type="wiktionary"/.test(wiktionarySectionOpen),
+  "Dictionary sections should expose Wiktionary types for scoped custom CSS",
 );
 
 overlay.applyConfig({ popupTheme: "light" });

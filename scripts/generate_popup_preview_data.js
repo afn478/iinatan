@@ -22,7 +22,8 @@ if (!binary) {
 }
 
 const dictionaryRoot = path.join(dataRoot, "dictionaries");
-const dictionaryNames = [
+const preferredDictionaryPrefixes = [
+  "Jitendex",
   "JMdict",
   "旺文社国語辞典 第十二版",
   "明鏡国語辞典 第三版",
@@ -32,9 +33,20 @@ const dictionaryNames = [
   "BCCWJ",
   "JPDBv2㋕",
 ];
-const dictionaryPaths = dictionaryNames
-  .map((name) => path.join(dictionaryRoot, name))
-  .filter((candidate) => fs.existsSync(candidate));
+const installedDictionaryNames = fs.existsSync(dictionaryRoot)
+  ? fs
+      .readdirSync(dictionaryRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  : [];
+const dictionaryPaths = preferredDictionaryPrefixes
+  .map((prefix) =>
+    installedDictionaryNames.find(
+      (name) => name === prefix || name.startsWith(prefix),
+    ),
+  )
+  .filter(Boolean)
+  .map((name) => path.join(dictionaryRoot, name));
 if (dictionaryPaths.length < 4) {
   throw new Error(
     `Expected installed Japanese dictionaries under ${dictionaryRoot}`,
@@ -47,7 +59,7 @@ const fixtureDefinitions = [
     word: "適度",
     label: "適度 — structured POS chip",
     description:
-      "A compact adjective/noun entry with Oubunsha, Meikyo, Daijisen, frequency, and pitch metadata.",
+      "A compact adjective and noun entry for checking structured content and metadata.",
   },
   {
     id: "kakeru",
@@ -102,7 +114,131 @@ function lookupFixture(definition) {
   return Object.assign({}, definition, { payload });
 }
 
-const fixtures = fixtureDefinitions.map(lookupFixture);
+function jitendexFixture() {
+  const structuredContent = [
+    {
+      type: "structured-content",
+      content: [
+        {
+          tag: "span",
+          content: "ichidan verb",
+          data: { content: "part-of-speech-info" },
+        },
+        {
+          tag: "ul",
+          data: { content: "glossary" },
+          content: [
+            { tag: "li", content: "to eat" },
+            { tag: "li", content: "to live on or subsist on" },
+          ],
+        },
+        {
+          tag: "div",
+          data: { class: "extra-box", content: "example-sentence" },
+          content: [
+            {
+              tag: "div",
+              data: { content: "example-sentence-a" },
+              content: "朝ご飯を食べる。",
+            },
+            {
+              tag: "div",
+              data: { content: "example-sentence-b" },
+              content: "I eat breakfast.",
+            },
+          ],
+        },
+        {
+          tag: "div",
+          data: { content: "forms" },
+          content: [
+            { tag: "span", data: { content: "forms-label" }, content: "Forms" },
+            {
+              tag: "ul",
+              content: [
+                { tag: "li", content: "食べる【たべる】" },
+                { tag: "li", content: "喰べる【たべる】" },
+              ],
+            },
+          ],
+        },
+        {
+          tag: "details",
+          data: { content: "details-entry-etymology" },
+          content: [
+            { tag: "summary", content: "Etymology" },
+            {
+              tag: "div",
+              content: "From the classical verb 食ぶ (tabu).",
+            },
+          ],
+        },
+        {
+          tag: "div",
+          data: { content: "attribution" },
+          content: [
+            {
+              tag: "a",
+              href: "https://www.edrdg.org/jmwsgi/entr.py?svc=jmdict&sid=&q=1358280",
+              content: "JMdict entry",
+            },
+          ],
+        },
+      ],
+    },
+  ];
+  return {
+    id: "jitendex-css",
+    word: "食べる",
+    label: "食べる: Jitendex CSS sample",
+    description:
+      "A small Jitendex-style entry with tags, glosses, an example, forms, and attribution for testing custom CSS.",
+    payload: {
+      ok: true,
+      lookupString: "食べる",
+      resultCount: 1,
+      results: [
+        {
+          matched: "食べる",
+          deinflected: "食べる",
+          trace: [],
+          term: {
+            expression: "食べる",
+            reading: "たべる",
+            glossaries: [
+              {
+                dict: "Jitendex",
+                glossary: JSON.stringify(structuredContent),
+                definitionTags: "common; transitive",
+                termTags: "priority form",
+              },
+              {
+                dict: "wty-en-ja",
+                glossary:
+                  "A short secondary definition for testing dictionary spacing and source-family selectors.",
+                definitionTags: "",
+                termTags: "",
+              },
+            ],
+            frequencies: [
+              {
+                dict: "Preview frequency",
+                frequencies: [{ value: 612, displayValue: "612" }],
+              },
+            ],
+            pitches: [
+              { dict: "Preview pitch", positions: [2], transcriptions: [] },
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
+const fixtures = fixtureDefinitions
+  .map(lookupFixture)
+  .concat(jitendexFixture());
 const output = [
   "// Generated by scripts/generate_popup_preview_data.js; do not edit by hand.",
   "// The payloads are hardcoded so dev/popup-preview.html works without IINA.",

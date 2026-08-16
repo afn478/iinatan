@@ -6105,6 +6105,7 @@
     const dictName = String((glossaryItem && glossaryItem.dict) || "");
     const raw = String((glossaryItem && glossaryItem.glossary) || "");
     const hay = (dictName + " " + raw.slice(0, 1600)).toLowerCase();
+    if (/^jitendex(?:\b|[._-])/i.test(dictName.trim())) return "jitendex";
     if (hay.indexOf("kaikki") >= 0) return "kaikki";
     if (hay.indexOf("wiktionary") >= 0 || /(^|[^a-z])wty[-_]/.test(hay))
       return "wiktionary";
@@ -6115,6 +6116,18 @@
     )
       return "wiktionary-style";
     return "generic";
+  }
+  function renderDictionarySectionOpenTag(glossaryItem) {
+    const item = glossaryItem || {};
+    const dictionary = String(item.dict || "");
+    const dictionaryType = detectDictionarySource(item, null);
+    return (
+      '<div class="dict-section" data-dictionary="' +
+      escapeHtml(dictionary) +
+      '" data-dictionary-type="' +
+      escapeHtml(dictionaryType) +
+      '">'
+    );
   }
   function isWiktionaryLike(ctx) {
     const kind = ctx && ctx.sourceKind ? String(ctx.sourceKind) : "";
@@ -7483,7 +7496,7 @@
       html += renderEntryMetadata(term);
       const glossaries = Array.isArray(term.glossaries) ? term.glossaries : [];
       glossaries.slice(0, maxGlosses).forEach((g) => {
-        html += '<div class="dict-section">';
+        html += renderDictionarySectionOpenTag(g);
         html += '<div class="dict-header">';
         if (g.dict)
           html += '<span class="dict-name">' + escapeHtml(g.dict) + "</span>";
