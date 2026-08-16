@@ -16314,6 +16314,9 @@ function ankiSubtitleBoundary(name) {
   } catch (_) {}
   return null;
 }
+function ankiSubtitleDelaySeconds() {
+  return mpvNumberProp(["options/sub-delay", "sub-delay"], 0);
+}
 function ankiCardContextFromPayload(payload) {
   return ankiBuildCardContext(payload, {
     lastSubtitle,
@@ -16525,15 +16528,19 @@ async function ankiCaptureSentenceAudio(context, prefs) {
     throw new Error("ffmpeg was not found for sentence audio capture.");
   const subStart = ankiSubtitleBoundary("sub-start");
   const subEnd = ankiSubtitleBoundary("sub-end");
+  const subtitleDelay = ankiSubtitleDelaySeconds();
+  const delayedSubStart = subStart !== null ? subStart + subtitleDelay : null;
+  const delayedSubEnd = subEnd !== null ? subEnd + subtitleDelay : null;
   const current = context.timePos || ankiTimePosFromMpv();
   const padding = Math.max(
     0,
     Math.min(2, Number(prefs.ankiSentenceAudioPaddingMs || 0) / 1000),
   );
-  let start = subStart !== null ? subStart : Math.max(0, current - 1.5);
+  let start =
+    delayedSubStart !== null ? delayedSubStart : Math.max(0, current - 1.5);
   let end =
-    subEnd !== null && subEnd > start
-      ? subEnd
+    delayedSubEnd !== null && delayedSubEnd > start
+      ? delayedSubEnd
       : Math.min(start + 4, current + 2.5);
   start = Math.max(0, start - padding);
   end = Math.max(start + 0.25, end + padding);

@@ -5,6 +5,7 @@ const vm = require("vm");
 const root = path.resolve(__dirname, "..");
 const files = [
   "src/main/05_media_source.js",
+  "src/main/10_subtitle_text_style.js",
   "src/main/15_profile_settings.js",
   "src/main/20_dictionary_manifest.js",
   "src/main/51_anki_connect.js",
@@ -1198,6 +1199,7 @@ async function testStreamingSentenceAudioSources() {
     mpvProperties = {
       "ab-loop-a": "no",
       "ab-loop-b": "no",
+      "options/sub-delay": String(settings.subtitleDelay || 0),
     };
     context.mpv.command = (name, args) => {
       mpvCommands.push({ name, args: Array.from(args || []) });
@@ -1235,7 +1237,7 @@ async function testStreamingSentenceAudioSources() {
       existing.add(String(args[args.length - 1] || ""));
       return { status: 0, stdout: "", stderr: "" };
     };
-    installCacheCommand({ cacheHit: false });
+    installCacheCommand({ cacheHit: false, subtitleDelay: 1.75 });
 
     context.currentMediaSourceSnapshot = () =>
       context.mediaSourceSnapshot({
@@ -1243,10 +1245,13 @@ async function testStreamingSentenceAudioSources() {
         streamOpenFilename: "/Volumes/Media/video.mkv",
       });
     await context.ankiCaptureSentenceAudio(cardContext, prefs);
+    const delayedDirectSeek =
+      execCalls[0].args[execCalls[0].args.indexOf("-ss") + 1];
     assert(
       mpvCommands.some((item) => item.name === "dump-cache") &&
-        execCalls[0].args.includes("/Volumes/Media/video.mkv"),
-      "Local sentence audio falls back to direct FFmpeg extraction after a cache miss",
+        execCalls[0].args.includes("/Volumes/Media/video.mkv") &&
+        delayedDirectSeek === "11.750",
+      "Local sentence audio applies mpv's subtitle delay before direct FFmpeg extraction",
     );
 
     existing = new Set();
