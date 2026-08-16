@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Limited Lapis Anki field autodetection to the note-type selection that triggered it, so intentionally cleared field mappings stay empty across settings refreshes.
 - Restored dictionary popups when recommended dictionaries are installed from Settings before opening a video; the player overlay now reloads when its window becomes available instead of requiring an IINA restart.
 
 ### Improved

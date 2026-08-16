@@ -1107,7 +1107,7 @@
       audioSourceSerial: 0,
       anki: null,
       ankiFieldTemplates: {},
-      ankiLastModelName: ''
+      ankiAutofillModelName: ''
     };
 
     const els = {
@@ -1391,7 +1391,6 @@
     function syncAnkiFieldTemplatesFromProfile() {
       const next = normalizeAnkiFieldTemplates(profileValue('ankiFieldTemplatesJson'));
       state.ankiFieldTemplates = next;
-      state.ankiLastModelName = String(profileValue('ankiModelName') || '');
     }
     function normalizeAnkiFieldKey(value) {
       return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1441,7 +1440,14 @@
       const modelName = String(profileValue('ankiModelName') || anki.modelName || '');
       const language = String(profileValue('lookupLanguage') || anki.lookupLanguage || 'ja');
       const fields = Array.isArray(anki.fields) ? anki.fields : [];
-      if (!fields.length || !/lapis/i.test(modelName) || (language !== 'ja' && language !== 'zh')) return false;
+      if (
+        state.ankiAutofillModelName !== modelName ||
+        anki.checking ||
+        String(anki.modelName || '') !== modelName ||
+        !fields.length
+      ) return false;
+      state.ankiAutofillModelName = '';
+      if (!/lapis/i.test(modelName) || (language !== 'ja' && language !== 'zh')) return false;
       let changed = false;
       fields.forEach(field => {
         if (String(state.ankiFieldTemplates[field] || '').trim()) return;
@@ -2091,7 +2097,15 @@
       if (event.key === 'Escape' && state.renameDialogOpen) closeRenameDialog();
     });
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
-      control.addEventListener('change', () => { syncNativeSubtitleControls(); saveProfilePreferences(); });
+      control.addEventListener('change', () => {
+        if (control === els.ankiModelName) {
+          const modelName = String(control.value || '');
+          state.profilePreferences.ankiModelName = modelName;
+          state.ankiAutofillModelName = modelName;
+        }
+        syncNativeSubtitleControls();
+        saveProfilePreferences();
+      });
     });
     Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
       control.addEventListener('change', saveGlobalSettings);
@@ -2101,6 +2115,7 @@
     els.restoreProfileSettings.addEventListener('click', () => command('dictionary-manager-restore-profile-settings', {}, 'Choosing settings backup...'));
     els.refresh.addEventListener('click', () => command('dictionary-manager-refresh', {}, 'Refreshing dictionary list...'));
     els.profileSelect.addEventListener('change', () => {
+      state.ankiAutofillModelName = '';
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');
     });
     els.newProfile.addEventListener('click', () => {

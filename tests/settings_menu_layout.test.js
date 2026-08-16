@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 
@@ -233,6 +234,66 @@ assert(
 assert(
   /lapisTemplateForField/.test(managerHtml),
   "Anki settings should attempt Lapis autofill",
+);
+assert(
+  /state\.ankiAutofillModelName\s*=\s*modelName/.test(managerHtml) &&
+    /state\.ankiAutofillModelName\s*!==\s*modelName/.test(managerHtml) &&
+    /state\.ankiAutofillModelName\s*=\s*''/.test(managerHtml),
+  "Lapis autofill should run once when a note type is selected",
+);
+assert(
+  /anki\.checking[\s\S]*String\(anki\.modelName \|\| ''\) !== modelName/.test(
+    managerHtml,
+  ),
+  "Lapis autofill should wait for the selected note type fields",
+);
+const lapisAutofillStart = managerHtml.indexOf(
+  "function normalizeAnkiFieldKey",
+);
+const lapisAutofillEnd = managerHtml.indexOf(
+  "function optionList",
+  lapisAutofillStart,
+);
+assert(
+  lapisAutofillStart >= 0 && lapisAutofillEnd > lapisAutofillStart,
+  "Lapis autofill functions should be available for behavioral testing",
+);
+const lapisAutofillContext = {
+  state: {
+    anki: {
+      checking: true,
+      fields: ["isClickCard"],
+      modelName: "Lapis",
+    },
+    ankiAutofillModelName: "Lapis",
+    ankiFieldTemplates: { isClickCard: "" },
+  },
+  profileValue(key) {
+    return { ankiModelName: "Lapis", lookupLanguage: "ja" }[key];
+  },
+};
+vm.runInNewContext(
+  managerHtml.slice(lapisAutofillStart, lapisAutofillEnd) +
+    "; this.runLapisAutofill = maybeAutofillAnkiFieldTemplates;",
+  lapisAutofillContext,
+);
+assert(
+  lapisAutofillContext.runLapisAutofill() === false &&
+    lapisAutofillContext.state.ankiAutofillModelName === "Lapis",
+  "Lapis autofill should remain armed while the selected note type loads",
+);
+lapisAutofillContext.state.anki.checking = false;
+assert(
+  lapisAutofillContext.runLapisAutofill() === true &&
+    lapisAutofillContext.state.ankiFieldTemplates.isClickCard === "x" &&
+    lapisAutofillContext.state.ankiAutofillModelName === "",
+  "Lapis autofill should initialize matching fields once after selection",
+);
+lapisAutofillContext.state.ankiFieldTemplates.isClickCard = "";
+assert(
+  lapisAutofillContext.runLapisAutofill() === false &&
+    lapisAutofillContext.state.ankiFieldTemplates.isClickCard === "",
+  "Lapis autofill should preserve an intentionally cleared field on refresh",
 );
 assert(
   /language !== 'ja' && language !== 'zh'/.test(managerHtml),
