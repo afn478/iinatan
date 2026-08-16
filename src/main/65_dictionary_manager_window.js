@@ -89,6 +89,32 @@ function postDictionaryManagerStatus(message, kind, busy) {
     updatedAt: Date.now(),
   });
 }
+async function dictionaryManagerSystemAccentColor() {
+  const colors = {
+    "-2": "#8e8e93",
+    "-1": "#007aff",
+    0: "#ff3b30",
+    1: "#ff9500",
+    2: "#ffcc00",
+    3: "#34c759",
+    4: "#007aff",
+    5: "#af52de",
+    6: "#ff2d55",
+  };
+  if (!utils || typeof utils.exec !== "function") return "";
+  try {
+    const result = await utils.exec(
+      "/usr/bin/defaults",
+      ["read", "-g", "AppleAccentColor"],
+      dataRoot(),
+    );
+    const key = String((result && result.stdout) || "").trim();
+    return Object.prototype.hasOwnProperty.call(colors, key) ? colors[key] : "";
+  } catch (error) {
+    debugVerbose("could not read macOS accent color: " + compactError(error));
+    return "";
+  }
+}
 function runDictionaryManagerAction(label, action) {
   (async () => {
     const actionLabel = label || "Working";
@@ -224,6 +250,10 @@ function registerDictionaryManagerHandlers() {
   onMessage("dictionary-manager-ready", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("", "info", false);
+    dictionaryManagerSystemAccentColor().then((color) => {
+      if (color)
+        postToDictionaryManager("dictionary-manager-system-accent", { color });
+    });
     if (typeof refreshDictionaryManagerAnkiState === "function")
       refreshDictionaryManagerAnkiState();
   });
@@ -284,6 +314,92 @@ function registerDictionaryManagerHandlers() {
       setActiveDictionaryProfile(profileId);
       return Promise.resolve();
     });
+  });
+  onMessage("dictionary-manager-request-profile-name", (payload) => {
+    const mode = payload && payload.mode === "create" ? "create" : "";
+    if (!mode) return;
+    if (!utils || typeof utils.prompt !== "function") {
+      postToDictionaryManager("dictionary-manager-profile-name-result", {
+        mode,
+        cancelled: true,
+      });
+      postDictionaryManagerStatus(
+        "This IINA build does not expose a native profile-name prompt.",
+        "error",
+        false,
+      );
+      return;
+    }
+    try {
+      const name = utils.prompt("New profile name");
+      postToDictionaryManager("dictionary-manager-profile-name-result", {
+        mode,
+        name,
+        cancelled: name === undefined || name === null,
+      });
+    } catch (error) {
+      debugError("profile-name prompt failed: " + compactError(error));
+      postToDictionaryManager("dictionary-manager-profile-name-result", {
+        mode,
+        cancelled: true,
+      });
+      postDictionaryManagerStatus(
+        "Could not open the profile-name prompt: " + compactError(error),
+        "error",
+        false,
+      );
+    }
+  });
+  onMessage("dictionary-manager-request-confirmation", (payload) => {
+    const mode = payload && String(payload.mode || "");
+    const isDictionaryDelete = mode === "delete-dictionary";
+    const isProfileDelete = mode === "delete-profile";
+    if (!isDictionaryDelete && !isProfileDelete) return;
+    if (!utils || typeof utils.ask !== "function") {
+      postDictionaryManagerStatus(
+        "This IINA build does not expose native confirmation dialogs.",
+        "error",
+        false,
+      );
+      return;
+    }
+    const label = String(payload.label || "Are you sure?");
+    let confirmed = false;
+    try {
+      confirmed = !!utils.ask(label);
+    } catch (error) {
+      debugError("confirmation dialog failed: " + compactError(error));
+      postDictionaryManagerStatus(
+        "Could not open the confirmation dialog: " + compactError(error),
+        "error",
+        false,
+      );
+      return;
+    }
+    if (!confirmed) {
+      postDictionaryManagerStatus(
+        isDictionaryDelete
+          ? "Dictionary deletion cancelled."
+          : "Profile deletion cancelled.",
+        "info",
+        false,
+      );
+      return;
+    }
+    if (isDictionaryDelete) {
+      const name = payload && payload.name;
+      if (!name) return;
+      runDictionaryManagerAction("Deleting dictionary", () =>
+        deleteDictionary(String(name)),
+      );
+    } else {
+      const profileId = payload && payload.profileId;
+      if (!profileId) return;
+      runDictionaryManagerAction("Deleting profile", () => {
+        deleteDictionaryProfile(profileId);
+        return Promise.resolve();
+      });
+    }
   });
   onMessage("dictionary-manager-create-profile", (payload) => {
     const name = payload && payload.name;

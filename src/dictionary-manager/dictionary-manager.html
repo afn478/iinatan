@@ -6,29 +6,85 @@
   <style>
     :root {
       color-scheme: light dark;
-      --bg: rgba(248, 248, 250, 0.96);
-      --panel: rgba(255, 255, 255, 0.86);
-      --text: rgba(20, 20, 24, 0.94);
-      --muted: rgba(70, 70, 76, 0.72);
-      --border: rgba(0, 0, 0, 0.14);
-      --accent: #0a84ff;
-      --danger: #d3382d;
-      --danger-border: rgba(211, 56, 45, 0.38);
-      --danger-hover: rgba(211, 56, 45, 0.12);
-      --row-hover: rgba(10, 132, 255, 0.08);
-      --control: rgba(255, 255, 255, 0.78);
+      --bg: #ececec;
+      --panel: #ffffff;
+      --control: #ffffff;
+      --text: rgba(0, 0, 0, 0.85);
+      --muted: rgba(60, 60, 67, 0.6);
+      --faint: rgba(60, 60, 67, 0.4);
+      --border: rgba(0, 0, 0, 0.13);
+      --divider: rgba(60, 60, 67, 0.26);
+      --accent: #007aff;
+      --accent-text: #0066cc;
+      --accent-wash: rgba(0, 122, 255, 0.1);
+      --accent-wash-strong: rgba(0, 102, 204, 0.14);
+      --focus-ring: rgba(0, 102, 204, 0.5);
+      --accent-border: rgba(0, 122, 255, 0.42);
+      --accent-border-strong: rgba(0, 122, 255, 0.5);
+      --danger: #d70015;
+      --danger-border: rgba(215, 0, 21, 0.34);
+      --danger-hover: rgba(215, 0, 21, 0.1);
+      --success: #248a3d;
+      --success-wash: rgba(36, 138, 61, 0.12);
+      --row-hover: rgba(0, 122, 255, 0.06);
+      --chip-bg: rgba(118, 118, 128, 0.12);
+      --radius-control: 6px;
+      --radius-card: 8px;
+      --radius-sheet: 12px;
+      --radius-pill: 999px;
+      --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.18);
+      --shadow-sheet: 0 18px 48px rgba(0, 0, 0, 0.28), 0 3px 10px rgba(0, 0, 0, 0.14);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: rgba(30, 30, 34, 0.96);
-        --panel: rgba(44, 44, 50, 0.82);
-        --text: rgba(245, 245, 247, 0.94);
-        --muted: rgba(220, 220, 224, 0.66);
+        --bg: #1e1e22;
+        --panel: #2c2c32;
+        --control: #3a3a40;
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(235, 235, 245, 0.6);
+        --faint: rgba(235, 235, 245, 0.42);
         --border: rgba(255, 255, 255, 0.16);
+        --divider: rgba(84, 84, 88, 0.62);
+        --accent: #0a84ff;
+        --accent-text: #64a8ff;
+        --accent-wash: rgba(10, 132, 255, 0.16);
+        --accent-wash-strong: rgba(10, 132, 255, 0.22);
+        --focus-ring: rgba(10, 132, 255, 0.5);
+        --accent-border: rgba(10, 132, 255, 0.42);
+        --accent-border-strong: rgba(10, 132, 255, 0.5);
+        --danger: #ff6961;
         --danger-border: rgba(255, 105, 97, 0.46);
         --danger-hover: rgba(255, 105, 97, 0.14);
-        --row-hover: rgba(10, 132, 255, 0.16);
-        --control: rgba(58, 58, 64, 0.88);
+        --success: #30d158;
+        --success-wash: rgba(48, 209, 88, 0.14);
+        --row-hover: rgba(10, 132, 255, 0.14);
+        --chip-bg: rgba(255, 255, 255, 0.1);
+        --shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.4);
+        --shadow-sheet: 0 18px 48px rgba(0, 0, 0, 0.42), 0 3px 10px rgba(0, 0, 0, 0.24);
+      }
+    }
+    @supports (color: AccentColor) {
+      :root {
+        --accent: AccentColor;
+        --accent-text: AccentColor;
+        --accent-wash: color-mix(in srgb, AccentColor 10%, transparent);
+        --accent-wash-strong: color-mix(in srgb, AccentColor 14%, transparent);
+        --focus-ring: color-mix(in srgb, AccentColor 50%, transparent);
+        --accent-border: color-mix(in srgb, AccentColor 42%, transparent);
+        --accent-border-strong: color-mix(in srgb, AccentColor 50%, transparent);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --accent-wash: color-mix(in srgb, AccentColor 16%, transparent);
+          --accent-wash-strong: color-mix(in srgb, AccentColor 22%, transparent);
+        }
+      }
+    }
+    @supports (color: -apple-system-control-accent) {
+      :root {
+        --accent: -apple-system-control-accent;
+        --accent-text: -apple-system-control-accent;
+        --focus-ring: -apple-system-control-accent;
       }
     }
     * { box-sizing: border-box; }
@@ -52,39 +108,47 @@
       letter-spacing: 0;
     }
     h1 {
-      font-size: 20px;
+      font-size: 15px;
+      font-weight: 600;
       line-height: 1.2;
     }
     h2 {
-      font-size: 15px;
+      font-size: 13px;
+      font-weight: 600;
       line-height: 1.25;
     }
     h3 {
       margin: 18px 0 8px;
-      font-size: 13px;
+      font-size: 11px;
       line-height: 1.25;
       color: var(--muted);
       font-weight: 700;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
     }
     main { padding: 12px 18px 18px; }
     button, select, input, textarea {
       appearance: none;
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: var(--radius-control);
       background: var(--control);
       color: var(--text);
       font: inherit;
-      min-height: 30px;
+      min-height: 22px;
     }
     button {
-      padding: 5px 10px;
+      padding: 5px 12px;
       cursor: pointer;
+      font-weight: 500;
       white-space: nowrap;
     }
     select {
-      padding: 5px 26px 5px 10px;
+      padding: 4px 24px 4px 10px;
       min-width: 170px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23808080' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      background-size: 14px;
     }
     input[type="number"], input[type="text"], input[type="url"] {
       width: 100%;
@@ -100,6 +164,7 @@
     }
     input[type="checkbox"] {
       appearance: auto;
+      accent-color: auto;
       width: 16px;
       height: 16px;
       min-height: 16px;
@@ -111,42 +176,78 @@
       cursor: default;
     }
     button:not(:disabled):hover {
-      border-color: rgba(10, 132, 255, 0.42);
-      background: rgba(10, 132, 255, 0.08);
+      border-color: var(--accent-border);
+      background: var(--accent-wash);
     }
     button:not(:disabled):active {
-      background: rgba(10, 132, 255, 0.18);
-      transform: translateY(1px);
+      background: var(--accent-wash-strong);
+      transform: translateY(0.5px);
+    }
+    input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--focus-ring);
     }
     .active-profile {
       margin-top: 3px;
-      color: var(--muted);
-      font-size: 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
     }
     .profile-controls {
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      padding: 3px;
+      background: rgba(0, 0, 0, 0.04);
+      border-radius: var(--radius-control);
+    }
+    .profile-controls select {
+      border: none;
+      background-color: transparent;
+    }
+    .profile-controls button {
+      border: none;
+      background: transparent;
+      padding: 4px 8px;
+    }
+    .profile-controls button:hover {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 4px;
     }
     .tabs {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 12px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 10px;
+      gap: 2px;
+      padding: 2px;
+      margin-bottom: 16px;
+      border-bottom: none;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: var(--radius-control);
     }
     .tab {
-      min-width: 84px;
+      min-width: 0;
+      padding: 4px 12px;
+      border: none;
+      border-radius: 5px;
       background: transparent;
+      color: var(--muted);
+      transition: color 120ms ease-out, background-color 120ms ease-out;
+    }
+    .tab:hover {
+      background: transparent;
+      color: var(--text);
     }
     .tab.active {
-      border-color: rgba(10, 132, 255, 0.48);
-      background: rgba(10, 132, 255, 0.14);
+      background: var(--panel);
       color: var(--text);
       font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    }
+    @media (prefers-color-scheme: dark) {
+      .tabs { background: rgba(0, 0, 0, 0.24); }
+      .tab.active { background: rgba(255, 255, 255, 0.14); }
     }
     .status {
       min-height: 18px;
@@ -156,7 +257,17 @@
     }
     .status.error { color: var(--danger); }
     .panel { display: none; }
-    .panel.active { display: block; }
+    .panel.active {
+      display: block;
+      animation: panel-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .panel.active { animation: none; }
+    }
     .form-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -175,10 +286,55 @@
     .check-field {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      gap: 12px;
       min-height: 30px;
-      font-weight: 600;
+      font-weight: 400;
     }
+    .check-field > span:first-child { min-width: 0; }
+    .switch {
+      position: relative;
+      display: inline-flex;
+      flex: 0 0 auto;
+      width: 34px;
+      height: 20px;
+    }
+    .switch input {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .switch .track {
+      position: absolute;
+      inset: 0;
+      border-radius: var(--radius-pill);
+      background: rgba(120, 120, 128, 0.32);
+      transition: background-color 120ms ease-out;
+    }
+    .switch input:checked ~ .track {
+      background: -apple-system-control-accent;
+      background: var(--accent);
+    }
+    .switch .thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+      transition: transform 120ms ease-out;
+    }
+    .switch input:checked ~ .thumb { transform: translateX(14px); }
+    .switch input:focus-visible ~ .track { box-shadow: 0 0 0 3px var(--focus-ring); }
+    .switch input:disabled ~ .track { opacity: 0.5; }
     .check-field span { min-width: 0; }
     .setting-heading, .setting-row {
       display: flex;
@@ -193,7 +349,7 @@
       min-width: 0;
       margin: 0;
     }
-    .setting-row .check-field { min-width: 0; }
+    .setting-row .check-field { min-width: 0; flex: 1 1 auto; }
     .field .setting-row { margin-bottom: 5px; }
     .field .setting-row label { margin-bottom: 0; }
     .help-tip {
@@ -219,13 +375,13 @@
     }
     .help-tip summary::-webkit-details-marker { display: none; }
     .help-tip summary:hover, .help-tip summary:focus {
-      border-color: rgba(10, 132, 255, 0.48);
+      border-color: var(--accent-border);
       color: var(--text);
       outline: none;
     }
     .help-tip[open] summary {
-      border-color: rgba(10, 132, 255, 0.48);
-      background: rgba(10, 132, 255, 0.14);
+      border-color: var(--accent-border);
+      background: var(--accent-wash);
       color: var(--text);
     }
     .help-popover {
@@ -238,19 +394,21 @@
       border: 1px solid var(--border);
       border-radius: 7px;
       background: var(--bg);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+      box-shadow: var(--shadow-menu);
       color: var(--text);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 400;
       letter-spacing: 0;
       line-height: 1.4;
       text-transform: none;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
     }
     .field small, .meta, .hint {
       display: block;
       margin-top: 3px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.35;
     }
     .toolbar {
@@ -262,8 +420,9 @@
     }
     .toolbar .spacer { flex: 1 1 auto; }
     .primary {
-      border-color: rgba(10, 132, 255, 0.45);
-      background: rgba(10, 132, 255, 0.14);
+      border-color: var(--accent-border-strong);
+      background: var(--accent-wash-strong);
+      font-weight: 600;
     }
     .danger {
       color: var(--danger);
@@ -273,9 +432,49 @@
       border-color: var(--danger);
       background: var(--danger-hover);
     }
+    .primary.danger {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+    .primary.danger:hover { filter: brightness(1.08); }
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      min-height: 26px;
+      padding: 0;
+      border-radius: var(--radius-pill);
+      border-color: transparent;
+      background: var(--chip-bg);
+      color: var(--muted);
+      transition: color 100ms ease-out, background-color 100ms ease-out, border-color 100ms ease-out;
+    }
+    .icon-btn:hover {
+      color: var(--text);
+      border-color: var(--border);
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .icon-btn:active { filter: brightness(0.92); }
+    .icon-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-btn.danger:hover {
+      color: var(--danger);
+      border-color: var(--danger-border);
+      background: var(--danger-hover);
+    }
     .dictionary-list, .recommended-list, .audio-source-list, .anki-field-list {
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-card);
       overflow: hidden;
       background: var(--panel);
     }
@@ -295,10 +494,18 @@
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-sheet);
       background: var(--bg);
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+      box-shadow: var(--shadow-sheet);
       overflow: hidden;
+      animation: sheet-appear 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes sheet-appear {
+      from { opacity: 0; transform: scale(0.97) translateY(4px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dialog-panel { animation: none; }
     }
     .dialog-header {
       display: flex;
@@ -342,11 +549,26 @@
     .dictionary-row.drag-over, .audio-source-row.drag-over { background: var(--row-hover); }
     .dictionary-row.dragging, .audio-source-row.dragging { opacity: 0.46; }
     .drag-handle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       width: 28px;
+      height: 28px;
       min-height: 28px;
       padding: 0;
-      color: var(--muted);
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      border-color: transparent;
+      background: transparent;
+      color: var(--faint);
+      cursor: grab;
+    }
+    .drag-handle:active { cursor: grabbing; }
+    .drag-handle svg {
+      width: 13px;
+      height: 13px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
     }
     .title {
       min-width: 0;
@@ -373,7 +595,7 @@
     }
     .anki-status-pill.reachable {
       border-color: rgba(52, 199, 89, 0.42);
-      color: #248a3d;
+      color: var(--success);
     }
     .anki-status-pill.error {
       border-color: var(--danger-border);
@@ -395,11 +617,10 @@
     .row-actions {
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
     }
     .row-actions button {
-      min-width: 32px;
-      padding: 4px 7px;
+      min-width: 0;
     }
     @media (max-width: 720px) {
       body { min-width: 0; }
@@ -434,7 +655,6 @@
 <body>
   <header>
     <div>
-      <h1>iinatan Settings</h1>
       <div id="activeProfileLabel" class="active-profile"></div>
     </div>
     <div class="profile-controls">
@@ -475,14 +695,14 @@
 
       <h3>Playback</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-profile-pref="enabledByDefault" type="checkbox"><span>Turn on automatically for new windows</span></label>
-        <label class="check-field"><input id="hideNativeSubtitles" data-profile-pref="hideNativeSubtitles" type="checkbox"><span>Hide IINA subtitles while iinatan is on</span></label>
-        <label class="check-field"><input data-profile-pref="pauseWhilePopupVisible" type="checkbox"><span>Pause while a popup is visible</span></label>
+        <label class="check-field"><span>Turn on automatically for new windows</span><span class="switch"><input data-profile-pref="enabledByDefault" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
+        <label class="check-field"><span>Hide IINA subtitles while iinatan is on</span><span class="switch"><input id="hideNativeSubtitles" data-profile-pref="hideNativeSubtitles" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
+        <label class="check-field"><span>Pause while a popup is visible</span><span class="switch"><input data-profile-pref="pauseWhilePopupVisible" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
       </div>
 
       <h3>Word Audio</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-profile-pref="audioAutoPlay" type="checkbox"><span>Play first result audio automatically</span></label>
+        <label class="check-field"><span>Play first result audio automatically</span><span class="switch"><input data-profile-pref="audioAutoPlay" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
       </div>
       <div class="toolbar">
         <span class="spacer"></span>
@@ -494,7 +714,7 @@
     <section class="panel" data-panel="anki">
       <h2>Anki Export</h2>
       <div class="form-grid single">
-        <label class="check-field"><input data-profile-pref="ankiEnabled" type="checkbox"><span>Show Anki add button in popups</span></label>
+        <label class="check-field"><span>Show Anki add button in popups</span><span class="switch"><input data-profile-pref="ankiEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
       </div>
 
       <h3>Note</h3>
@@ -528,7 +748,7 @@
 
       <h3>Duplicates And Media</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-profile-pref="ankiDuplicateCheck" type="checkbox"><span>Check for duplicates before adding</span></label>
+        <label class="check-field"><span>Check for duplicates before adding</span><span class="switch"><input data-profile-pref="ankiDuplicateCheck" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
         <div class="field">
           <label for="ankiDuplicateMode">When duplicate exists</label>
           <select id="ankiDuplicateMode" data-profile-pref="ankiDuplicateMode">
@@ -634,7 +854,7 @@
           <label for="popupSubtitleGapPx">Gap above selected subtitle row (px)</label>
           <input id="popupSubtitleGapPx" data-profile-pref="popupSubtitleGapPx" type="number" min="12" max="96" step="1">
         </div>
-        <label class="check-field"><input data-profile-pref="flattenSubtitleLineBreaks" type="checkbox"><span>Flatten subtitle line breaks</span></label>
+        <label class="check-field"><span>Flatten subtitle line breaks</span><span class="switch"><input data-profile-pref="flattenSubtitleLineBreaks" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
         <div class="field">
           <label for="subtitlePollMs">Subtitle refresh interval (ms)</label>
           <input id="subtitlePollMs" data-profile-pref="subtitlePollMs" type="number" min="80" max="1000" step="20">
@@ -673,12 +893,12 @@
       <h2>Dictionaries</h2>
       <h3>Recommended Downloads</h3>
       <div class="toolbar">
-        <button id="openRecommended" class="primary" type="button">Get recommended dictionaries...</button>
+        <button id="openRecommended" type="button">Get recommended dictionaries...</button>
       </div>
 
       <h3>Installed Dictionaries</h3>
       <div class="toolbar">
-        <button id="importZip" class="primary" type="button">Import ZIP...</button>
+        <button id="importZip" type="button">Import ZIP...</button>
         <span class="spacer"></span>
         <button id="refresh" type="button">Refresh</button>
       </div>
@@ -686,7 +906,7 @@
 
       <h3>Dictionary Import</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-global-setting="lowRamImport" type="checkbox"><span>Use lower-memory dictionary import</span></label>
+        <label class="check-field"><span>Use lower-memory dictionary import</span><span class="switch"><input data-global-setting="lowRamImport" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
         <div class="field">
           <label for="importTimeoutMs">Dictionary import timeout (ms)</label>
           <input id="importTimeoutMs" data-global-setting="importTimeoutMs" type="number" min="30000" max="7200000" step="30000">
@@ -700,9 +920,9 @@
       <div class="form-grid single">
         <div>
           <div class="setting-row">
-            <label class="check-field"><input id="bitmapSubtitleOcrEnabled" data-profile-pref="bitmapSubtitleOcrEnabled" type="checkbox"><span>Recognize bitmap subtitles for dictionary lookup</span></label>
+            <label class="check-field"><span>Recognize bitmap subtitles for dictionary lookup</span><span class="switch"><input id="bitmapSubtitleOcrEnabled" data-profile-pref="bitmapSubtitleOcrEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
             <details class="help-tip">
-              <summary aria-label="More about bitmap subtitle recognition">?</summary>
+              <summary aria-label="More about bitmap subtitle recognition"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
               <div class="help-popover">Activates automatically when this Mac's Apple Vision framework supports the profile language. By default, pausing or moving the mouse over the player recognizes the current bitmap subtitle. Recognition happens on-device and no subtitle images or recognized text are uploaded. OCR can be wrong for stylized, low-resolution, or obstructed subtitles, which can also cause an incorrect dictionary lookup.</div>
             </details>
           </div>
@@ -711,9 +931,9 @@
         </div>
         <div>
           <div class="setting-row">
-            <label class="check-field"><input id="bitmapSubtitleOcrPrefetchEnabled" data-profile-pref="bitmapSubtitleOcrPrefetchEnabled" type="checkbox"><span>Continuously recognize bitmap subtitles during playback</span></label>
+            <label class="check-field"><span>Continuously recognize bitmap subtitles during playback</span><span class="switch"><input id="bitmapSubtitleOcrPrefetchEnabled" data-profile-pref="bitmapSubtitleOcrPrefetchEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
             <details class="help-tip">
-              <summary aria-label="More about continuous bitmap subtitle recognition">?</summary>
+              <summary aria-label="More about continuous bitmap subtitle recognition"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
               <div class="help-popover">Recognizes every active bitmap cue in the background, including subtitles you never inspect. Leave it off to recognize only after pausing or moving the mouse over the player.</div>
             </details>
           </div>
@@ -721,9 +941,9 @@
         </div>
         <div>
           <div class="setting-row">
-            <label class="check-field"><input id="bitmapSubtitleOcrScreenshotFallbackEnabled" data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled" type="checkbox"><span>Use screenshot OCR when direct extraction fails</span></label>
+            <label class="check-field"><span>Use screenshot OCR when direct extraction fails</span><span class="switch"><input id="bitmapSubtitleOcrScreenshotFallbackEnabled" data-profile-pref="bitmapSubtitleOcrScreenshotFallbackEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
             <details class="help-tip">
-              <summary aria-label="More about screenshot OCR">?</summary>
+              <summary aria-label="More about screenshot OCR"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
               <div class="help-popover">Captures and compares full video frames. This can briefly reduce IINA responsiveness, especially with 4K or HDR video, and may recognize unrelated on-screen text. Leave it off unless direct bitmap extraction does not work for a particular source.</div>
             </details>
           </div>
@@ -734,16 +954,16 @@
         <div class="setting-heading">
           <h3>Native Subtitle Lookup</h3>
           <details class="help-tip">
-            <summary aria-label="More about native subtitle lookup">?</summary>
+            <summary aria-label="More about native subtitle lookup"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
             <div class="help-popover">By default, IINA continues to draw text subtitles while iinatan adds word lookup without changing their appearance. This works best with SRT and dialogue-style ASS subtitles. Complex positioned or animated ASS signs may not support lookup. Bitmap subtitles use the OCR options above.</div>
           </details>
         </div>
         <div class="form-grid single">
           <div>
             <div class="setting-row">
-              <label class="check-field"><input id="legacySubtitleMode" data-profile-pref="experimentalNativeSubtitleHitLayer" data-profile-pref-invert="true" type="checkbox"><span>Use legacy subtitle mode</span></label>
+              <label class="check-field"><span>Use legacy subtitle mode</span><span class="switch"><input id="legacySubtitleMode" data-profile-pref="experimentalNativeSubtitleHitLayer" data-profile-pref-invert="true" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
               <details class="help-tip">
-                <summary aria-label="More about legacy subtitle mode">?</summary>
+                <summary aria-label="More about legacy subtitle mode"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
                 <div class="help-popover">Legacy mode uses iinatan's older interactive subtitle display. It can help when native subtitle lookup is unavailable or does not line up correctly, but it may preserve authored styling and positioning less accurately.</div>
               </details>
             </div>
@@ -751,9 +971,9 @@
           </div>
           <div>
             <div class="setting-row">
-              <label class="check-field"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span>Highlight looked-up text</span></label>
+              <label class="check-field"><span>Highlight looked-up text</span><span class="switch"><input id="experimentalNativeSubtitleLookupHighlight" data-profile-pref="experimentalNativeSubtitleLookupHighlight" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
               <details class="help-tip">
-                <summary aria-label="More about lookup highlighting">?</summary>
+                <summary aria-label="More about lookup highlighting"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
                 <div class="help-popover">Adds a temporary highlight behind the text matched by the current dictionary popup. Turning this off does not disable lookup.</div>
               </details>
             </div>
@@ -761,9 +981,9 @@
           </div>
           <div>
             <div class="setting-row">
-              <label class="check-field"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span>Show lookup areas</span></label>
+              <label class="check-field"><span>Show lookup areas</span><span class="switch"><input id="experimentalNativeSubtitleHitBoxes" data-profile-pref="experimentalNativeSubtitleHitBoxes" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
               <details class="help-tip">
-                <summary aria-label="More about lookup areas">?</summary>
+                <summary aria-label="More about lookup areas"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
                 <div class="help-popover">Outlines the areas that respond to hovering and clicking. Turn this on temporarily if lookup triggers beside or between subtitle characters.</div>
               </details>
             </div>
@@ -773,7 +993,7 @@
             <div class="setting-row">
               <label for="experimentalNativeSubtitleTextOpacity">Lookup alignment preview</label>
               <details class="help-tip">
-                <summary aria-label="More about the lookup alignment preview">?</summary>
+                <summary aria-label="More about the lookup alignment preview"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
                 <div class="help-popover">iinatan keeps an invisible text copy aligned with the subtitle to place lookup areas. Raise this from 0 only when checking alignment; 1 makes the copy fully visible.</div>
               </details>
             </div>
@@ -782,9 +1002,9 @@
           </div>
           <div>
             <div class="setting-row">
-              <label class="check-field"><input id="experimentalNativeSubtitleValidation" data-profile-pref="experimentalNativeSubtitleValidation" type="checkbox"><span>Run extra subtitle checks</span></label>
+              <label class="check-field"><span>Run extra subtitle checks</span><span class="switch"><input id="experimentalNativeSubtitleValidation" data-profile-pref="experimentalNativeSubtitleValidation" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
               <details class="help-tip">
-                <summary aria-label="More about extra subtitle checks">?</summary>
+                <summary aria-label="More about extra subtitle checks"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><circle cx="12" cy="8.3" r="0.5" fill="currentColor" stroke="none"/></svg></summary>
                 <div class="help-popover">Performs additional checks on styled subtitle placement. This adds processing and diagnostic work, so enable it only while troubleshooting.</div>
               </details>
             </div>
@@ -806,8 +1026,8 @@
 
       <h3>Worker</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-profile-pref="directWorkerIpc" type="checkbox"><span>Use direct worker IPC</span></label>
-        <label class="check-field"><input data-profile-pref="fallbackToClientExec" type="checkbox"><span>Fall back to client executable lookup</span></label>
+        <label class="check-field"><span>Use direct worker IPC</span><span class="switch"><input data-profile-pref="directWorkerIpc" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
+        <label class="check-field"><span>Fall back to client executable lookup</span><span class="switch"><input data-profile-pref="fallbackToClientExec" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
         <div class="field">
           <label for="directIpcPollMs">Direct IPC poll interval (ms)</label>
           <input id="directIpcPollMs" data-profile-pref="directIpcPollMs" type="number" min="1" max="100" step="1">
@@ -820,8 +1040,8 @@
 
       <h3>Diagnostics</h3>
       <div class="form-grid">
-        <label class="check-field"><input data-profile-pref="debugLogEnabled" type="checkbox"><span>Save diagnostic logs</span></label>
-        <label class="check-field"><input data-profile-pref="debugLogVerbose" type="checkbox"><span>Include detailed diagnostic logs</span></label>
+        <label class="check-field"><span>Save diagnostic logs</span><span class="switch"><input data-profile-pref="debugLogEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
+        <label class="check-field"><span>Include detailed diagnostic logs</span><span class="switch"><input data-profile-pref="debugLogVerbose" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
       </div>
     </section>
 
@@ -829,7 +1049,7 @@
       <h2>Backup And Restore</h2>
       <p>Export every profile, its dictionary order and enabled state, and global dictionary-import settings to JSON. Dictionary files are not included.</p>
       <div class="toolbar">
-        <button id="exportProfileSettings" class="primary" type="button">Export Settings...</button>
+        <button id="exportProfileSettings" type="button">Export Settings...</button>
         <button id="restoreProfileSettings" type="button">Restore Settings...</button>
       </div>
       <p><small>Restoring replaces all profiles. References to dictionaries which are not installed are retained and applied when a matching dictionary is added later. Backups can contain custom URLs, Anki settings, templates, and CSS; store them privately and restore only files you trust.</small></p>
@@ -843,6 +1063,21 @@
       </div>
       <div class="dialog-body">
         <section id="recommendedList" class="recommended-list"></section>
+      </div>
+    </section>
+  </div>
+  <div id="confirmDialogBackdrop" class="dialog-backdrop" hidden>
+    <section class="dialog-panel" style="width: min(360px, 100%);" role="alertdialog" aria-modal="true" aria-labelledby="confirmDialogTitle">
+      <div class="dialog-header">
+        <h2 id="confirmDialogTitle">Rename Profile</h2>
+      </div>
+      <div class="dialog-body">
+        <p id="confirmDialogMessage" style="margin: 0 0 14px; color: var(--muted);">Choose a new name for this profile.</p>
+        <input id="confirmDialogInput" type="text" aria-label="Profile name" style="width: 100%; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button id="confirmDialogCancel" type="button">Cancel</button>
+          <button id="confirmDialogConfirm" class="primary" type="button">Rename</button>
+        </div>
       </div>
     </section>
   </div>
@@ -866,6 +1101,7 @@
       commandSerial: 0,
       activeTab: 'profile',
       recommendedDialogOpen: false,
+      renameDialogOpen: false,
       rendering: false,
       audioSourceSerial: 0,
       anki: null,
@@ -886,6 +1122,12 @@
       openRecommended: document.getElementById('openRecommended'),
       closeRecommended: document.getElementById('closeRecommended'),
       recommendedDialogBackdrop: document.getElementById('recommendedDialogBackdrop'),
+      confirmDialogBackdrop: document.getElementById('confirmDialogBackdrop'),
+      confirmDialogTitle: document.getElementById('confirmDialogTitle'),
+      confirmDialogMessage: document.getElementById('confirmDialogMessage'),
+      confirmDialogInput: document.getElementById('confirmDialogInput'),
+      confirmDialogCancel: document.getElementById('confirmDialogCancel'),
+      confirmDialogConfirm: document.getElementById('confirmDialogConfirm'),
       addAudioSource: document.getElementById('addAudioSource'),
       ankiModelName: document.getElementById('ankiModelName'),
       ankiDeckName: document.getElementById('ankiDeckName'),
@@ -947,6 +1189,24 @@
       els.status.className = 'status' + (kind === 'error' ? ' error' : '');
       updateBusyState();
     }
+    function setSystemAccentColor(color) {
+      const value = String(color || '').trim();
+      if (!/^#[0-9a-f]{6}$/i.test(value)) return;
+      const hex = value.slice(1);
+      const red = parseInt(hex.slice(0, 2), 16);
+      const green = parseInt(hex.slice(2, 4), 16);
+      const blue = parseInt(hex.slice(4, 6), 16);
+      const rgba = alpha => 'rgba(' + red + ', ' + green + ', ' + blue + ', ' + alpha + ')';
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--accent', value);
+      rootStyle.setProperty('--accent-text', value);
+      rootStyle.setProperty('--accent-wash', rgba(0.1));
+      rootStyle.setProperty('--accent-wash-strong', rgba(0.14));
+      rootStyle.setProperty('--focus-ring', rgba(0.5));
+      rootStyle.setProperty('--accent-border', rgba(0.42));
+      rootStyle.setProperty('--accent-border-strong', rgba(0.5));
+      rootStyle.setProperty('--row-hover', rgba(0.06));
+    }
     function activeProfile() {
       return (state.profiles || []).find(profile => profile.id === state.activeProfileId) || {
         id: 'default',
@@ -1000,6 +1260,51 @@
     function closeRecommendedDialog() {
       state.recommendedDialogOpen = false;
       renderRecommendedDialog();
+    }
+    function openRenameDialog() {
+      if (state.busy) return;
+      const profile = activeProfile();
+      if (!profile) return;
+      state.renameDialogOpen = true;
+      els.confirmDialogTitle.textContent = 'Rename Profile';
+      els.confirmDialogMessage.textContent = 'Choose a new name for this profile.';
+      els.confirmDialogInput.value = profile.name || profile.id;
+      els.confirmDialogBackdrop.hidden = false;
+      setTimeout(() => {
+        if (!state.renameDialogOpen) return;
+        els.confirmDialogInput.focus();
+        els.confirmDialogInput.select();
+      }, 0);
+    }
+    function closeRenameDialog() {
+      state.renameDialogOpen = false;
+      els.confirmDialogBackdrop.hidden = true;
+    }
+    function confirmRenameDialog() {
+      const profile = activeProfile();
+      const name = String(els.confirmDialogInput.value || '').trim();
+      if (!name) {
+        setStatus('Profile name cannot be empty.', 'error', false);
+        els.confirmDialogInput.focus();
+        return;
+      }
+      closeRenameDialog();
+      command('dictionary-manager-rename-profile', { profileId: profile.id, name }, 'Renaming profile...', { busy: false, clearAfterMs: 2500 });
+    }
+    function requestNativeConfirmation(mode, payload) {
+      command('dictionary-manager-request-confirmation', Object.assign({ mode }, payload || {}), null, { busy: false });
+    }
+    const ICONS = {
+      reorder: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+      up: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+      down: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+      delete: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12a1 1 0 001 1h6a1 1 0 001-1l1-12"/></svg>'
+    };
+    function setIconButton(button, icon, label, danger) {
+      button.className = 'icon-btn' + (danger ? ' danger' : '');
+      button.innerHTML = icon;
+      button.title = label;
+      button.setAttribute('aria-label', label);
     }
     function renderRecommendedDialog() {
       const wasHidden = els.recommendedDialogBackdrop.hidden;
@@ -1333,8 +1638,10 @@
     function deleteDictionary(dict) {
       if (!dict || !dict.name || state.busy) return;
       const label = dict.title || dict.name;
-      if (!confirm('Delete "' + label + '" from iinatan? This removes the installed dictionary files.')) return;
-      command('dictionary-manager-delete', { name: dict.name }, 'Requesting dictionary deletion...');
+      requestNativeConfirmation('delete-dictionary', {
+        name: dict.name,
+        label: 'Delete "' + label + '" from iinatan? This removes the installed dictionary files.'
+      });
     }
     function profileValue(key) {
       if (Object.prototype.hasOwnProperty.call(state.profilePreferences, key)) return state.profilePreferences[key];
@@ -1515,8 +1822,9 @@
         const handle = document.createElement('button');
         handle.className = 'drag-handle';
         handle.type = 'button';
-        handle.title = 'Drag';
-        handle.textContent = '::';
+        handle.title = 'Reorder dictionary';
+        handle.setAttribute('aria-label', 'Reorder dictionary');
+        handle.innerHTML = ICONS.reorder;
         handle.dataset.busyControl = 'true';
         handle.disabled = state.busy;
         row.appendChild(handle);
@@ -1547,22 +1855,21 @@
         actions.className = 'row-actions';
         const up = document.createElement('button');
         up.type = 'button';
-        up.textContent = 'Up';
+        setIconButton(up, ICONS.up, 'Move dictionary up');
         up.dataset.busyControl = 'true';
         up.dataset.positionDisabled = index === 0 ? 'true' : 'false';
         up.disabled = state.busy || index === 0;
         up.addEventListener('click', () => moveDictionary(dict.name, -1));
         const down = document.createElement('button');
         down.type = 'button';
-        down.textContent = 'Down';
+        setIconButton(down, ICONS.down, 'Move dictionary down');
         down.dataset.busyControl = 'true';
         down.dataset.positionDisabled = index === state.dictionaries.length - 1 ? 'true' : 'false';
         down.disabled = state.busy || index === state.dictionaries.length - 1;
         down.addEventListener('click', () => moveDictionary(dict.name, 1));
         const del = document.createElement('button');
         del.type = 'button';
-        del.className = 'danger';
-        del.textContent = 'Delete';
+        setIconButton(del, ICONS.delete, 'Delete dictionary', true);
         del.dataset.busyControl = 'true';
         del.disabled = state.busy;
         del.addEventListener('click', () => deleteDictionary(dict));
@@ -1616,8 +1923,9 @@
         const handle = document.createElement('button');
         handle.className = 'drag-handle';
         handle.type = 'button';
-        handle.title = 'Drag';
-        handle.textContent = '::';
+        handle.title = 'Reorder audio source';
+        handle.setAttribute('aria-label', 'Reorder audio source');
+        handle.innerHTML = ICONS.reorder;
         handle.dataset.busyControl = 'true';
         handle.disabled = state.busy;
         row.appendChild(handle);
@@ -1636,22 +1944,21 @@
         actions.className = 'row-actions';
         const up = document.createElement('button');
         up.type = 'button';
-        up.textContent = 'Up';
+        setIconButton(up, ICONS.up, 'Move audio source up');
         up.dataset.busyControl = 'true';
         up.dataset.positionDisabled = index === 0 ? 'true' : 'false';
         up.disabled = state.busy || index === 0;
         up.addEventListener('click', () => moveAudioSource(source.id, -1));
         const down = document.createElement('button');
         down.type = 'button';
-        down.textContent = 'Down';
+        setIconButton(down, ICONS.down, 'Move audio source down');
         down.dataset.busyControl = 'true';
         down.dataset.positionDisabled = index === state.audioSources.length - 1 ? 'true' : 'false';
         down.disabled = state.busy || index === state.audioSources.length - 1;
         down.addEventListener('click', () => moveAudioSource(source.id, 1));
         const del = document.createElement('button');
         del.type = 'button';
-        del.className = 'danger';
-        del.textContent = 'Delete';
+        setIconButton(del, ICONS.delete, 'Delete audio source', true);
         del.dataset.busyControl = 'true';
         del.disabled = state.busy;
         del.addEventListener('click', () => deleteAudioSource(source.id));
@@ -1695,6 +2002,57 @@
         panel.classList.toggle('active', panel.dataset.panel === state.activeTab);
       });
     }
+    function positionHelpPopover(details) {
+      const summary = details.querySelector('summary');
+      const popover = details.querySelector('.help-popover');
+      if (!details.open || !summary || !popover) {
+        if (popover) {
+          popover.style.left = '';
+          popover.style.right = '';
+          popover.style.top = '';
+        }
+        return;
+      }
+      popover.style.left = '0px';
+      popover.style.right = 'auto';
+      popover.style.top = '24px';
+      const tipRect = details.getBoundingClientRect();
+      const summaryRect = summary.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const margin = 32;
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      let left = popoverRect.left;
+      if (popoverRect.right > viewportWidth - margin)
+        left -= popoverRect.right - (viewportWidth - margin);
+      if (left < margin) left = margin;
+      let top = popoverRect.top;
+      if (popoverRect.bottom > viewportHeight - margin) {
+        const above = summaryRect.top - margin - popoverRect.height;
+        top = above >= margin
+          ? above
+          : Math.max(margin, viewportHeight - margin - popoverRect.height);
+      }
+      popover.style.left = Math.round(left - tipRect.left) + 'px';
+      popover.style.top = Math.round(top - tipRect.top) + 'px';
+    }
+    function scheduleHelpPopoverPosition(details) {
+      if (!details.open) {
+        positionHelpPopover(details);
+        return;
+      }
+      if (typeof window.requestAnimationFrame === 'function')
+        window.requestAnimationFrame(() => positionHelpPopover(details));
+      else positionHelpPopover(details);
+    }
+    function positionOpenHelpPopovers() {
+      Array.from(document.querySelectorAll('.help-tip[open]')).forEach(positionHelpPopover);
+    }
+    Array.from(document.querySelectorAll('.help-tip')).forEach(details => {
+      details.addEventListener('toggle', () => scheduleHelpPopoverPosition(details));
+    });
+    window.addEventListener('resize', positionOpenHelpPopovers);
+    window.addEventListener('scroll', positionOpenHelpPopovers, true);
     function render() {
       renderProfiles();
       renderSettingsControls();
@@ -1722,8 +2080,14 @@
     els.recommendedDialogBackdrop.addEventListener('click', event => {
       if (event.target === els.recommendedDialogBackdrop) closeRecommendedDialog();
     });
+    els.confirmDialogCancel.addEventListener('click', closeRenameDialog);
+    els.confirmDialogConfirm.addEventListener('click', confirmRenameDialog);
+    els.confirmDialogBackdrop.addEventListener('click', event => {
+      if (event.target === els.confirmDialogBackdrop) closeRenameDialog();
+    });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && state.recommendedDialogOpen) closeRecommendedDialog();
+      if (event.key === 'Escape' && state.renameDialogOpen) closeRenameDialog();
     });
     Array.from(document.querySelectorAll('[data-profile-pref]')).forEach(control => {
       control.addEventListener('change', () => { syncNativeSubtitleControls(); saveProfilePreferences(); });
@@ -1739,21 +2103,18 @@
       command('dictionary-manager-switch-profile', { profileId: els.profileSelect.value }, 'Switching profile...');
     });
     els.newProfile.addEventListener('click', () => {
-      const name = prompt('New profile name', '');
-      if (name === null) return;
-      command('dictionary-manager-create-profile', { name, sourceProfileId: state.activeProfileId }, 'Creating profile...');
+      command('dictionary-manager-request-profile-name', { mode: 'create' }, null, { busy: false });
     });
     els.renameProfile.addEventListener('click', () => {
-      const profile = activeProfile();
-      const name = prompt('Rename profile', profile.name || profile.id);
-      if (name === null) return;
-      command('dictionary-manager-rename-profile', { profileId: profile.id, name }, 'Renaming profile...', { busy: false, clearAfterMs: 2500 });
+      openRenameDialog();
     });
     els.deleteProfile.addEventListener('click', () => {
       const profile = activeProfile();
       if (!profile || profile.locked) return;
-      if (!confirm('Delete profile "' + (profile.name || profile.id) + '"?')) return;
-      command('dictionary-manager-delete-profile', { profileId: profile.id }, 'Deleting profile...');
+      requestNativeConfirmation('delete-profile', {
+        profileId: profile.id,
+        label: 'Delete profile "' + (profile.name || profile.id) + '"?'
+      });
     });
 
     const bridge = iinaBridge();
@@ -1775,6 +2136,13 @@
         state.anki = (payload && typeof payload === 'object') ? Object.assign({}, payload) : null;
         renderAnkiControls();
         updateBusyState();
+      });
+      bridge.onMessage('dictionary-manager-profile-name-result', payload => {
+        if (!payload || payload.cancelled || payload.mode !== 'create') return;
+        command('dictionary-manager-create-profile', { name: payload.name, sourceProfileId: state.activeProfileId }, 'Creating profile...');
+      });
+      bridge.onMessage('dictionary-manager-system-accent', payload => {
+        setSystemAccentColor(payload && payload.color);
       });
       bridge.onMessage('dictionary-manager-status', payload => {
         setStatus(

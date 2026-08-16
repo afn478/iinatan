@@ -103,6 +103,28 @@ assert(
   "Settings manager should expose per-profile playback settings",
 );
 assert(
+  /--bg:\s*#ececec/.test(managerHtml) &&
+    /accent-color:\s*auto/.test(managerHtml) &&
+    /@supports \(color: AccentColor\)/.test(managerHtml) &&
+    /--accent:\s*AccentColor/.test(managerHtml) &&
+    /@supports \(color: -apple-system-control-accent\)/.test(managerHtml) &&
+    /--accent:\s*-apple-system-control-accent/.test(managerHtml) &&
+    /\.switch input:checked ~ \.track\s*\{[\s\S]*background:\s*-apple-system-control-accent/.test(
+      managerHtml,
+    ),
+  "Settings manager should use opaque surfaces and the system accent color",
+);
+assert(
+  (managerHtml.match(/class="check-field"/g) || []).length === 19 &&
+    (managerHtml.match(/class="switch"/g) || []).length === 19,
+  "Boolean settings should use switches while preserving every setting control",
+);
+assert(
+  /\.tabs\s*\{[\s\S]*border-bottom:\s*none/.test(managerHtml) &&
+    /\.tab\.active\s*\{[\s\S]*box-shadow/.test(managerHtml),
+  "Settings sections should use a segmented control",
+);
+assert(
   /id="legacySubtitleMode"[^>]*data-profile-pref="experimentalNativeSubtitleHitLayer"[^>]*data-profile-pref-invert="true"/.test(
     managerHtml,
   ),
@@ -110,9 +132,7 @@ assert(
 );
 assert(
   /<h3>Native Subtitle Lookup<\/h3>/.test(managerHtml) &&
-    /aria-label="More about native subtitle lookup">\?<\/summary>/.test(
-      managerHtml,
-    ),
+    /aria-label="More about native subtitle lookup"><svg/.test(managerHtml),
   "Native subtitle settings should use plain language with expandable help",
 );
 assert(
@@ -125,19 +145,29 @@ assert(
   "Labeled fields with help controls should keep space above their input",
 );
 assert(
-  /aria-label="More about bitmap subtitle recognition">\?<\/summary>[\s\S]*Activates automatically when this Mac's Apple Vision framework/.test(
+  /function positionHelpPopover\(details\)/.test(managerHtml) &&
+    /getBoundingClientRect\(\)/.test(managerHtml) &&
+    /window\.innerWidth/.test(managerHtml) &&
+    /window\.innerHeight/.test(managerHtml) &&
+    /addEventListener\('toggle'/.test(managerHtml) &&
+    /const margin = 32/.test(managerHtml) &&
+    /max-height:\s*calc\(100vh - 64px\)/.test(managerHtml),
+  "Help popovers should stay within the visible settings window",
+);
+assert(
+  /aria-label="More about bitmap subtitle recognition"><svg[\s\S]*Activates automatically when this Mac's Apple Vision framework/.test(
     managerHtml,
   ),
   "Bitmap OCR implementation details should be behind expandable help",
 );
 assert(
-  /aria-label="More about continuous bitmap subtitle recognition">\?<\/summary>[\s\S]*Recognizes every active bitmap cue/.test(
+  /aria-label="More about continuous bitmap subtitle recognition"><svg[\s\S]*Recognizes every active bitmap cue/.test(
     managerHtml,
   ) && /<strong>Warning:<\/strong> uses more energy\./.test(managerHtml),
   "Continuous bitmap OCR should keep only its concise energy warning visible",
 );
 assert(
-  /aria-label="More about screenshot OCR">\?<\/summary>[\s\S]*Captures and compares full video frames/.test(
+  /aria-label="More about screenshot OCR"><svg[\s\S]*Captures and compares full video frames/.test(
     managerHtml,
   ) && /<strong>Warning:<\/strong> degrades performance\./.test(managerHtml),
   "Screenshot OCR should keep only its concise performance warning visible",
@@ -318,8 +348,8 @@ assert(
   "Dictionary manager should save dictionary order",
 );
 assert(
-  /dictionary-manager-delete/.test(managerHtml),
-  "Dictionary manager should expose per-dictionary deletion",
+  /requestNativeConfirmation\('delete-dictionary'/.test(managerHtml),
+  "Dictionary manager should expose native-confirmed per-dictionary deletion",
 );
 assert(
   /dictionary-manager-create-profile/.test(managerHtml),
@@ -330,8 +360,8 @@ assert(
   "Settings manager should rename profiles",
 );
 assert(
-  /dictionary-manager-delete-profile/.test(managerHtml),
-  "Settings manager should delete profiles",
+  /requestNativeConfirmation\('delete-profile'/.test(managerHtml),
+  "Settings manager should expose native-confirmed profile deletion",
 );
 assert(
   /data-panel="backup"/.test(managerHtml) &&
@@ -402,6 +432,20 @@ assert(
 assert(
   /clearAfterMs/.test(managerHtml),
   "Transient dictionary manager statuses should be able to clear themselves",
+);
+assert(
+  /dictionary-manager-request-profile-name/.test(managerHtml) &&
+    /dictionary-manager-request-confirmation/.test(managerHtml) &&
+    /id="confirmDialogBackdrop"/.test(managerHtml) &&
+    !/[^.]\bprompt\(/.test(managerHtml) &&
+    !/[^.]\bconfirm\(/.test(managerHtml),
+  "Profile naming and destructive actions should use the native relay or the rename sheet",
+);
+assert(
+  /ICONS\s*=/.test(managerHtml) &&
+    /setIconButton\(up, ICONS\.up/.test(managerHtml) &&
+    /setIconButton\(del, ICONS\.delete, [^,]+, true\)/.test(managerHtml),
+  "Dictionary and audio row actions should use accessible icon buttons",
 );
 
 const menuSource = fs.readFileSync(
@@ -620,6 +664,17 @@ assert(
 assert(
   /dictionary-manager-anki-refresh/.test(managerBridgeSource),
   "Settings manager should refresh AnkiConnect state",
+);
+assert(
+  /dictionary-manager-request-profile-name/.test(managerBridgeSource) &&
+    /utils\.prompt\("New profile name"\)/.test(managerBridgeSource) &&
+    /dictionary-manager-profile-name-result/.test(managerBridgeSource),
+  "New profile names should use a native prompt relayed through the background script",
+);
+assert(
+  /dictionary-manager-request-confirmation/.test(managerBridgeSource) &&
+    /utils\.ask\(label\)/.test(managerBridgeSource),
+  "Destructive settings actions should use native confirmation dialogs",
 );
 assert(
   /deleteDictionary\(String\(name\)\)/.test(managerBridgeSource),
