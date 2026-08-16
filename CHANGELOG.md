@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Improved
+
+- Updated the bundled HoshiDicts backend to upstream commit `8993838` while retaining compatibility with non-Japanese Yomitan dictionary metadata.
+
 ## 2.1.3 - 2026-08-14
 
 ### Fixed
