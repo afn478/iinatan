@@ -1263,6 +1263,89 @@ async function testDirectWordAudioSourceExport() {
         ),
       "Generic direct audio endpoints should export without source-specific metadata",
     );
+
+    const localSource = {
+      url: "http://127.0.0.1:5050/?term={term}&reading={reading}",
+    };
+    const selectablePrefs = {
+      ankiConnectUrl: "http://127.0.0.1:8765",
+      lookupLanguage: "ja",
+      audioSourcesJson: JSON.stringify([
+        { url: "https://audio.invalid/default/{term}.mp3" },
+        localSource,
+      ]),
+    };
+    context.fetchAudioSourceCandidates = async (sourceUrl) => {
+      assert(
+        sourceUrl.includes("127.0.0.1:5050"),
+        "A primary audio choice should resolve only its selected source",
+      );
+      return [
+        { name: "Voice 1", url: "http://127.0.0.1:5050/voice-1.mp3" },
+        { name: "Voice 2", url: "http://127.0.0.1:5050/voice-2.mp3" },
+      ];
+    };
+    storeRequests.length = 0;
+    const selectedFilename = await context.ankiStoreWordAudio(
+      {
+        expression: "読む",
+        reading: "よむ",
+        wordAudioSelection: {
+          sourceIndex: 1,
+          sourceUrl: localSource.url,
+          candidateIndex: 1,
+        },
+      },
+      selectablePrefs,
+    );
+    assert(
+      selectedFilename &&
+        storeRequests.length === 1 &&
+        storeRequests[0].params.url === "http://127.0.0.1:5050/voice-2.mp3",
+      "An exact primary clip should override the normal first-available export order",
+    );
+
+    storeRequests.length = 0;
+    const selectedSourceFilename = await context.ankiStoreWordAudio(
+      {
+        expression: "読む",
+        reading: "よむ",
+        wordAudioSelection: {
+          sourceIndex: 1,
+          sourceUrl: localSource.url,
+          candidateIndex: null,
+        },
+      },
+      selectablePrefs,
+    );
+    assert(
+      selectedSourceFilename &&
+        storeRequests.length === 1 &&
+        storeRequests[0].params.url === "http://127.0.0.1:5050/voice-1.mp3",
+      "A source-level primary choice should export its first available clip",
+    );
+
+    storeRequests.length = 0;
+    context.ankiConnectInvoke = async (action, params) => {
+      storeRequests.push({ action, params: Object.assign({}, params) });
+      return null;
+    };
+    const unavailableSelection = await context.ankiStoreWordAudio(
+      {
+        expression: "読む",
+        reading: "よむ",
+        wordAudioSelection: {
+          sourceIndex: 1,
+          sourceUrl: localSource.url,
+          candidateIndex: 1,
+        },
+      },
+      selectablePrefs,
+    );
+    assert(
+      unavailableSelection === "" && storeRequests.length === 1,
+      "An unavailable explicit clip should not silently export a different recording",
+    );
   } finally {
     context.ankiConnectInvoke = previousInvoke;
     if (hadCandidateResolver)

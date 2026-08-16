@@ -79,6 +79,7 @@ overlay.applyConfig({
   ],
   overlayBridgePort: 19741,
   hoverRequestTimeoutMs: 5000,
+  anki: { enabled: true, configured: true },
 });
 
 overlay.showPopup(
@@ -192,20 +193,42 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
     "A loaded local source should still open its audio menu",
   );
   const localMenu = context.__body.querySelector(".audio-source-menu");
-  const localHeading = localMenu.querySelector(".audio-source-menu-label");
   const localCandidates = localMenu.querySelectorAll(
     ".audio-source-menu-candidate",
   );
   assert(
-    localHeading && localHeading.textContent === "Local audio",
-    "Loaded local candidates should remain grouped under their source",
+    localCandidates.length === 3 &&
+      localCandidates[0].textContent === "Local audio 1: Bad recording" &&
+      localCandidates[1].textContent === "Local audio 2: Good recording" &&
+      localCandidates[2].textContent === "Local audio 3: Alternate recording",
+    "The audio menu should expose every named local clip as a Yomitan-style source row",
+  );
+  const localExportButtons = localMenu.querySelectorAll(
+    ".audio-source-menu-export",
   );
   assert(
-    localCandidates.length === 3 &&
-      localCandidates[0].textContent === "Bad recording" &&
-      localCandidates[1].textContent === "Good recording" &&
-      localCandidates[2].textContent === "Alternate recording",
-    "The audio menu should expose every name returned by a local source",
+    localExportButtons.length === 3,
+    "Every named local clip should have its own Anki audio selector",
+  );
+  localExportButtons[2].listeners.click({
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  assert(
+    overlay.state.audioAnkiSelections[key].sourceIndex === 0 &&
+      overlay.state.audioAnkiSelections[key].candidateIndex === 2 &&
+      localExportButtons[2].dataset.selected === "true" &&
+      context.__body.querySelector(".audio-source-menu") === localMenu,
+    "Anki selectors should choose an exact clip without closing the menu",
+  );
+  localExportButtons[2].listeners.click({
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  assert(
+    !overlay.state.audioAnkiSelections[key] &&
+      localExportButtons[2].dataset.selected === "false",
+    "Clicking the selected Anki audio icon again should restore default selection",
   );
   const beforeCandidatePlay = context.__sent.length;
   localCandidates[2].listeners.click({
@@ -216,6 +239,10 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(
     played[played.length - 1] === "http://127.0.0.1:5050/alternate.mp3",
     "Choosing a named local candidate should play that exact clip",
+  );
+  assert(
+    overlay.state.audioAnkiSelections[key].candidateIndex === 2,
+    "Playing a context-menu clip should make it the primary Anki audio like Yomitan",
   );
   assert(
     !context.__sent
@@ -381,6 +408,21 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
     items[2].textContent === "Local audio",
     "The local Anki source should use a readable label",
   );
+  const exportButtons = menu.querySelectorAll(".audio-source-menu-export");
+  exportButtons[2].listeners.click({
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  const sourceSelection =
+    overlay.state.audioAnkiSelections[
+      overlay.audioTermReadingKey("読む", "よむ")
+    ];
+  assert(
+    sourceSelection.sourceIndex === 2 &&
+      sourceSelection.candidateIndex === null &&
+      exportButtons[2].dataset.selected === "true",
+    "An unresolved source-level Anki selector should choose its first available clip",
+  );
   items.forEach((item) =>
     assert(
       item.getAttribute("data-clickable") === "true",
@@ -417,6 +459,16 @@ function respondToAudioSourceRequest(fromIndex, candidates, ok) {
   assert(
     !context.__body.querySelector(".audio-source-menu"),
     "Choosing a source should close the menu",
+  );
+
+  overlay.showPopup(
+    context.document.createElement("span"),
+    "新しい語",
+    '<div class="loading">Loading...</div>',
+  );
+  assert(
+    Object.keys(overlay.state.audioAnkiSelections).length === 0,
+    "Opening a new popup should discard all primary Anki audio choices",
   );
 
   console.log("overlay audio tests passed");

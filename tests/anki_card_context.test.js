@@ -194,6 +194,11 @@ const kanaOnlyContext = buildCardContext({
     position: 0,
     expression: "わあ",
     reading: "",
+    wordAudioSelection: {
+      sourceIndex: 2,
+      sourceUrl: "http://127.0.0.1:5050/?term={term}&reading={reading}",
+      candidateIndex: 1,
+    },
     surface: "わあ",
     entry: {
       matched: "わあ",
@@ -214,6 +219,11 @@ const kanaOnlyContext = buildCardContext({
 assert(
   kanaOnlyContext.reading === "" && kanaOnlyContext.audioReading === "わあ",
   "Kana-only cards should hide redundant display readings without dropping the audio-source reading",
+);
+assert(
+  kanaOnlyContext.wordAudioSelection.sourceIndex === 2 &&
+    kanaOnlyContext.wordAudioSelection.candidateIndex === 1,
+  "Card contexts should preserve the popup's primary word-audio source and clip",
 );
 
 const rendered = context.renderAnkiFields(

@@ -15506,12 +15506,35 @@ function ankiBuildCardContextUncached(payload, host) {
   const reading = ankiNormalizeWhitespace(
     raw.reading || ankiDisplayReading(entry, expression),
   );
+  const audioTerm = ankiNormalizeWhitespace(raw.audioTerm || expression);
   const audioReading = ankiNormalizeWhitespace(
     raw.audioReading ||
       raw.reading ||
       (entry && entry.term && entry.term.reading) ||
       reading,
   );
+  const rawWordAudioSelection =
+    raw.wordAudioSelection && typeof raw.wordAudioSelection === "object"
+      ? raw.wordAudioSelection
+      : null;
+  const wordAudioSourceIndex = Number(
+    rawWordAudioSelection && rawWordAudioSelection.sourceIndex,
+  );
+  const wordAudioCandidateIndex = Number(
+    rawWordAudioSelection && rawWordAudioSelection.candidateIndex,
+  );
+  const wordAudioSelection =
+    rawWordAudioSelection && Number.isFinite(wordAudioSourceIndex)
+      ? {
+          sourceIndex: Math.max(0, Math.floor(wordAudioSourceIndex)),
+          sourceUrl: String(rawWordAudioSelection.sourceUrl || ""),
+          candidateIndex:
+            rawWordAudioSelection.candidateIndex === null ||
+            !Number.isFinite(wordAudioCandidateIndex)
+              ? null
+              : Math.max(0, Math.floor(wordAudioCandidateIndex)),
+        }
+      : null;
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
@@ -15602,8 +15625,9 @@ function ankiBuildCardContextUncached(payload, host) {
     sourcePath,
     timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
-    audioTerm: expression,
+    audioTerm,
     audioReading,
+    wordAudioSelection,
   };
 }
 function ankiBuildCardContext(payload, host) {
@@ -16709,13 +16733,48 @@ async function ankiResolveWordAudioSourceUrls(source, context, prefs) {
 }
 async function ankiStoreWordAudio(context, prefs) {
   const sources = normalizeAudioSources(prefs && prefs.audioSourcesJson);
-  for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+  const rawSelection =
+    context &&
+    context.wordAudioSelection &&
+    typeof context.wordAudioSelection === "object"
+      ? context.wordAudioSelection
+      : null;
+  let selectedSourceIndex = -1;
+  if (rawSelection) {
+    const sourceUrl = String(rawSelection.sourceUrl || "");
+    if (sourceUrl)
+      selectedSourceIndex = sources.findIndex(
+        (source) => String((source && source.url) || "") === sourceUrl,
+      );
+    if (selectedSourceIndex < 0) {
+      const index = Number(rawSelection.sourceIndex);
+      if (Number.isInteger(index) && index >= 0 && index < sources.length)
+        selectedSourceIndex = index;
+    }
+    if (selectedSourceIndex < 0) return "";
+  }
+  const sourceIndexes = rawSelection
+    ? [selectedSourceIndex]
+    : sources.map((_, index) => index);
+  for (let index = 0; index < sourceIndexes.length; index++) {
+    const sourceIndex = sourceIndexes[index];
     const urls = await ankiResolveWordAudioSourceUrls(
       sources[sourceIndex],
       context,
       prefs,
     );
-    for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+    let urlIndexes = urls.map((_, urlIndex) => urlIndex);
+    if (rawSelection && rawSelection.candidateIndex !== null) {
+      const candidateIndex = Number(rawSelection.candidateIndex);
+      urlIndexes =
+        Number.isInteger(candidateIndex) &&
+        candidateIndex >= 0 &&
+        candidateIndex < urls.length
+          ? [candidateIndex]
+          : [];
+    }
+    for (let index2 = 0; index2 < urlIndexes.length; index2++) {
+      const urlIndex = urlIndexes[index2];
       const url = urls[urlIndex];
       const filename = ankiMediaFilename(
         context.documentTitle || context.expression || "word",
@@ -16734,6 +16793,7 @@ async function ankiStoreWordAudio(context, prefs) {
         debugVerbose("Anki word audio unavailable: " + compactError(error));
       }
     }
+    if (rawSelection) return "";
   }
   return "";
 }

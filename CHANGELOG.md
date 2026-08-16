@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Mirrored Yomitan's per-popup primary Anki audio selection, including note-card toggles for every source and named local clip and automatic selection after playing a context-menu recording.
+
 ### Fixed
 
 - Exposed every named clip returned by local Yomitan audio sources after loading them, allowing an exact recording to be selected from the audio context menu.

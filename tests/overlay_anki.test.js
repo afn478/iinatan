@@ -41,6 +41,7 @@ function makeAnkiButton(context, id) {
 const overlayAnkiExports = [
   "state",
   "applyConfig",
+  "audioTermReadingKey",
   "bindPopupAnkiButtons",
   "renderStoredLookup",
   "setAnkiButtonState",
@@ -128,6 +129,8 @@ const overlayAnkiExports = [
     position: 2,
     expression: "猫",
     reading: "ねこ",
+    audioTerm: "猫",
+    audioReading: "ねこ",
     surface: "猫",
     entry: { term: { expression: "猫", reading: "ねこ", glossaries: [] } },
     result: {
@@ -137,6 +140,12 @@ const overlayAnkiExports = [
       language: "ja",
     },
   };
+  overlay.state.audioAnkiSelections[overlay.audioTermReadingKey("猫", "ねこ")] =
+    {
+      sourceIndex: 1,
+      sourceUrl: "http://127.0.0.1:5050/?term={term}&reading={reading}",
+      candidateIndex: 2,
+    };
 
   const addButton = makeAnkiButton(context, "ctx1");
   const selectedPopupText = context.document.createTextNode("cat; feline");
@@ -169,6 +178,11 @@ const overlayAnkiExports = [
   assert(
     postedAdd.payload.context.popupSelectionText === "cat; feline",
     "Anki add requests should include manually selected popup text",
+  );
+  assert(
+    postedAdd.payload.context.wordAudioSelection.sourceIndex === 1 &&
+      postedAdd.payload.context.wordAudioSelection.candidateIndex === 2,
+    "Anki add requests should include the popup's primary word-audio choice",
   );
   assert(
     !context.__sent.some((message) => message.type === "anki-card-add"),

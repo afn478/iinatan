@@ -1040,12 +1040,35 @@ function ankiBuildCardContextUncached(payload, host) {
   const reading = ankiNormalizeWhitespace(
     raw.reading || ankiDisplayReading(entry, expression),
   );
+  const audioTerm = ankiNormalizeWhitespace(raw.audioTerm || expression);
   const audioReading = ankiNormalizeWhitespace(
     raw.audioReading ||
       raw.reading ||
       (entry && entry.term && entry.term.reading) ||
       reading,
   );
+  const rawWordAudioSelection =
+    raw.wordAudioSelection && typeof raw.wordAudioSelection === "object"
+      ? raw.wordAudioSelection
+      : null;
+  const wordAudioSourceIndex = Number(
+    rawWordAudioSelection && rawWordAudioSelection.sourceIndex,
+  );
+  const wordAudioCandidateIndex = Number(
+    rawWordAudioSelection && rawWordAudioSelection.candidateIndex,
+  );
+  const wordAudioSelection =
+    rawWordAudioSelection && Number.isFinite(wordAudioSourceIndex)
+      ? {
+          sourceIndex: Math.max(0, Math.floor(wordAudioSourceIndex)),
+          sourceUrl: String(rawWordAudioSelection.sourceUrl || ""),
+          candidateIndex:
+            rawWordAudioSelection.candidateIndex === null ||
+            !Number.isFinite(wordAudioCandidateIndex)
+              ? null
+              : Math.max(0, Math.floor(wordAudioCandidateIndex)),
+        }
+      : null;
   const sentence = String(
     raw.sentence ||
       (raw.result && raw.result.text) ||
@@ -1136,8 +1159,9 @@ function ankiBuildCardContextUncached(payload, host) {
     sourcePath,
     timestamp: allowCurrentMedia ? ankiFormatTimestamp(timePos) : "",
     timePos,
-    audioTerm: expression,
+    audioTerm,
     audioReading,
+    wordAudioSelection,
   };
 }
 function ankiBuildCardContext(payload, host) {

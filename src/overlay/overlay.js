@@ -79,6 +79,7 @@
     audioPlaying: null,
     audioCache: Object.create(null),
     audioCandidateCache: Object.create(null),
+    audioAnkiSelections: Object.create(null),
     audioAutoPlayed: Object.create(null),
     audioSourceRequestSeq: 0,
     pendingAudioSourceRequests: Object.create(null),
@@ -493,6 +494,48 @@
   }
   function audioTermReadingKey(term, reading) {
     return JSON.stringify([String(term || ""), String(reading || "")]);
+  }
+  function audioAnkiSelectionForTerm(term, reading) {
+    return (
+      state.audioAnkiSelections[audioTermReadingKey(term, reading)] || null
+    );
+  }
+  function audioAnkiSelectionMatches(selection, sourceIndex, candidateIndex) {
+    if (!selection || Number(selection.sourceIndex) !== Number(sourceIndex))
+      return false;
+    const selectedCandidateIndex =
+      selection.candidateIndex === null
+        ? null
+        : Number(selection.candidateIndex);
+    const comparedCandidateIndex =
+      candidateIndex === null ? null : Number(candidateIndex);
+    return selectedCandidateIndex === comparedCandidateIndex;
+  }
+  function setAudioAnkiSelection(
+    term,
+    reading,
+    source,
+    sourceIndex,
+    candidateIndex,
+    canToggleOff,
+  ) {
+    const key = audioTermReadingKey(term, reading);
+    const current = state.audioAnkiSelections[key] || null;
+    if (
+      canToggleOff &&
+      audioAnkiSelectionMatches(current, sourceIndex, candidateIndex)
+    ) {
+      delete state.audioAnkiSelections[key];
+      return null;
+    }
+    const selection = {
+      sourceIndex: Number(sourceIndex) || 0,
+      sourceUrl: String((source && source.url) || ""),
+      candidateIndex:
+        candidateIndex === null ? null : Number(candidateIndex) || 0,
+    };
+    state.audioAnkiSelections[key] = selection;
+    return selection;
   }
   function audioCacheKey(term, reading, sources) {
     return JSON.stringify([
@@ -976,6 +1019,17 @@
         audio.volume = 1;
       } catch (_) {}
       state.audioPlaying = audio;
+      if (options.setAnkiAudioSelection) {
+        const sourceIndex = Number(options.ankiSourceIndex) || 0;
+        setAudioAnkiSelection(
+          term,
+          reading,
+          sources[result.sourceIndex] || sources[0],
+          sourceIndex,
+          result.candidateIndex,
+          false,
+        );
+      }
       setAudioButtonsStateForKey(
         key,
         "ready",
@@ -1101,24 +1155,57 @@
     menu.setAttribute("role", "menu");
     menu.setAttribute("aria-label", "Audio sources");
     menu.setAttribute("data-clickable", "true");
-    const appendMenuItem = (source, sourceIndex, candidate, candidateIndex) => {
+    const updateAnkiSelectionButtons = () => {
+      const selection = audioAnkiSelectionForTerm(term, reading);
+      menu
+        .querySelectorAll(".audio-source-menu-export")
+        .forEach((exportButton) => {
+          const sourceIndex =
+            Number(exportButton.dataset.audioSourceIndex) || 0;
+          const candidateIndex = Object.prototype.hasOwnProperty.call(
+            exportButton.dataset,
+            "audioCandidateIndex",
+          )
+            ? Number(exportButton.dataset.audioCandidateIndex) || 0
+            : null;
+          const selected = audioAnkiSelectionMatches(
+            selection,
+            sourceIndex,
+            candidateIndex,
+          );
+          exportButton.dataset.selected = String(selected);
+          exportButton.setAttribute("aria-pressed", String(selected));
+          const title = selected
+            ? "Use default audio for Anki card"
+            : "Use as audio for Anki card";
+          exportButton.title = title;
+          exportButton.setAttribute("aria-label", title);
+        });
+    };
+    const appendMenuItem = (
+      source,
+      sourceIndex,
+      candidate,
+      candidateIndex,
+      label,
+    ) => {
       const sourceLabel = audioSourceDisplayLabel(source, sourceIndex);
-      const candidateLabel = candidate
-        ? candidate.name || "Audio " + String(candidateIndex + 1)
-        : "";
+      const row = document.createElement("div");
+      row.className = "audio-source-menu-row";
+      row.setAttribute("role", "presentation");
+      row.setAttribute("data-clickable", "true");
       const item = document.createElement("button");
       item.type = "button";
       item.className = candidate
         ? "audio-source-menu-item audio-source-menu-candidate"
         : "audio-source-menu-item";
-      item.textContent = candidateLabel || sourceLabel;
+      item.textContent = label || sourceLabel;
       item.title = (candidate && candidate.url) || source.url || sourceLabel;
       item.dataset.audioSourceIndex = String(sourceIndex);
-      if (candidate) item.dataset.audioCandidateIndex = String(candidateIndex);
+      if (candidateIndex !== null)
+        item.dataset.audioCandidateIndex = String(candidateIndex);
       item.setAttribute("role", "menuitem");
       item.setAttribute("data-clickable", "true");
-      if (candidate)
-        item.setAttribute("aria-label", sourceLabel + ": " + candidateLabel);
       item.addEventListener("click", (clickEvent) => {
         try {
           clickEvent.preventDefault();
@@ -1130,25 +1217,66 @@
           sources: [source],
           candidate,
           candidateIndex,
+          setAnkiAudioSelection: true,
+          ankiSourceIndex: sourceIndex,
         }).catch(() => {});
       });
-      menu.appendChild(item);
+      row.appendChild(item);
+      if (ankiEnabledForPopup()) {
+        const exportButton = document.createElement("button");
+        exportButton.type = "button";
+        exportButton.className = "audio-source-menu-export";
+        exportButton.innerHTML = ankiIconSvg("card");
+        exportButton.dataset.audioSourceIndex = String(sourceIndex);
+        if (candidateIndex !== null)
+          exportButton.dataset.audioCandidateIndex = String(candidateIndex);
+        exportButton.setAttribute("role", "menuitem");
+        exportButton.setAttribute("data-clickable", "true");
+        exportButton.setAttribute("aria-label", "Use as audio for Anki card");
+        exportButton.addEventListener("click", (clickEvent) => {
+          try {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+          } catch (_) {}
+          setAudioAnkiSelection(
+            term,
+            reading,
+            source,
+            sourceIndex,
+            candidateIndex,
+            true,
+          );
+          updateAnkiSelectionButtons();
+        });
+        row.appendChild(exportButton);
+      }
+      menu.appendChild(row);
     };
     sources.forEach((source, index) => {
-      const label = audioSourceDisplayLabel(source, index);
+      const sourceLabel = audioSourceDisplayLabel(source, index);
       const candidates = cachedAudioCandidates(term, reading, source);
-      if (candidates && candidates.length > 1) {
-        const heading = document.createElement("div");
-        heading.className = "audio-source-menu-label";
-        heading.textContent = label;
-        heading.setAttribute("role", "presentation");
-        menu.appendChild(heading);
-        candidates.forEach((candidate, candidateIndex) =>
-          appendMenuItem(source, index, candidate, candidateIndex),
-        );
+      if (candidates && candidates.length) {
+        candidates.forEach((candidate, candidateIndex) => {
+          const numberedLabel =
+            candidates.length > 1
+              ? sourceLabel + " " + String(candidateIndex + 1)
+              : sourceLabel;
+          const candidateName = normalizeWhitespace(
+            candidate && candidate.name,
+          );
+          appendMenuItem(
+            source,
+            index,
+            candidate,
+            candidateIndex,
+            candidateName
+              ? numberedLabel + ": " + candidateName
+              : numberedLabel,
+          );
+        });
         return;
       }
-      appendMenuItem(source, index, null, 0);
+      appendMenuItem(source, index, null, null, sourceLabel);
     });
     menu.addEventListener("click", (clickEvent) => {
       try {
@@ -1167,6 +1295,7 @@
     const inPopup = container === popupEl;
     container.appendChild(menu);
     state.audioSourceMenu = menu;
+    updateAnkiSelectionButtons();
     placeAudioSourceMenu(menu, button, event, inPopup);
     return true;
   }
@@ -1464,6 +1593,7 @@
     ) {
       state.audioCache = Object.create(null);
       state.audioCandidateCache = Object.create(null);
+      state.audioAnkiSelections = Object.create(null);
     }
     if (
       previousNativeLookupHighlight !==
@@ -4077,6 +4207,7 @@
     state.pendingLookupTimers = Object.create(null);
     state.pendingLookupRequests = Object.create(null);
     state.ankiCardContexts = Object.create(null);
+    state.audioAnkiSelections = Object.create(null);
     clearActiveMatch();
   }
 
@@ -4096,6 +4227,8 @@
     );
   }
   function ankiIconSvg(kind) {
+    if (kind === "card")
+      return '<svg class="anki-icon" data-clickable="true" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path data-clickable="true" d="M6 3h12a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path><path data-clickable="true" d="M12 6v5M9.6 7.3l4.8 2.4M14.4 7.3L9.6 9.7M8 15h8M8 18h6"></path></svg>';
     if (kind === "book")
       return '<svg class="anki-icon" data-clickable="true" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path data-clickable="true" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H7a3 3 0 0 0-3 3V5.5z"></path><path data-clickable="true" d="M7 18h13"></path><path data-clickable="true" d="M7 6h9"></path></svg>';
     if (kind === "check")
@@ -4397,8 +4530,24 @@
           : "",
       );
     if (group && group.dataset) group.dataset.ankiPopupSelectionText = "";
-    return Object.assign({}, context || {}, {
+    const rawContext = context || {};
+    const audioTerm = String(
+      rawContext.audioTerm || rawContext.expression || "",
+    ).trim();
+    const audioReading = String(
+      rawContext.audioReading ||
+        rawContext.reading ||
+        (rawContext.entry &&
+          rawContext.entry.term &&
+          rawContext.entry.term.reading) ||
+        "",
+    ).trim();
+    const audioSelection = audioAnkiSelectionForTerm(audioTerm, audioReading);
+    return Object.assign({}, rawContext, {
       popupSelectionText: selected,
+      wordAudioSelection: audioSelection
+        ? Object.assign({}, audioSelection)
+        : null,
     });
   }
   function ankiGroupSnapshot(group) {
@@ -4780,6 +4929,7 @@
   function showPopup(anchor, heading, bodyHtml) {
     hideAudioSourceMenu();
     clearNestedPopups(0);
+    state.audioAnkiSelections = Object.create(null);
     state.currentAnchor = anchor || null;
     popupEl.innerHTML =
       '<div class="head">' +
@@ -7165,6 +7315,7 @@
       (header && header.reading) ||
       displayReadingForTerm(entry.term || {}, expression);
     const surface = lookupSurfaceForResult(result, entry);
+    const audioData = audioDataForEntry(entry);
     const useCurrentMedia = allowCurrentMedia !== false;
     return {
       lineId: state.lineId,
@@ -7179,6 +7330,8 @@
       expression,
       heading: expression,
       reading,
+      audioTerm: audioData ? audioData.term : expression,
+      audioReading: audioData ? audioData.reading : reading,
       surface,
       entry,
       result: {
