@@ -153,9 +153,24 @@ function handleNativeLayoutPerformance(payload) {
       }),
   );
 }
-function initializeOverlay() {
+function loadOverlayDocument(reason) {
+  overlayDocumentReady = false;
+  debugLog(
+    "load overlay document reason=" + String(reason || "initialization"),
+  );
+  overlay.loadFile("overlay.html");
+  overlay.setOpacity(1);
+  overlay.setClickable(true);
+  overlay.show();
+}
+function initializeOverlay(options) {
   ensureOverlayBridge();
-  if (initialized) return;
+  const reloadIfNotReady = !!(options && options.reloadIfNotReady);
+  const reason = String((options && options.reason) || "initialization");
+  if (initialized) {
+    if (reloadIfNotReady && !overlayDocumentReady) loadOverlayDocument(reason);
+    return;
+  }
   debugLog(
     "initializeOverlay v" +
       VERSION +
@@ -214,11 +229,7 @@ function initializeOverlay() {
     handleBridgeAnkiCardOpen(payload);
   });
   initialized = true;
-  overlayDocumentReady = false;
-  overlay.loadFile("overlay.html");
-  overlay.setOpacity(1);
-  overlay.setClickable(true);
-  overlay.show();
+  loadOverlayDocument(reason);
 }
 function normalizedProfileRuntimePlan(plan) {
   if (!plan || typeof plan !== "object")

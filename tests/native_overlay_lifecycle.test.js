@@ -325,6 +325,13 @@ async function testPersistedStartupReadinessOrdering() {
     },
     core: { window: { loaded: false } },
   });
+
+  // Recommended dictionary downloads can start before a video window exists.
+  // IINA accepts that load call but cannot create a ready player WebView.
+  harness.context.initializeOverlay({ reason: "dictionary-task" });
+  assert.strictEqual(harness.loadCalls, 1);
+  assert.strictEqual(harness.context.overlayDocumentReady, false);
+
   vm.runInContext(
     fs.readFileSync(path.join(root, "src/main/99_bootstrap.js"), "utf8"),
     harness.context,
@@ -361,8 +368,8 @@ async function testPersistedStartupReadinessOrdering() {
   );
   assert.strictEqual(
     harness.loadCalls,
-    1,
-    "readiness events do not create duplicate overlays",
+    2,
+    "window-loaded retries an overlay load attempted before a player window existed",
   );
   assert.strictEqual(
     harness.maxActiveIntervals,

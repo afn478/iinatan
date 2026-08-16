@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restored dictionary popups when recommended dictionaries are installed from Settings before opening a video; the player overlay now reloads when its window becomes available instead of requiring an IINA restart.
+
 ### Improved
 
 - Updated the bundled HoshiDicts backend to upstream commit `8993838` while retaining compatibility with non-Japanese Yomitan metadata and previously imported dictionaries.

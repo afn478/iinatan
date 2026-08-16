@@ -8,7 +8,13 @@ prepareNativeSubtitlePrivateCueDirectory().catch((error) => {
 
 event.on("iina.window-loaded", () => {
   if (pluginShuttingDown) return;
-  initializeOverlay();
+  // Dictionary tasks can initialize the player overlay while IINA has no
+  // video window. That load has no WebView to attach to and never sends the
+  // ready message, so retry it when the actual player window becomes usable.
+  initializeOverlay({
+    reloadIfNotReady: true,
+    reason: "window-loaded",
+  });
   setEnabled(prefBool("enabledByDefault", true), {
     trigger: "persisted-startup",
   });
