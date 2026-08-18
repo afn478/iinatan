@@ -82,7 +82,15 @@ function finishLookup(context) {
     lookupIndex < popupIndex,
     "Lookup should be sent before popup visibility so pause handling cannot delay lookup",
   );
+  assert(
+    overlay.popupEl.classList.contains("lookup-pending"),
+    "The provisional loading popup should remain visually pending",
+  );
   finishLookup(context);
+  assert(
+    !overlay.popupEl.classList.contains("lookup-pending"),
+    "A completed lookup should reveal the final popup",
+  );
 }
 
 {

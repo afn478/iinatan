@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Prevented provisional root and nested lookup popups, including lookups inside example sentences, from flashing a full sentence or jumping from a temporary loading position before the completed dictionary result appears.
+
 ### Added
 
 - Added a per-profile minimum popup width setting so compact dictionary results, including CEDICT entries, can retain a balanced layout.

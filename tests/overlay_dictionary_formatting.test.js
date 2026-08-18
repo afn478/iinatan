@@ -27,6 +27,17 @@ const { context, overlay } = loadOverlayForTest([
   "renderSubtitle",
 ]);
 
+const overlayCss = fs.readFileSync(
+  path.join(root, "src/overlay/overlay.css"),
+  "utf8",
+);
+assert(
+  /\.lookup-popup\.lookup-pending\s*\{[^}]*visibility:\s*hidden[^}]*pointer-events:\s*none[^}]*animation:\s*none/.test(
+    overlayCss,
+  ),
+  "Pending lookup popups should not paint or intercept the pointer",
+);
+
 overlay.applyConfig({
   debugLogVerbose: false,
   etymologyCollapseDefault: "collapsed",

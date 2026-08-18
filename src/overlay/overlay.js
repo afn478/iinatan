@@ -3777,7 +3777,9 @@
     }
     if (stored) {
       activateStoredMatch(stored, preview);
-      showPopup(anchor, preview.text, '<div class="loading">Rendering…</div>');
+      showPopup(anchor, preview.text, '<div class="loading">Rendering…</div>', {
+        pending: true,
+      });
       renderStoredLookup(stored);
       return;
     }
@@ -3787,6 +3789,7 @@
       anchor,
       preview.text,
       '<div class="loading">' + escapeHtml("Looking up…") + "</div>",
+      { pending: true },
     );
   }
 
@@ -4219,6 +4222,7 @@
     hideAudioSourceMenu();
     clearNestedPopups(0);
     setLookupPopupVisibility(false);
+    popupEl.classList.remove("lookup-pending");
     popupEl.classList.add("hidden");
     popupSafetyZoneEl.classList.add("hidden");
     popupRowSafetyZoneEl.classList.add("hidden");
@@ -4952,7 +4956,7 @@
         : "")
     );
   }
-  function showPopup(anchor, heading, bodyHtml) {
+  function showPopup(anchor, heading, bodyHtml, options) {
     hideAudioSourceMenu();
     clearNestedPopups(0);
     state.audioAnkiSelections = Object.create(null);
@@ -4964,9 +4968,15 @@
       bodyHtml +
       "</div>";
     markPopupClickable();
+    if (options && options.pending) popupEl.classList.add("lookup-pending");
+    else popupEl.classList.remove("lookup-pending");
     popupEl.classList.remove("hidden");
     setLookupPopupVisibility(true);
-    placePopup(anchor);
+    if (!popupEl.classList.contains("lookup-pending")) placePopup(anchor);
+    else {
+      popupSafetyZoneEl.classList.add("hidden");
+      popupRowSafetyZoneEl.classList.add("hidden");
+    }
   }
   function setPopupBodyFor(
     popup,
@@ -4996,6 +5006,7 @@
     bindPopupAudioButtons(popup);
     bindPopupAnkiButtons(popup);
     updateNestedPopupScanningState();
+    const revealPendingPopup = popup.classList.contains("lookup-pending");
     if (
       popup === popupEl &&
       state.currentAnchor &&
@@ -5006,6 +5017,7 @@
       const item = nestedPopupItemForElement(popup);
       if (item) placeNestedPopup(item);
     }
+    if (revealPendingPopup) popup.classList.remove("lookup-pending");
   }
   function setPopupBody(
     bodyHtml,
@@ -5586,6 +5598,8 @@
       0,
       Math.min(chars.length ? chars.length - 1 : 0, source.position || 0),
     );
+    if (!isWordLookupMode(activeLanguage()))
+      return chars.slice(position, position + 1).join("");
     let start = position;
     let end = position + 1;
     while (start > 0 && isLookupableChar(chars[start - 1])) start--;
@@ -5684,7 +5698,8 @@
     });
     item.highlights = createNestedPopupHighlights(rects, item.depth);
     item.highlight = item.highlights[0] || null;
-    placeNestedPopup(item);
+    if (!item.element.classList.contains("lookup-pending"))
+      placeNestedPopup(item);
   }
   function sendNestedLookupRequest(req) {
     req.attempts += 1;
@@ -5763,7 +5778,7 @@
       String(depth) +
       "-" +
       String(state.nestedLookupRequestSeq + 1);
-    element.className = "lookup-popup nested-popup";
+    element.className = "lookup-popup nested-popup lookup-pending";
     element.dataset.popupId = id;
     element.dataset.popupDepth = String(depth);
     element.setAttribute("data-clickable", "true");
@@ -5794,7 +5809,6 @@
     bindPopupContainerEvents(element);
     markElementClickable(element);
     updateNestedPopupScanningState();
-    placeNestedPopup(item);
     requestNestedLookup(item, source);
     return true;
   }

@@ -12,6 +12,7 @@ const { context, overlay } = loadOverlayForTest([
   "applyConfig",
   "showPopup",
   "nestedLookupSourceFromEvent",
+  "nestedLookupPreview",
   "openNestedPopup",
   "placeNestedPopup",
   "clearNestedPopups",
@@ -57,6 +58,10 @@ assert(
   source.text === "毎日使っている。" && source.position === 2,
   "Nested lookup should retain the definition text and clicked character position",
 );
+assert(
+  overlay.nestedLookupPreview(source) === "使",
+  "Japanese nested loading state should preview only the clicked character",
+);
 
 assert(
   overlay.openNestedPopup(popup, source) === true,
@@ -68,9 +73,9 @@ assert(
 );
 const first = overlay.state.nestedPopups[0];
 assert(
-  Number.parseFloat(first.element.style.top) ===
-    source.sentenceRect.bottom + 10,
-  "Child placement should prefer the space below its definition sentence",
+  first.element.classList.contains("lookup-pending") &&
+    !first.element.style.top,
+  "A child popup should remain unpainted and unpositioned while its lookup is pending",
 );
 assert(
   first.highlight &&
@@ -121,6 +126,10 @@ assert(
   /<ruby>使/.test(first.element.querySelector(".head").innerHTML) &&
     /to use/.test(first.element.querySelector(".body").innerHTML),
   "Child popups should use the same headword and dictionary-entry renderer as the root",
+);
+assert(
+  !first.element.classList.contains("lookup-pending"),
+  "A completed nested lookup should reveal the final child popup",
 );
 assert(
   Number.parseFloat(first.highlight.style.width) === 30,
