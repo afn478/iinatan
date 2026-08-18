@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added a per-profile minimum popup width setting so compact dictionary results, including CEDICT entries, can retain a balanced layout.
+
 ## 2.1.4 - 2026-08-16
 
 ### Added

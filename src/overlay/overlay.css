@@ -1,6 +1,7 @@
     :root {
       --subtitle-scale: 1;
       --popup-scale: 0.92;
+      --popup-min-width: 250px;
       --popup-max-width: 440px;
       --popup-max-height: 34vh;
       --subtitle-font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
@@ -217,7 +218,7 @@
     .lookup-popup {
       position: absolute;
       z-index: 20;
-      min-width: 250px;
+      min-width: var(--popup-min-width);
       max-width: var(--popup-max-width);
       max-height: var(--popup-max-height);
       overflow-y: auto;

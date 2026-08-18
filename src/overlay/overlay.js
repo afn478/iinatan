@@ -27,6 +27,7 @@
     config: {
       fontScale: 1,
       popupScale: 0.92,
+      popupMinWidth: 250,
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
@@ -1569,6 +1570,14 @@
       !!state.config.experimentalNativeSubtitleLookupHighlight;
     state.config = Object.assign({}, state.config, config || {});
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    state.config.popupMaxWidth = Math.max(
+      260,
+      Number(state.config.popupMaxWidth) || 440,
+    );
+    state.config.popupMinWidth = Math.min(
+      state.config.popupMaxWidth,
+      Math.max(200, Number(state.config.popupMinWidth) || 250),
+    );
     const nestedPopupMode = String(state.config.nestedPopupMode || "")
       .trim()
       .toLowerCase();
@@ -1629,8 +1638,12 @@
       String(state.config.popupScale || 0.92),
     );
     document.documentElement.style.setProperty(
+      "--popup-min-width",
+      String(state.config.popupMinWidth) + "px",
+    );
+    document.documentElement.style.setProperty(
       "--popup-max-width",
-      String(state.config.popupMaxWidth || 440) + "px",
+      String(state.config.popupMaxWidth) + "px",
     );
     if (state.config.subtitleFontFamily)
       document.documentElement.style.setProperty(

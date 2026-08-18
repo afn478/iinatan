@@ -5916,13 +5916,18 @@ function scheduleIINAAppearanceHintRefresh(force) {
 }
 function overlayConfig() {
   const language = selectedLanguageModule();
+  const popupMaxWidth = Math.max(260, prefNumber("popupMaxWidth", 440));
   scheduleIINAAppearanceHintRefresh(false);
   return {
     language: selectedLanguageOverlayConfig(),
     lookupLanguage: language.id,
     fontScale: prefNumber("fontScale", 1.0),
     popupScale: prefNumber("popupScale", 0.92),
-    popupMaxWidth: Math.max(260, prefNumber("popupMaxWidth", 440)),
+    popupMinWidth: Math.min(
+      popupMaxWidth,
+      Math.max(200, prefNumber("popupMinWidth", 250)),
+    ),
+    popupMaxWidth,
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
     nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
@@ -9442,6 +9447,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   lookupTimeoutMs: 9000,
   fontScale: 1.0,
   popupScale: 0.92,
+  popupMinWidth: 250,
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,

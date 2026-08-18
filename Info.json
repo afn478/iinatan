@@ -43,6 +43,7 @@
     "lookupLanguage": "ja",
     "fontScale": 1.0,
     "popupScale": 0.92,
+    "popupMinWidth": 250,
     "popupMaxWidth": 440,
     "popupTheme": "inherit",
     "maxEntries": 3,

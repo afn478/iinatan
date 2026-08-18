@@ -7,6 +7,7 @@
     :root {
       --subtitle-scale: 1;
       --popup-scale: 0.92;
+      --popup-min-width: 250px;
       --popup-max-width: 440px;
       --popup-max-height: 34vh;
       --subtitle-font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", sans-serif;
@@ -223,7 +224,7 @@
     .lookup-popup {
       position: absolute;
       z-index: 20;
-      min-width: 250px;
+      min-width: var(--popup-min-width);
       max-width: var(--popup-max-width);
       max-height: var(--popup-max-height);
       overflow-y: auto;
@@ -1270,6 +1271,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     config: {
       fontScale: 1,
       popupScale: 0.92,
+      popupMinWidth: 250,
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
@@ -2812,6 +2814,14 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       !!state.config.experimentalNativeSubtitleLookupHighlight;
     state.config = Object.assign({}, state.config, config || {});
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    state.config.popupMaxWidth = Math.max(
+      260,
+      Number(state.config.popupMaxWidth) || 440,
+    );
+    state.config.popupMinWidth = Math.min(
+      state.config.popupMaxWidth,
+      Math.max(200, Number(state.config.popupMinWidth) || 250),
+    );
     const nestedPopupMode = String(state.config.nestedPopupMode || "")
       .trim()
       .toLowerCase();
@@ -2872,8 +2882,12 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       String(state.config.popupScale || 0.92),
     );
     document.documentElement.style.setProperty(
+      "--popup-min-width",
+      String(state.config.popupMinWidth) + "px",
+    );
+    document.documentElement.style.setProperty(
       "--popup-max-width",
-      String(state.config.popupMaxWidth || 440) + "px",
+      String(state.config.popupMaxWidth) + "px",
     );
     if (state.config.subtitleFontFamily)
       document.documentElement.style.setProperty(

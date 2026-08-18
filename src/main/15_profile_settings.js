@@ -41,6 +41,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   lookupTimeoutMs: 9000,
   fontScale: 1.0,
   popupScale: 0.92,
+  popupMinWidth: 250,
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,

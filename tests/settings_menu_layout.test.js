@@ -356,6 +356,12 @@ assert(
   "Settings manager should expose per-profile popup color mode",
 );
 assert(
+  /id="popupMinWidth"[^>]*data-profile-pref="popupMinWidth"[^>]*min="200"[^>]*max="900"/.test(
+    managerHtml,
+  ),
+  "Settings manager should expose per-profile popup minimum width",
+);
+assert(
   info.preferenceDefaults.nestedPopupMode === "off" &&
     info.preferenceDefaults.nestedPopupMaxDepth === 3,
   "Nested popup scanning should be opt-in with a bounded default depth",

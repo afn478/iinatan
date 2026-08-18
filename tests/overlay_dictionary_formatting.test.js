@@ -118,6 +118,18 @@ assert(
   /\btheme-dark\b/.test(context.document.documentElement.className),
   "Inherited dark hint should resolve to the concrete dark theme",
 );
+overlay.applyConfig({ popupMinWidth: 360, popupMaxWidth: 520 });
+assert(
+  context.document.documentElement.style["--popup-min-width"] === "360px" &&
+    context.document.documentElement.style["--popup-max-width"] === "520px",
+  "Popup width preferences should update both CSS width bounds",
+);
+overlay.applyConfig({ popupMinWidth: 800, popupMaxWidth: 480 });
+assert(
+  context.document.documentElement.style["--popup-min-width"] === "480px",
+  "Popup minimum width should not exceed its configured maximum",
+);
+overlay.applyConfig({ popupMinWidth: 250, popupMaxWidth: 440 });
 
 context.window.innerWidth = 2560;
 context.window.innerHeight = 1440;
@@ -1255,6 +1267,13 @@ assert(
     css,
   ),
   "Popup shell should use a compact macOS material treatment",
+);
+assert(
+  /--popup-min-width: 250px;/.test(css) &&
+    /\.lookup-popup \{[^}]*min-width: var\(--popup-min-width\);[^}]*max-width: var\(--popup-max-width\);/s.test(
+      css,
+    ),
+  "Popup shell should use the configurable minimum width with its existing default",
 );
 assert(
   /\.lookup-popup \{[^}]*font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;[^}]*-webkit-font-smoothing: antialiased;[^}]*-moz-osx-font-smoothing: grayscale;[^}]*\}/s.test(
