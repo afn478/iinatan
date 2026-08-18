@@ -186,7 +186,7 @@ async function ankiOpenDuplicateNotes(prefs, noteIds) {
       retry: false,
     },
   );
-  const activated = await utils.exec(
+  const activated = await execExternalProcess(
     "/usr/bin/open",
     ["-a", "Anki"],
     dataRoot(),

@@ -103,7 +103,7 @@ async function dictionaryManagerSystemAccentColor() {
   };
   if (!utils || typeof utils.exec !== "function") return "";
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "-g", "AppleAccentColor"],
       dataRoot(),

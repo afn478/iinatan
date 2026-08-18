@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Prevented rapid media-heavy Anki exports from hanging in IINA's external-process bridge when word-audio resolution, screenshot hashing, and sentence-audio encoding overlap; process work is now safely serialized, loopback audio metadata stays on native HTTP, network/storage stages remain concurrent, and identical in-flight audio-source requests are reused.
 - Prevented provisional root and nested lookup popups, including lookups inside example sentences, from flashing a full sentence or jumping from a temporary loading position before the completed dictionary result appears.
 
 ### Added

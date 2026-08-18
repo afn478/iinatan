@@ -311,9 +311,14 @@ let dataDirsReadyPromise = null;
 let iinaAppearanceHint = "";
 let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
+let externalProcessQueue = [];
+let externalProcessActive = false;
+let externalProcessSequence = 0;
 const DEBUG_LOG_MAX_BYTES = 1000000;
 const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 const LOOKUP_POPUP_RESUME_DELAY_MS = 90;
+const EXTERNAL_PROCESS_PRIORITY_DEFAULT = 0;
+const EXTERNAL_PROCESS_PRIORITY_INTERACTIVE = 10;
 
 function pref(key, fallback) {
   const value = preferences.get(key);
@@ -345,6 +350,65 @@ function compactError(error) {
       ? String(error.message)
       : String(error || "Unknown error");
   return msg.replace(/\s+/g, " ").slice(0, 1200);
+}
+function nextExternalProcessJob() {
+  if (!externalProcessQueue.length) return null;
+  let selectedIndex = 0;
+  for (let i = 1; i < externalProcessQueue.length; i++) {
+    const candidate = externalProcessQueue[i];
+    const selected = externalProcessQueue[selectedIndex];
+    if (
+      candidate.priority > selected.priority ||
+      (candidate.priority === selected.priority &&
+        candidate.sequence < selected.sequence)
+    )
+      selectedIndex = i;
+  }
+  return externalProcessQueue.splice(selectedIndex, 1)[0];
+}
+function drainExternalProcessQueue() {
+  if (externalProcessActive) return;
+  const job = nextExternalProcessJob();
+  if (!job) return;
+  externalProcessActive = true;
+  Promise.resolve()
+    .then(() =>
+      utils.exec(
+        job.command,
+        job.args,
+        job.cwd,
+        job.stdoutHook,
+        job.stderrHook,
+      ),
+    )
+    .then(job.resolve, job.reject)
+    .finally(() => {
+      externalProcessActive = false;
+      drainExternalProcessQueue();
+    });
+}
+function execExternalProcess(
+  command,
+  args,
+  cwd,
+  stdoutHook,
+  stderrHook,
+  priority,
+) {
+  return new Promise((resolve, reject) => {
+    externalProcessQueue.push({
+      command,
+      args: args || [],
+      cwd,
+      stdoutHook,
+      stderrHook,
+      priority: Number(priority) || EXTERNAL_PROCESS_PRIORITY_DEFAULT,
+      sequence: ++externalProcessSequence,
+      resolve,
+      reject,
+    });
+    drainExternalProcessQueue();
+  });
 }
 // IINA 1.4.4 keeps fired setTimeout callbacks in its native timer dictionary.
 // Remove each timer from inside its main-queue callback, and make cancellation
@@ -889,7 +953,7 @@ function workerStartScriptPath() {
 }
 
 async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
-  const result = await utils.exec(
+  const result = await execExternalProcess(
     command,
     args || [],
     cwd || undefined,

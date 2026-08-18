@@ -6,9 +6,14 @@ const root = path.resolve(__dirname, "..");
 const sourceUrl =
   "http://audio-source.invalid/?term=%E8%AA%AD%E3%82%80&reading=%E3%82%88%E3%82%80";
 const execCalls = [];
+const nativeHttpCalls = [];
 
 const context = {
   console,
+  EXTERNAL_PROCESS_PRIORITY_INTERACTIVE: 10,
+  execExternalProcess(command, args, cwd) {
+    return context.utils.exec(command, args, cwd);
+  },
   dataRoot() {
     return "/data";
   },
@@ -18,6 +23,24 @@ const context = {
   debugVerbose() {},
   debugWarn() {},
   postToOverlay() {},
+  scheduleOneShot(callback, delay) {
+    return setTimeout(callback, delay);
+  },
+  cancelOneShot(timer) {
+    clearTimeout(timer);
+  },
+  http: {
+    async get(url, options) {
+      nativeHttpCalls.push({ url, options });
+      return {
+        statusCode: 200,
+        text: JSON.stringify({
+          type: "audioSourceList",
+          audioSources: [{ name: "local", url: "/audio/local.opus" }],
+        }),
+      };
+    },
+  },
   utils: {
     async exec(command, args, cwd) {
       execCalls.push({ command, args, cwd });
@@ -51,10 +74,17 @@ vm.runInContext(
 );
 
 (async () => {
-  const candidates = await context.fetchAudioSourceCandidates(sourceUrl);
+  const [candidates, sharedCandidates] = await Promise.all([
+    context.fetchAudioSourceCandidates(sourceUrl),
+    context.fetchAudioSourceCandidates(sourceUrl),
+  ]);
   assert(
     execCalls.length === 1,
-    "Audio source resolution should use one curl request",
+    "Concurrent resolution of one audio source should share one curl request",
+  );
+  assert(
+    JSON.stringify(candidates) === JSON.stringify(sharedCandidates),
+    "Shared audio-source requests should return the same candidates",
   );
   assert(
     execCalls[0].command === "/usr/bin/curl",
@@ -98,6 +128,18 @@ vm.runInContext(
   assert(
     candidates[1].url === "https://audio-cdn.invalid/jpod/audio.mp3",
     "Absolute audio URLs should pass through",
+  );
+  const localCandidates = await context.fetchAudioSourceCandidates(
+    "http://127.0.0.1:5050/?term=test",
+  );
+  assert(
+    nativeHttpCalls.length === 1 && execCalls.length === 1,
+    "Loopback audio sources should use native HTTP without launching curl",
+  );
+  assert(
+    localCandidates.length === 1 &&
+      localCandidates[0].url === "http://127.0.0.1:5050/audio/local.opus",
+    "Native loopback audio responses should retain normal candidate parsing",
   );
   try {
     context.audioCandidatesFromSourceJson("not json", sourceUrl);

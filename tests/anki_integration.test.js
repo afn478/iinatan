@@ -22,6 +22,10 @@ let fastTimers = false;
 
 const context = {
   console,
+  EXTERNAL_PROCESS_PRIORITY_INTERACTIVE: 10,
+  execExternalProcess(command, args, cwd, stdoutHook, stderrHook) {
+    return context.utils.exec(command, args, cwd, stdoutHook, stderrHook);
+  },
   putBoundedCache(cache, key, value) {
     cache[key] = value;
   },

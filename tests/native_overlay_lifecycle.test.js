@@ -469,6 +469,9 @@ async function testWorkerStopOwnsExactPid() {
         return { status: 0 };
       },
     },
+    execExternalProcess(command, args, cwd) {
+      return context.utils.exec(command, args, cwd);
+    },
     workerPidPath() {
       return "/worker.pid";
     },

@@ -221,10 +221,80 @@ function audioCandidatesFromSourceJson(rawJson, sourceUrl) {
   });
   return out;
 }
-async function fetchAudioSourceCandidates(sourceUrl) {
-  const url = safeExternalHttpUrl(sourceUrl);
-  if (!url) throw new Error("Invalid audio source URL.");
-  const result = await utils.exec(
+let audioSourceCandidatesInFlight = Object.create(null);
+const AUDIO_SOURCE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const AUDIO_SOURCE_REQUEST_TIMEOUT_MS = 8000;
+function audioSourceUrlIsLoopback(url) {
+  try {
+    if (typeof URL === "function") {
+      const hostname = String(new URL(url).hostname || "").toLowerCase();
+      return (
+        hostname === "127.0.0.1" ||
+        hostname === "localhost" ||
+        hostname === "::1" ||
+        hostname === "[::1]"
+      );
+    }
+  } catch (_) {}
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(
+    String(url || ""),
+  );
+}
+function audioSourceResponseByteLength(value) {
+  const text = String(value || "");
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+    if (bytes > AUDIO_SOURCE_RESPONSE_MAX_BYTES) break;
+  }
+  return bytes;
+}
+async function fetchLoopbackAudioSourceCandidates(url) {
+  let timer = null;
+  try {
+    const response = await Promise.race([
+      http.get(url, { headers: { Accept: "application/json" } }),
+      new Promise((_, reject) => {
+        timer = scheduleOneShot(
+          () =>
+            reject(
+              new Error("Audio source request timed out after 8 seconds."),
+            ),
+          AUDIO_SOURCE_REQUEST_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    const status = Number(response && response.statusCode) || 0;
+    if (status && (status < 200 || status >= 300))
+      throw new Error(
+        "Audio source request failed with status " + status + ".",
+      );
+    const body =
+      response && response.text !== undefined
+        ? String(response.text || "")
+        : JSON.stringify((response && response.data) || "");
+    if (audioSourceResponseByteLength(body) > AUDIO_SOURCE_RESPONSE_MAX_BYTES)
+      throw new Error("Audio source response exceeded 4 MiB.");
+    return audioCandidatesFromSourceJson(body, url);
+  } finally {
+    if (timer) cancelOneShot(timer);
+  }
+}
+async function fetchAudioSourceCandidatesUncached(url) {
+  if (
+    audioSourceUrlIsLoopback(url) &&
+    typeof http === "object" &&
+    http &&
+    typeof http.get === "function"
+  )
+    return fetchLoopbackAudioSourceCandidates(url);
+  const result = await execExternalProcess(
     "/usr/bin/curl",
     [
       "--silent",
@@ -241,6 +311,9 @@ async function fetchAudioSourceCandidates(sourceUrl) {
       url,
     ],
     dataRoot(),
+    null,
+    null,
+    EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
   );
   if (!result || result.status !== 0) {
     throw new Error(
@@ -251,6 +324,20 @@ async function fetchAudioSourceCandidates(sourceUrl) {
     );
   }
   return audioCandidatesFromSourceJson(result.stdout, url);
+}
+async function fetchAudioSourceCandidates(sourceUrl) {
+  const url = safeExternalHttpUrl(sourceUrl);
+  if (!url) throw new Error("Invalid audio source URL.");
+  if (audioSourceCandidatesInFlight[url])
+    return audioSourceCandidatesInFlight[url];
+  const task = fetchAudioSourceCandidatesUncached(url);
+  audioSourceCandidatesInFlight[url] = task;
+  try {
+    return await task;
+  } finally {
+    if (audioSourceCandidatesInFlight[url] === task)
+      delete audioSourceCandidatesInFlight[url];
+  }
 }
 function handleBridgeAudioSource(payload) {
   const requestId =

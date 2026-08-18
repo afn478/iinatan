@@ -15,6 +15,7 @@ const coldMountedMediaMs =
 const cachedExcerptMs = Number(process.env.IINATAN_ANKI_CACHED_MEDIA_MS) || 120;
 const runtimeFiles = [
   "src/main/05_media_source.js",
+  "src/main/10_subtitle_text_style.js",
   "src/main/15_profile_settings.js",
   "src/main/50_overlay_bridge_pause.js",
   "src/main/51_anki_connect.js",
@@ -59,6 +60,7 @@ function makeHarness(ref, scenario) {
   const existingFiles = new Set(["/opt/homebrew/bin/ffmpeg"]);
   const events = [];
   const terminalWaiters = [];
+  let externalProcessTail = Promise.resolve();
   const templates = scenario.media
     ? {
         Expression: "{expression}",
@@ -152,6 +154,14 @@ function makeHarness(ref, scenario) {
     "ab-loop-b": "no",
   };
   const context = {
+    EXTERNAL_PROCESS_PRIORITY_INTERACTIVE: 10,
+    execExternalProcess(command, args, cwd, stdoutHook, stderrHook) {
+      const run = externalProcessTail.then(() =>
+        context.utils.exec(command, args, cwd, stdoutHook, stderrHook),
+      );
+      externalProcessTail = run.catch(() => {});
+      return run;
+    },
     console,
     Date,
     Math,
@@ -205,6 +215,18 @@ function makeHarness(ref, scenario) {
       existingFiles.delete(String(filePath));
     },
     http: {
+      async get() {
+        await record("audio", "loopback audio source", 35);
+        return {
+          statusCode: 200,
+          text: JSON.stringify({
+            type: "audioSourceList",
+            audioSources: [
+              { name: "fixture", url: "http://127.0.0.1:5050/audio.opus" },
+            ],
+          }),
+        };
+      },
       post: (url, options) => invokeAnki(options.data || {}, "native"),
     },
     utils: {

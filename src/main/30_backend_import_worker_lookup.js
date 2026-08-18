@@ -30,7 +30,7 @@ let bundledBackendInstallPromise = null;
 async function backendBinaryMatchesBundled() {
   if (!backendInstalled()) return false;
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/cmp",
       ["-s", bundledBinPath(), binPath()],
       dataRoot(),
@@ -51,7 +51,7 @@ async function installBundledBackendIfNeeded() {
   if (await backendBinaryMatchesBundled()) return;
   const tmpPath = binPath() + ".tmp-" + String(Date.now());
   safeDelete(tmpPath);
-  const result = await utils.exec(
+  const result = await execExternalProcess(
     "/bin/cp",
     [bundledBinPath(), tmpPath],
     dataRoot(),
@@ -62,7 +62,7 @@ async function installBundledBackendIfNeeded() {
         ((result && (result.stderr || result.stdout)) || "copy failed"),
     );
   await execChecked("/bin/chmod", ["755", tmpPath]);
-  const moved = await utils.exec(
+  const moved = await execExternalProcess(
     "/bin/mv",
     ["-f", tmpPath, binPath()],
     dataRoot(),
@@ -190,7 +190,7 @@ async function runBackendJson(args, timeoutMs, stage) {
     );
     const execStartedAt = Date.now();
     const result = await Promise.race([
-      utils.exec(binPath(), args || [], dataRoot()),
+      execExternalProcess(binPath(), args || [], dataRoot()),
       new Promise((_, reject) => {
         timer = scheduleOneShot(
           () =>
@@ -795,7 +795,7 @@ async function performBackendWorkerStop() {
   } catch (_) {}
   try {
     if (pid) {
-      await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+      await execExternalProcess("/bin/kill", ["-TERM", pid], dataRoot());
       workerProcessDestructionCount++;
     }
   } catch (_) {}
@@ -870,7 +870,7 @@ async function startBackendWorkerProcess(dicts, language) {
   writeWorkerConfig(dicts, fingerprint, lang);
   await writeWorkerStartScript();
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
-  const res = await utils.exec(
+  const res = await execExternalProcess(
     "/bin/bash",
     [workerStartScriptPath(), dataRoot(), workerRoot(), String(sleepMs)],
     dataRoot(),

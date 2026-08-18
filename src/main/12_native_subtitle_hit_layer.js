@@ -412,7 +412,7 @@ function prepareNativeSubtitlePrivateCueDirectory() {
     .then(() => {
       if (file.exists(nativeSubtitlePrivateCueDirectory()))
         return { status: 0 };
-      return utils.exec(
+      return execExternalProcess(
         "/bin/mkdir",
         ["-p", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
@@ -421,7 +421,7 @@ function prepareNativeSubtitlePrivateCueDirectory() {
     .then((result) => {
       if (!result || Number(result.status) !== 0)
         throw new Error("font-metrics-private-directory-failed");
-      return utils.exec(
+      return execExternalProcess(
         "/bin/chmod",
         ["700", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
@@ -462,7 +462,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
   let timeoutId = null;
   try {
     file.write(cuePath, String(text || ""));
-    const chmodResult = await utils.exec(
+    const chmodResult = await execExternalProcess(
       "/bin/chmod",
       ["600", cuePath],
       dataRoot(),
@@ -470,7 +470,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     if (!chmodResult || Number(chmodResult.status) !== 0)
       throw new Error("font-metrics-private-cue-permissions-failed");
     const result = await Promise.race([
-      utils.exec(binPath(), args, dataRoot()),
+      execExternalProcess(binPath(), args, dataRoot()),
       new Promise((_, reject) => {
         timeoutId = scheduleOneShot(
           () =>
@@ -1904,7 +1904,7 @@ function nativeExternalSrtCues(track) {
       const generation = nativeExternalSrtGeneration;
       const request = Promise.resolve()
         .then(() =>
-          utils.exec(
+          execExternalProcess(
             "/usr/bin/curl",
             [
               "--silent",

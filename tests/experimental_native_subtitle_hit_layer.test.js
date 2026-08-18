@@ -167,6 +167,9 @@ function loadMainNativeHelpers(properties) {
         return values.__geometryResponse(request);
       throw new Error("unexpected native ASS geometry request");
     },
+    execExternalProcess(command, args, cwd, stdoutHook, stderrHook) {
+      return context.utils.exec(command, args, cwd, stdoutHook, stderrHook);
+    },
     utils: {
       async exec(command, args, cwd) {
         execEvents.push({ command, args: Array.from(args || []), cwd });

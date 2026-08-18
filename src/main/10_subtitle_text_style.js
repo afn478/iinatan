@@ -189,7 +189,7 @@ function appearanceHintFromThemeMaterial(value, systemHint) {
 }
 async function readMacOSAppearanceHint() {
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "-g", "AppleInterfaceStyle"],
       dataRoot(),
@@ -204,7 +204,7 @@ async function readMacOSAppearanceHint() {
 }
 async function readIINAAppearanceHint() {
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "com.colliderli.iina", "themeMaterial"],
       dataRoot(),

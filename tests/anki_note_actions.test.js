@@ -29,6 +29,9 @@ const context = {
   dataRoot() {
     return "/data";
   },
+  execExternalProcess(command, args, cwd) {
+    return context.utils.exec(command, args, cwd);
+  },
   utils: {
     async exec(command, args) {
       calls.push({ action: "exec", command, args });

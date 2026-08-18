@@ -36,6 +36,9 @@ const context = {
       return Promise.resolve({ status: 0, stdout: "6\n" });
     },
   },
+  execExternalProcess(command, args, cwd) {
+    return context.utils.exec(command, args, cwd);
+  },
   compactError(error) {
     return error && error.message ? error.message : String(error);
   },

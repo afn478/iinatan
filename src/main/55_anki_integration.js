@@ -272,7 +272,14 @@ async function ankiStoreMediaUrl(filename, url, prefs, skipHash) {
 }
 async function ankiMediaFileHashHex(path) {
   try {
-    const result = await utils.exec("/sbin/md5", ["-q", path], dataRoot());
+    const result = await execExternalProcess(
+      "/sbin/md5",
+      ["-q", path],
+      dataRoot(),
+      null,
+      null,
+      EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+    );
     const match =
       result && result.status === 0
         ? String(result.stdout || "").match(/\b([0-9a-f]{8,40})\b/i)
@@ -289,13 +296,18 @@ function ankiMediaPath(filename) {
 async function ensureAnkiMediaRoot() {
   if (ankiMediaRootReady) return;
   if (ankiMediaRootPromise) return ankiMediaRootPromise;
-  const promise = utils
-    .exec("/bin/mkdir", ["-p", dataPath("anki-media")], dataRoot())
-    .then((result) => {
-      if (!result || result.status !== 0)
-        throw new Error("Could not create the Anki media directory.");
-      ankiMediaRootReady = true;
-    });
+  const promise = execExternalProcess(
+    "/bin/mkdir",
+    ["-p", dataPath("anki-media")],
+    dataRoot(),
+    null,
+    null,
+    EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+  ).then((result) => {
+    if (!result || result.status !== 0)
+      throw new Error("Could not create the Anki media directory.");
+    ankiMediaRootReady = true;
+  });
   ankiMediaRootPromise = promise;
   try {
     await promise;
@@ -428,7 +440,14 @@ async function ankiFindFfmpegPath() {
     } catch (_) {}
   }
   try {
-    const result = await utils.exec("/usr/bin/which", ["ffmpeg"], dataRoot());
+    const result = await execExternalProcess(
+      "/usr/bin/which",
+      ["ffmpeg"],
+      dataRoot(),
+      null,
+      null,
+      EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+    );
     const path = String((result && result.stdout) || "")
       .trim()
       .split(/\r?\n/)[0];
@@ -516,10 +535,13 @@ async function ankiCaptureSentenceAudio(context, prefs) {
           ]);
         }
         if (cacheWindow && file.exists(cachedPath))
-          result = await utils.exec(
+          result = await execExternalProcess(
             ffmpegPath,
             ffmpegArgs(cachedPath, cacheWindow.seek),
             dataRoot(),
+            null,
+            null,
+            EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
           );
       } catch (error) {
         debugVerbose(
@@ -533,10 +555,13 @@ async function ankiCaptureSentenceAudio(context, prefs) {
       (!result || result.status !== 0 || !file.exists(outPath)) &&
       source.ffmpegReadable
     ) {
-      result = await utils.exec(
+      result = await execExternalProcess(
         ffmpegPath,
         ffmpegArgs(source.locator, start),
         dataRoot(),
+        null,
+        null,
+        EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
       );
     }
     if (!result || result.status !== 0 || !file.exists(outPath)) {
@@ -698,6 +723,9 @@ async function ankiCaptureNeededMedia(needs, context, prefs) {
       }),
     );
   }
+  // Let frame/audio capture claim the serialized process lane before a slower
+  // dynamic word-audio request, while keeping all three media jobs concurrent.
+  if (jobs.length && needs.wordAudio) await Promise.resolve();
   if (needs.wordAudio) {
     jobs.push(
       ankiStoreWordAudio(context, prefs).then((value) => {

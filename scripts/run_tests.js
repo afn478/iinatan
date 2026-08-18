@@ -36,6 +36,7 @@ const TESTS = [
   ["native-static", "tests/native_backend_schema.test.js"],
   ["native", "tests/native_ass_geometry.test.js"],
   ["diagnostics", "tests/debug_log_performance.test.js"],
+  ["diagnostics", "tests/external_process_queue.test.js"],
   ["release", "tests/release_notes.test.js"],
   ["build", "tests/check_generated_syntax.js"],
   [

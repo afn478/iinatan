@@ -312,9 +312,14 @@ let dataDirsReadyPromise = null;
 let iinaAppearanceHint = "";
 let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
+let externalProcessQueue = [];
+let externalProcessActive = false;
+let externalProcessSequence = 0;
 const DEBUG_LOG_MAX_BYTES = 1000000;
 const DEBUG_LOG_FLUSH_DELAY_MS = 750;
 const LOOKUP_POPUP_RESUME_DELAY_MS = 90;
+const EXTERNAL_PROCESS_PRIORITY_DEFAULT = 0;
+const EXTERNAL_PROCESS_PRIORITY_INTERACTIVE = 10;
 
 function pref(key, fallback) {
   const value = preferences.get(key);
@@ -346,6 +351,65 @@ function compactError(error) {
       ? String(error.message)
       : String(error || "Unknown error");
   return msg.replace(/\s+/g, " ").slice(0, 1200);
+}
+function nextExternalProcessJob() {
+  if (!externalProcessQueue.length) return null;
+  let selectedIndex = 0;
+  for (let i = 1; i < externalProcessQueue.length; i++) {
+    const candidate = externalProcessQueue[i];
+    const selected = externalProcessQueue[selectedIndex];
+    if (
+      candidate.priority > selected.priority ||
+      (candidate.priority === selected.priority &&
+        candidate.sequence < selected.sequence)
+    )
+      selectedIndex = i;
+  }
+  return externalProcessQueue.splice(selectedIndex, 1)[0];
+}
+function drainExternalProcessQueue() {
+  if (externalProcessActive) return;
+  const job = nextExternalProcessJob();
+  if (!job) return;
+  externalProcessActive = true;
+  Promise.resolve()
+    .then(() =>
+      utils.exec(
+        job.command,
+        job.args,
+        job.cwd,
+        job.stdoutHook,
+        job.stderrHook,
+      ),
+    )
+    .then(job.resolve, job.reject)
+    .finally(() => {
+      externalProcessActive = false;
+      drainExternalProcessQueue();
+    });
+}
+function execExternalProcess(
+  command,
+  args,
+  cwd,
+  stdoutHook,
+  stderrHook,
+  priority,
+) {
+  return new Promise((resolve, reject) => {
+    externalProcessQueue.push({
+      command,
+      args: args || [],
+      cwd,
+      stdoutHook,
+      stderrHook,
+      priority: Number(priority) || EXTERNAL_PROCESS_PRIORITY_DEFAULT,
+      sequence: ++externalProcessSequence,
+      resolve,
+      reject,
+    });
+    drainExternalProcessQueue();
+  });
 }
 // IINA 1.4.4 keeps fired setTimeout callbacks in its native timer dictionary.
 // Remove each timer from inside its main-queue callback, and make cancellation
@@ -890,7 +954,7 @@ function workerStartScriptPath() {
 }
 
 async function execChecked(command, args, cwd, stdoutHook, stderrHook) {
-  const result = await utils.exec(
+  const result = await execExternalProcess(
     command,
     args || [],
     cwd || undefined,
@@ -5862,7 +5926,7 @@ function appearanceHintFromThemeMaterial(value, systemHint) {
 }
 async function readMacOSAppearanceHint() {
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "-g", "AppleInterfaceStyle"],
       dataRoot(),
@@ -5877,7 +5941,7 @@ async function readMacOSAppearanceHint() {
 }
 async function readIINAAppearanceHint() {
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "com.colliderli.iina", "themeMaterial"],
       dataRoot(),
@@ -6729,7 +6793,7 @@ function prepareNativeSubtitlePrivateCueDirectory() {
     .then(() => {
       if (file.exists(nativeSubtitlePrivateCueDirectory()))
         return { status: 0 };
-      return utils.exec(
+      return execExternalProcess(
         "/bin/mkdir",
         ["-p", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
@@ -6738,7 +6802,7 @@ function prepareNativeSubtitlePrivateCueDirectory() {
     .then((result) => {
       if (!result || Number(result.status) !== 0)
         throw new Error("font-metrics-private-directory-failed");
-      return utils.exec(
+      return execExternalProcess(
         "/bin/chmod",
         ["700", nativeSubtitlePrivateCueDirectory()],
         dataRoot(),
@@ -6779,7 +6843,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
   let timeoutId = null;
   try {
     file.write(cuePath, String(text || ""));
-    const chmodResult = await utils.exec(
+    const chmodResult = await execExternalProcess(
       "/bin/chmod",
       ["600", cuePath],
       dataRoot(),
@@ -6787,7 +6851,7 @@ async function runNativeSubtitleFontMetricCommand(options, text) {
     if (!chmodResult || Number(chmodResult.status) !== 0)
       throw new Error("font-metrics-private-cue-permissions-failed");
     const result = await Promise.race([
-      utils.exec(binPath(), args, dataRoot()),
+      execExternalProcess(binPath(), args, dataRoot()),
       new Promise((_, reject) => {
         timeoutId = scheduleOneShot(
           () =>
@@ -8221,7 +8285,7 @@ function nativeExternalSrtCues(track) {
       const generation = nativeExternalSrtGeneration;
       const request = Promise.resolve()
         .then(() =>
-          utils.exec(
+          execExternalProcess(
             "/usr/bin/curl",
             [
               "--silent",
@@ -11551,7 +11615,7 @@ let bundledBackendInstallPromise = null;
 async function backendBinaryMatchesBundled() {
   if (!backendInstalled()) return false;
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/cmp",
       ["-s", bundledBinPath(), binPath()],
       dataRoot(),
@@ -11572,7 +11636,7 @@ async function installBundledBackendIfNeeded() {
   if (await backendBinaryMatchesBundled()) return;
   const tmpPath = binPath() + ".tmp-" + String(Date.now());
   safeDelete(tmpPath);
-  const result = await utils.exec(
+  const result = await execExternalProcess(
     "/bin/cp",
     [bundledBinPath(), tmpPath],
     dataRoot(),
@@ -11583,7 +11647,7 @@ async function installBundledBackendIfNeeded() {
         ((result && (result.stderr || result.stdout)) || "copy failed"),
     );
   await execChecked("/bin/chmod", ["755", tmpPath]);
-  const moved = await utils.exec(
+  const moved = await execExternalProcess(
     "/bin/mv",
     ["-f", tmpPath, binPath()],
     dataRoot(),
@@ -11711,7 +11775,7 @@ async function runBackendJson(args, timeoutMs, stage) {
     );
     const execStartedAt = Date.now();
     const result = await Promise.race([
-      utils.exec(binPath(), args || [], dataRoot()),
+      execExternalProcess(binPath(), args || [], dataRoot()),
       new Promise((_, reject) => {
         timer = scheduleOneShot(
           () =>
@@ -12316,7 +12380,7 @@ async function performBackendWorkerStop() {
   } catch (_) {}
   try {
     if (pid) {
-      await utils.exec("/bin/kill", ["-TERM", pid], dataRoot());
+      await execExternalProcess("/bin/kill", ["-TERM", pid], dataRoot());
       workerProcessDestructionCount++;
     }
   } catch (_) {}
@@ -12391,7 +12455,7 @@ async function startBackendWorkerProcess(dicts, language) {
   writeWorkerConfig(dicts, fingerprint, lang);
   await writeWorkerStartScript();
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
-  const res = await utils.exec(
+  const res = await execExternalProcess(
     "/bin/bash",
     [workerStartScriptPath(), dataRoot(), workerRoot(), String(sleepMs)],
     dataRoot(),
@@ -13588,10 +13652,80 @@ function audioCandidatesFromSourceJson(rawJson, sourceUrl) {
   });
   return out;
 }
-async function fetchAudioSourceCandidates(sourceUrl) {
-  const url = safeExternalHttpUrl(sourceUrl);
-  if (!url) throw new Error("Invalid audio source URL.");
-  const result = await utils.exec(
+let audioSourceCandidatesInFlight = Object.create(null);
+const AUDIO_SOURCE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const AUDIO_SOURCE_REQUEST_TIMEOUT_MS = 8000;
+function audioSourceUrlIsLoopback(url) {
+  try {
+    if (typeof URL === "function") {
+      const hostname = String(new URL(url).hostname || "").toLowerCase();
+      return (
+        hostname === "127.0.0.1" ||
+        hostname === "localhost" ||
+        hostname === "::1" ||
+        hostname === "[::1]"
+      );
+    }
+  } catch (_) {}
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(
+    String(url || ""),
+  );
+}
+function audioSourceResponseByteLength(value) {
+  const text = String(value || "");
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+    if (bytes > AUDIO_SOURCE_RESPONSE_MAX_BYTES) break;
+  }
+  return bytes;
+}
+async function fetchLoopbackAudioSourceCandidates(url) {
+  let timer = null;
+  try {
+    const response = await Promise.race([
+      http.get(url, { headers: { Accept: "application/json" } }),
+      new Promise((_, reject) => {
+        timer = scheduleOneShot(
+          () =>
+            reject(
+              new Error("Audio source request timed out after 8 seconds."),
+            ),
+          AUDIO_SOURCE_REQUEST_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    const status = Number(response && response.statusCode) || 0;
+    if (status && (status < 200 || status >= 300))
+      throw new Error(
+        "Audio source request failed with status " + status + ".",
+      );
+    const body =
+      response && response.text !== undefined
+        ? String(response.text || "")
+        : JSON.stringify((response && response.data) || "");
+    if (audioSourceResponseByteLength(body) > AUDIO_SOURCE_RESPONSE_MAX_BYTES)
+      throw new Error("Audio source response exceeded 4 MiB.");
+    return audioCandidatesFromSourceJson(body, url);
+  } finally {
+    if (timer) cancelOneShot(timer);
+  }
+}
+async function fetchAudioSourceCandidatesUncached(url) {
+  if (
+    audioSourceUrlIsLoopback(url) &&
+    typeof http === "object" &&
+    http &&
+    typeof http.get === "function"
+  )
+    return fetchLoopbackAudioSourceCandidates(url);
+  const result = await execExternalProcess(
     "/usr/bin/curl",
     [
       "--silent",
@@ -13608,6 +13742,9 @@ async function fetchAudioSourceCandidates(sourceUrl) {
       url,
     ],
     dataRoot(),
+    null,
+    null,
+    EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
   );
   if (!result || result.status !== 0) {
     throw new Error(
@@ -13618,6 +13755,20 @@ async function fetchAudioSourceCandidates(sourceUrl) {
     );
   }
   return audioCandidatesFromSourceJson(result.stdout, url);
+}
+async function fetchAudioSourceCandidates(sourceUrl) {
+  const url = safeExternalHttpUrl(sourceUrl);
+  if (!url) throw new Error("Invalid audio source URL.");
+  if (audioSourceCandidatesInFlight[url])
+    return audioSourceCandidatesInFlight[url];
+  const task = fetchAudioSourceCandidatesUncached(url);
+  audioSourceCandidatesInFlight[url] = task;
+  try {
+    return await task;
+  } finally {
+    if (audioSourceCandidatesInFlight[url] === task)
+      delete audioSourceCandidatesInFlight[url];
+  }
 }
 function handleBridgeAudioSource(payload) {
   const requestId =
@@ -16101,7 +16252,7 @@ async function ankiOpenDuplicateNotes(prefs, noteIds) {
       retry: false,
     },
   );
-  const activated = await utils.exec(
+  const activated = await execExternalProcess(
     "/usr/bin/open",
     ["-a", "Anki"],
     dataRoot(),
@@ -16404,7 +16555,14 @@ async function ankiStoreMediaUrl(filename, url, prefs, skipHash) {
 }
 async function ankiMediaFileHashHex(path) {
   try {
-    const result = await utils.exec("/sbin/md5", ["-q", path], dataRoot());
+    const result = await execExternalProcess(
+      "/sbin/md5",
+      ["-q", path],
+      dataRoot(),
+      null,
+      null,
+      EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+    );
     const match =
       result && result.status === 0
         ? String(result.stdout || "").match(/\b([0-9a-f]{8,40})\b/i)
@@ -16421,13 +16579,18 @@ function ankiMediaPath(filename) {
 async function ensureAnkiMediaRoot() {
   if (ankiMediaRootReady) return;
   if (ankiMediaRootPromise) return ankiMediaRootPromise;
-  const promise = utils
-    .exec("/bin/mkdir", ["-p", dataPath("anki-media")], dataRoot())
-    .then((result) => {
-      if (!result || result.status !== 0)
-        throw new Error("Could not create the Anki media directory.");
-      ankiMediaRootReady = true;
-    });
+  const promise = execExternalProcess(
+    "/bin/mkdir",
+    ["-p", dataPath("anki-media")],
+    dataRoot(),
+    null,
+    null,
+    EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+  ).then((result) => {
+    if (!result || result.status !== 0)
+      throw new Error("Could not create the Anki media directory.");
+    ankiMediaRootReady = true;
+  });
   ankiMediaRootPromise = promise;
   try {
     await promise;
@@ -16560,7 +16723,14 @@ async function ankiFindFfmpegPath() {
     } catch (_) {}
   }
   try {
-    const result = await utils.exec("/usr/bin/which", ["ffmpeg"], dataRoot());
+    const result = await execExternalProcess(
+      "/usr/bin/which",
+      ["ffmpeg"],
+      dataRoot(),
+      null,
+      null,
+      EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
+    );
     const path = String((result && result.stdout) || "")
       .trim()
       .split(/\r?\n/)[0];
@@ -16648,10 +16818,13 @@ async function ankiCaptureSentenceAudio(context, prefs) {
           ]);
         }
         if (cacheWindow && file.exists(cachedPath))
-          result = await utils.exec(
+          result = await execExternalProcess(
             ffmpegPath,
             ffmpegArgs(cachedPath, cacheWindow.seek),
             dataRoot(),
+            null,
+            null,
+            EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
           );
       } catch (error) {
         debugVerbose(
@@ -16665,10 +16838,13 @@ async function ankiCaptureSentenceAudio(context, prefs) {
       (!result || result.status !== 0 || !file.exists(outPath)) &&
       source.ffmpegReadable
     ) {
-      result = await utils.exec(
+      result = await execExternalProcess(
         ffmpegPath,
         ffmpegArgs(source.locator, start),
         dataRoot(),
+        null,
+        null,
+        EXTERNAL_PROCESS_PRIORITY_INTERACTIVE,
       );
     }
     if (!result || result.status !== 0 || !file.exists(outPath)) {
@@ -16830,6 +17006,9 @@ async function ankiCaptureNeededMedia(needs, context, prefs) {
       }),
     );
   }
+  // Let frame/audio capture claim the serialized process lane before a slower
+  // dynamic word-audio request, while keeping all three media jobs concurrent.
+  if (jobs.length && needs.wordAudio) await Promise.resolve();
   if (needs.wordAudio) {
     jobs.push(
       ankiStoreWordAudio(context, prefs).then((value) => {
@@ -18026,7 +18205,7 @@ async function dictionaryManagerSystemAccentColor() {
   };
   if (!utils || typeof utils.exec !== "function") return "";
   try {
-    const result = await utils.exec(
+    const result = await execExternalProcess(
       "/usr/bin/defaults",
       ["read", "-g", "AppleAccentColor"],
       dataRoot(),
