@@ -257,6 +257,7 @@ function overlayConfig() {
     popupMaxWidth,
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    subtitleLookupMode: String(pref("subtitleLookupMode", "hover") || "hover"),
     nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
     nestedPopupMaxDepth: Math.max(
       1,

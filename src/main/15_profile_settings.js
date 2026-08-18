@@ -45,6 +45,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  subtitleLookupMode: "hover",
   nestedPopupMode: "off",
   nestedPopupMaxDepth: 3,
   flattenSubtitleLineBreaks: false,
@@ -278,11 +279,18 @@ function normalizeProfilePreferences(prefs) {
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
   );
+  const subtitleLookupMode = String(out.subtitleLookupMode || "")
+    .trim()
+    .toLowerCase();
+  out.subtitleLookupMode =
+    subtitleLookupMode === "shift-hover" ? "shift-hover" : "hover";
   const nestedPopupMode = String(out.nestedPopupMode || "")
     .trim()
     .toLowerCase();
   out.nestedPopupMode =
-    nestedPopupMode === "hover" || nestedPopupMode === "click"
+    nestedPopupMode === "hover" ||
+    nestedPopupMode === "shift-hover" ||
+    nestedPopupMode === "click"
       ? nestedPopupMode
       : "off";
   out.nestedPopupMaxDepth = Math.max(

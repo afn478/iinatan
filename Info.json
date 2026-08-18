@@ -56,6 +56,7 @@
     "subtitlePollMs": 120,
     "popupMaxHeightVh": 34,
     "popupSubtitleGapPx": 34,
+    "subtitleLookupMode": "hover",
     "nestedPopupMode": "off",
     "nestedPopupMaxDepth": 3,
     "flattenSubtitleLineBreaks": false,

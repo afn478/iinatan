@@ -362,15 +362,21 @@ assert(
   "Settings manager should expose per-profile popup minimum width",
 );
 assert(
-  info.preferenceDefaults.nestedPopupMode === "off" &&
+  info.preferenceDefaults.subtitleLookupMode === "hover" &&
+    info.preferenceDefaults.nestedPopupMode === "off" &&
     info.preferenceDefaults.nestedPopupMaxDepth === 3,
-  "Nested popup scanning should be opt-in with a bounded default depth",
+  "Subtitle lookup should retain hover while nested scanning stays opt-in by default",
+);
+assert(
+  /data-profile-pref="subtitleLookupMode"/.test(managerHtml) &&
+    /Shift \+ hover \(Yomitan default\)/.test(managerHtml),
+  "Settings manager should expose Shift-hover subtitle lookup",
 );
 assert(
   /data-profile-pref="nestedPopupMode"/.test(managerHtml) &&
-    /Hover \(Yomitan style\)/.test(managerHtml) &&
+    /value="shift-hover"/.test(managerHtml) &&
     /Click \(Hoshi Reader \/ Chimahon style\)/.test(managerHtml),
-  "Settings manager should expose Yomitan-style hover and reader-style click modes",
+  "Settings manager should expose Shift-hover and click modes for nested popups",
 );
 assert(
   /data-profile-pref="nestedPopupMaxDepth"[^>]*max="99999"/.test(managerHtml),

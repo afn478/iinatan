@@ -5930,6 +5930,7 @@ function overlayConfig() {
     popupMaxWidth,
     popupMaxHeightVh: Math.max(20, prefNumber("popupMaxHeightVh", 34)),
     popupSubtitleGapPx: Math.max(12, prefNumber("popupSubtitleGapPx", 34)),
+    subtitleLookupMode: String(pref("subtitleLookupMode", "hover") || "hover"),
     nestedPopupMode: String(pref("nestedPopupMode", "off") || "off"),
     nestedPopupMaxDepth: Math.max(
       1,
@@ -9451,6 +9452,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   popupMaxWidth: 440,
   popupMaxHeightVh: 34,
   popupSubtitleGapPx: 34,
+  subtitleLookupMode: "hover",
   nestedPopupMode: "off",
   nestedPopupMaxDepth: 3,
   flattenSubtitleLineBreaks: false,
@@ -9684,11 +9686,18 @@ function normalizeProfilePreferences(prefs) {
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
   );
+  const subtitleLookupMode = String(out.subtitleLookupMode || "")
+    .trim()
+    .toLowerCase();
+  out.subtitleLookupMode =
+    subtitleLookupMode === "shift-hover" ? "shift-hover" : "hover";
   const nestedPopupMode = String(out.nestedPopupMode || "")
     .trim()
     .toLowerCase();
   out.nestedPopupMode =
-    nestedPopupMode === "hover" || nestedPopupMode === "click"
+    nestedPopupMode === "hover" ||
+    nestedPopupMode === "shift-hover" ||
+    nestedPopupMode === "click"
       ? nestedPopupMode
       : "off";
   out.nestedPopupMaxDepth = Math.max(
@@ -13821,7 +13830,7 @@ function handleBridgeNestedLookup(payload) {
     !enabled ||
     lineId !== currentSubtitleLineId ||
     depth > maxDepth ||
-    (mode !== "hover" && mode !== "click")
+    (mode !== "hover" && mode !== "shift-hover" && mode !== "click")
   ) {
     postToOverlay("nested-lookup-result", {
       requestId,

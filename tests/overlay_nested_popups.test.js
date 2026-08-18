@@ -279,6 +279,38 @@ assert(
   "Empty-space dismissal should also work while hover activation is configured",
 );
 
+overlay.applyConfig({ nestedPopupMode: "shift-hover" });
+popup.listeners.mousemove({
+  currentTarget: popup,
+  target: gloss,
+  shiftKey: false,
+  lookupRange: {
+    startContainer: textNode,
+    startOffset: 0,
+  },
+});
+assert(
+  overlay.state.nestedHoverTimer === null &&
+    overlay.state.nestedPopups.length === 0,
+  "Shift-hover nested mode should ignore an unmodified hover",
+);
+popup.listeners.mousemove({
+  currentTarget: popup,
+  target: gloss,
+  shiftKey: true,
+  lookupRange: {
+    startContainer: textNode,
+    startOffset: 0,
+  },
+});
+assert(
+  overlay.state.nestedHoverTimer !== null,
+  "Shift-hover nested mode should schedule lookup while Shift is held",
+);
+clearTimeout(overlay.state.nestedHoverTimer);
+overlay.state.nestedHoverTimer = null;
+overlay.state.nestedHoverKey = "";
+
 overlay.clearNestedPopups(0);
 assert(
   overlay.state.nestedPopups.length === 0 &&

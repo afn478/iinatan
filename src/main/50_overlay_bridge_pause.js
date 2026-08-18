@@ -463,7 +463,7 @@ function handleBridgeNestedLookup(payload) {
     !enabled ||
     lineId !== currentSubtitleLineId ||
     depth > maxDepth ||
-    (mode !== "hover" && mode !== "click")
+    (mode !== "hover" && mode !== "shift-hover" && mode !== "click")
   ) {
     postToOverlay("nested-lookup-result", {
       requestId,

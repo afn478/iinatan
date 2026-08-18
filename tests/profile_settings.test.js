@@ -166,22 +166,26 @@ prefs = settings.normalizeProfilePreferences({
   unknownSetting: "ignored",
 });
 const nestedPopupPrefs = settings.normalizeProfilePreferences({
-  nestedPopupMode: "HOVER",
+  subtitleLookupMode: "SHIFT-HOVER",
+  nestedPopupMode: "SHIFT-HOVER",
   nestedPopupMaxDepth: 100000,
 });
 assert(
-  nestedPopupPrefs.nestedPopupMode === "hover" &&
+  nestedPopupPrefs.subtitleLookupMode === "shift-hover" &&
+    nestedPopupPrefs.nestedPopupMode === "shift-hover" &&
     nestedPopupPrefs.nestedPopupMaxDepth === 99999,
-  "Nested popup mode and depth should normalize to supported profile values",
+  "Shift-hover lookup modes and nested depth should normalize to supported profile values",
 );
 const invalidNestedPopupPrefs = settings.normalizeProfilePreferences({
+  subtitleLookupMode: "unknown",
   nestedPopupMode: "unknown",
   nestedPopupMaxDepth: 0,
 });
 assert(
-  invalidNestedPopupPrefs.nestedPopupMode === "off" &&
+  invalidNestedPopupPrefs.subtitleLookupMode === "hover" &&
+    invalidNestedPopupPrefs.nestedPopupMode === "off" &&
     invalidNestedPopupPrefs.nestedPopupMaxDepth === 3,
-  "Invalid nested popup settings should fall back to safe defaults",
+  "Invalid popup lookup settings should fall back to safe defaults",
 );
 
 assert(prefs.audioAutoPlay === true, "Boolean-like strings should normalize");

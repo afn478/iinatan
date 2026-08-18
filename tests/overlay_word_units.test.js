@@ -18,12 +18,12 @@ const LATIN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.latinWord;
 const CHINESE_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.chinese;
 const KOREAN_LOOKUP_CHARACTER_POLICY = lookupCharacterPolicies.korean;
 
-function enter(pos) {
+function enter(pos, event) {
   const el = overlay.subtitleEl.querySelector(
     '.char.lookupable[data-pos="' + String(pos) + '"]',
   );
   assert(el, "Expected hoverable element at " + pos);
-  el.listeners.mouseenter({ currentTarget: el });
+  el.listeners.mouseenter(Object.assign({ currentTarget: el }, event || {}));
   return el;
 }
 
@@ -351,6 +351,31 @@ const koreanUnit = overlay.lookupUnitForPosition(koreanStart + 1);
 assert(
   koreanUnit.pos === koreanStart && koreanUnit.preview.text === "한국어를",
   "Korean Hangul runs should form one generic policy-driven hover unit",
+);
+
+overlay.applyConfig({
+  subtitleLookupMode: "shift-hover",
+  language: {
+    id: "en",
+    label: "English",
+    lookupUnit: "word",
+    wordMode: "latin-word",
+    lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
+  },
+});
+overlay.renderSubtitle("shift lookup", 5);
+const beforeShiftHover = lookupMessages().length;
+enter(0);
+assert(
+  lookupMessages().length === beforeShiftHover &&
+    overlay.popupEl.classList.contains("hidden"),
+  "Shift-hover subtitle mode should ignore an unmodified hover",
+);
+enter(0, { shiftKey: true });
+assert(
+  lookupMessages().length === beforeShiftHover + 1 &&
+    !overlay.popupEl.classList.contains("hidden"),
+  "Shift-hover subtitle mode should look up text while Shift is held",
 );
 
 Object.keys(overlay.state.pendingLookupRequests || {}).forEach((key) => {

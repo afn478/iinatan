@@ -31,6 +31,7 @@
       popupMaxWidth: 440,
       popupMaxHeightVh: 34,
       popupSubtitleGapPx: 34,
+      subtitleLookupMode: "hover",
       nestedPopupMode: "off",
       nestedPopupMaxDepth: 3,
       flattenSubtitleLineBreaks: false,
@@ -1578,11 +1579,18 @@
       state.config.popupMaxWidth,
       Math.max(200, Number(state.config.popupMinWidth) || 250),
     );
+    const subtitleLookupMode = String(state.config.subtitleLookupMode || "")
+      .trim()
+      .toLowerCase();
+    state.config.subtitleLookupMode =
+      subtitleLookupMode === "shift-hover" ? "shift-hover" : "hover";
     const nestedPopupMode = String(state.config.nestedPopupMode || "")
       .trim()
       .toLowerCase();
     state.config.nestedPopupMode =
-      nestedPopupMode === "hover" || nestedPopupMode === "click"
+      nestedPopupMode === "hover" ||
+      nestedPopupMode === "shift-hover" ||
+      nestedPopupMode === "click"
         ? nestedPopupMode
         : "off";
     state.config.nestedPopupMaxDepth = Math.max(
@@ -3728,6 +3736,11 @@
   }
 
   function onCharEnter(ev) {
+    if (
+      state.config.subtitleLookupMode === "shift-hover" &&
+      !(ev && ev.shiftKey)
+    )
+      return;
     cancelHidePopupTimer();
     const target = ev.currentTarget;
     const rawPos = Number(target.dataset.pos || 0);
@@ -5203,6 +5216,7 @@
   function updateNestedPopupScanningState() {
     const enabled =
       state.config.nestedPopupMode === "hover" ||
+      state.config.nestedPopupMode === "shift-hover" ||
       state.config.nestedPopupMode === "click";
     allPopupContainers().forEach((popup) => {
       if (!popup || typeof popup.setAttribute !== "function") return;
@@ -5850,7 +5864,12 @@
     return source.position >= range.start && source.position < range.end;
   }
   function onNestedPopupClick(event) {
-    if (state.config.nestedPopupMode === "off" || popupSelectionIsActive())
+    if (
+      state.config.nestedPopupMode === "off" ||
+      (state.config.nestedPopupMode === "shift-hover" &&
+        !(event && event.shiftKey)) ||
+      popupSelectionIsActive()
+    )
       return;
     const popup = popupContainerForNode(event && event.currentTarget);
     if (!popup || nestedPopupClickIsInteractive(event && event.target, popup))
@@ -5875,7 +5894,14 @@
     onNestedPopupClick(event);
   }
   function onNestedPopupMouseMove(event) {
-    if (state.config.nestedPopupMode !== "hover") return;
+    const mode = state.config.nestedPopupMode;
+    if (mode !== "hover" && mode !== "shift-hover") return;
+    if (mode === "shift-hover" && !(event && event.shiftKey)) {
+      if (state.nestedHoverTimer) clearTimeout(state.nestedHoverTimer);
+      state.nestedHoverTimer = null;
+      state.nestedHoverKey = "";
+      return;
+    }
     const popup = popupContainerForNode(event && event.currentTarget);
     const source = nestedLookupSourceFromEvent(popup, event);
     if (!source || source.key === state.nestedHoverKey) return;
@@ -5883,7 +5909,10 @@
     if (state.nestedHoverTimer) clearTimeout(state.nestedHoverTimer);
     state.nestedHoverTimer = setTimeout(() => {
       state.nestedHoverTimer = null;
-      if (state.config.nestedPopupMode === "hover")
+      if (
+        state.config.nestedPopupMode === "hover" ||
+        (state.config.nestedPopupMode === "shift-hover" && event.shiftKey)
+      )
         openNestedPopup(popup, source);
     }, 180);
   }

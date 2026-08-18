@@ -811,10 +811,19 @@
           <input id="lookupTimeoutMs" data-profile-pref="lookupTimeoutMs" type="number" min="1500" max="30000" step="500">
         </div>
         <div class="field">
+          <label for="subtitleLookupMode">Look up subtitle text</label>
+          <select id="subtitleLookupMode" data-profile-pref="subtitleLookupMode">
+            <option value="hover">Hover</option>
+            <option value="shift-hover">Shift + hover (Yomitan default)</option>
+          </select>
+          <small>Choose whether subtitle lookup requires the Shift key.</small>
+        </div>
+        <div class="field">
           <label for="nestedPopupMode">Look up text inside popups</label>
           <select id="nestedPopupMode" data-profile-pref="nestedPopupMode">
             <option value="off">Off</option>
-            <option value="hover">Hover (Yomitan style)</option>
+            <option value="hover">Hover</option>
+            <option value="shift-hover">Shift + hover (Yomitan default)</option>
             <option value="click">Click (Hoshi Reader / Chimahon style)</option>
           </select>
           <small>Opens a child popup beside the selected definition text without using subtitle spacing.</small>
