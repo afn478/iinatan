@@ -44,7 +44,7 @@ struct Binding {
 
 struct Snapshot {
   bool connected = false;
-  std::array<bool, 11> buttons{};
+  std::array<bool, 12> buttons{};
   std::array<double, 3> axes{};
   std::string id;
 
@@ -294,13 +294,14 @@ struct Monitor::Impl {
       if (binding.page == kButtonPage) {
         size_t index = next.buttons.size();
         switch (binding.usage) {
+          case 1: index = 2; break;  // Square / west
           case 2: index = 0; break;  // Cross / south
           case 3: index = 1; break;  // Circle / east
-          case 4: index = 2; break;  // Triangle / north
-          case 5: index = 3; break;  // L1
-          case 6: index = 4; break;  // R1
-          case 7: index = 5; break;  // L2
-          case 8: index = 6; break;  // R2
+          case 4: index = 3; break;  // Triangle / north
+          case 5: index = 4; break;  // L1
+          case 6: index = 5; break;  // R1
+          case 7: index = 6; break;  // L2
+          case 8: index = 7; break;  // R2
           default: break;
         }
         if (index < next.buttons.size()) next.buttons[index] = button_down(binding);
@@ -338,11 +339,11 @@ struct Monitor::Impl {
       const int value = static_cast<int>(std::llround(read_value(hat)));
       const int offset = value - static_cast<int>(hat.minimum);
       const int direction = offset >= 0 && offset < 8 ? offset : -1;
-      // D-pad directions are stored in button slots 7..10.
-      next.buttons[7] = direction == 0 || direction == 1 || direction == 7;
-      next.buttons[8] = direction == 3 || direction == 4 || direction == 5;
-      next.buttons[9] = direction == 5 || direction == 6 || direction == 7;
-      next.buttons[10] = direction == 1 || direction == 2 || direction == 3;
+      // D-pad directions are stored in button slots 8..11.
+      next.buttons[8] = direction == 0 || direction == 1 || direction == 7;
+      next.buttons[9] = direction == 3 || direction == 4 || direction == 5;
+      next.buttons[10] = direction == 5 || direction == 6 || direction == 7;
+      next.buttons[11] = direction == 1 || direction == 2 || direction == 3;
     }
     return next;
   }
@@ -355,10 +356,10 @@ struct Monitor::Impl {
            << ",\"source\":\"native-hid\",\"connected\":"
            << (snapshot.connected ? "true" : "false") << ",\"id\":\""
            << json_escape(snapshot.id) << "\",\"buttons\":{";
-    static constexpr std::array<const char*, 11> names = {
-        "primary",       "back",       "audio",       "leftShoulder",
-        "rightShoulder", "leftTrigger", "rightTrigger", "dpadUp",
-        "dpadDown",      "dpadLeft",   "dpadRight"};
+    static constexpr std::array<const char*, 12> names = {
+        "primary",       "back",       "square",       "audio",
+        "leftShoulder",  "rightShoulder", "leftTrigger", "rightTrigger",
+        "dpadUp",        "dpadDown",   "dpadLeft",     "dpadRight"};
     for (size_t index = 0; index < names.size(); ++index) {
       if (index) output << ',';
       output << '"' << names[index] << "\":"

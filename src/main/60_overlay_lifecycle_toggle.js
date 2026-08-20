@@ -227,6 +227,9 @@ function initializeOverlay(options) {
   overlay.onMessage("controller-resume-playback", () => {
     handleControllerResumePlayback();
   });
+  overlay.onMessage("controller-toggle-pause", () => {
+    handleControllerTogglePause();
+  });
   overlay.onMessage("controller-status", (payload) => {
     handleControllerStatus(payload);
   });

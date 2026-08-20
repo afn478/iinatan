@@ -924,6 +924,7 @@ function normalizeNativeControllerState(value) {
   const buttonNames = [
     "primary",
     "back",
+    "square",
     "audio",
     "leftShoulder",
     "rightShoulder",

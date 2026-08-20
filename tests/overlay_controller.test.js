@@ -65,6 +65,17 @@ assert(
   "The standard mapping should normalize face and shoulder buttons",
 );
 assert(
+  overlay.normalizeControllerGamepad({
+    mapping: "standard",
+    connected: true,
+    buttons: standardButtons.map((button, index) =>
+      index === 2 ? { pressed: true, value: 1 } : button,
+    ),
+    axes: [0, 0, 0, 0],
+  }).buttons.square,
+  "The standard mapping should normalize Square separately from Cross",
+);
+assert(
   normalized.axes.leftY === -0.75 && normalized.axes.rightX === 0.8,
   "The standard mapping should normalize both sticks",
 );
@@ -111,6 +122,12 @@ assert(
   "Cross lookup should use the existing lookup bridge",
 );
 overlay.processControllerSnapshot(snapshot(), 116, 16);
+overlay.processControllerSnapshot(snapshot({ square: true }), 124, 8);
+assert(
+  context.__sent.some((message) => message.type === "controller-toggle-pause"),
+  "Square should request a plain playback pause/resume toggle",
+);
+overlay.processControllerSnapshot(snapshot(), 128, 4);
 overlay.processControllerSnapshot(snapshot({}, { rightX: 0.9 }), 132, 16);
 assert(
   overlay.state.currentPos === 7,

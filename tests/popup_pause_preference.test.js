@@ -272,6 +272,14 @@ assert(
     pauseWrites[pauseWrites.length - 1] === false,
   "Circle resume should clear a manual pause when no popup is open",
 );
+resetCase(false);
+assert(
+  context.handleControllerTogglePause() === true &&
+    paused === true &&
+    context.handleControllerTogglePause() === true &&
+    paused === false,
+  "Square should toggle manual playback pause and resume",
+);
 
 storage["/data/manifest.json"] = manifestWithPopupPause(false);
 preferenceValues.pauseWhilePopupVisible = true;

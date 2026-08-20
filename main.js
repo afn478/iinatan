@@ -12526,6 +12526,7 @@ function normalizeNativeControllerState(value) {
   const buttonNames = [
     "primary",
     "back",
+    "square",
     "audio",
     "leftShoulder",
     "rightShoulder",
@@ -13680,6 +13681,9 @@ const OVERLAY_BRIDGE_HANDLERS = {
   "controller-resume-playback"() {
     handleControllerResumePlayback();
   },
+  "controller-toggle-pause"() {
+    handleControllerTogglePause();
+  },
   "controller-status"(payload) {
     handleControllerStatus(payload);
   },
@@ -13719,6 +13723,16 @@ function handleControllerResumePlayback() {
     return resumed;
   } catch (error) {
     debugWarn("controller playback resume failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerTogglePause() {
+  try {
+    const toggled = setPauseState(!pauseState());
+    if (toggled) debugLog("controller square toggled playback pause state");
+    return toggled;
+  } catch (error) {
+    debugWarn("controller playback toggle failed: " + compactError(error));
     return false;
   }
 }
@@ -18059,6 +18073,9 @@ function initializeOverlay(options) {
   });
   overlay.onMessage("controller-resume-playback", () => {
     handleControllerResumePlayback();
+  });
+  overlay.onMessage("controller-toggle-pause", () => {
+    handleControllerTogglePause();
   });
   overlay.onMessage("controller-status", (payload) => {
     handleControllerStatus(payload);

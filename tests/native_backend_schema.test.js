@@ -106,6 +106,11 @@ assert(
   "Native worker should poll and publish DualSense HID snapshots",
 );
 assert(
+  /"square"/.test(controllerSource) &&
+    /case 1: index = 2/.test(controllerSource),
+  "Native DualSense snapshots should preserve the Square face button",
+);
+assert(
   /bitmap-subtitle-ocr/.test(nativeSource) &&
     /bitmapOcr/.test(nativeSource) &&
     /OcrService/.test(nativeSource),

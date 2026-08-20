@@ -4877,6 +4877,7 @@
       buttons: {
         primary: pressed(0),
         back: pressed(1),
+        square: pressed(2),
         audio: pressed(3),
         leftShoulder: pressed(4),
         rightShoulder: pressed(5),
@@ -4933,6 +4934,12 @@
     if (state.audioSourceMenu) return activateControllerAudioFocus();
     if (controllerPopupVisible()) return selectLargestVisibleControllerEntry();
     return openFirstControllerLookup();
+  }
+
+  function controllerTogglePause() {
+    const payload = { type: "controller-toggle-pause", at: Date.now() };
+    if (!sendBridgeMessage(payload)) postPluginMessage(payload);
+    return true;
   }
 
   function controllerBackAction() {
@@ -5014,6 +5021,7 @@
     const releasedEdge = (name) => !buttons[name] && !!previous[name];
     if (pressedEdge("leftShoulder")) sendControllerSubtitleSeek(-1);
     if (pressedEdge("rightShoulder")) sendControllerSubtitleSeek(1);
+    if (pressedEdge("square")) controllerTogglePause();
     if (pressedEdge("primary")) controllerPrimaryAction();
     if (pressedEdge("back")) controllerBackAction();
     if (pressedEdge("audio")) startControllerHold("audio-menu", now);
