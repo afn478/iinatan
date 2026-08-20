@@ -71,7 +71,10 @@
     "fallbackToClientExec": true,
     "directIpcPollMs": 2,
     "workerIdleSleepMs": 2,
-    "controllerEnabled": false
+    "controllerEnabled": false,
+    "controllerNoPopupBindingsJson": "{\"primary\":\"lookup\",\"back\":\"resume-playback\",\"square\":\"toggle-pause\",\"audio\":\"audio-menu\",\"leftShoulder\":\"subtitle-previous\",\"rightShoulder\":\"subtitle-next\",\"leftTrigger\":\"anki-force-add\",\"rightTrigger\":\"anki-primary\",\"dpadUp\":\"volume-up\",\"dpadDown\":\"volume-down\",\"dpadLeft\":\"seek-backward\",\"dpadRight\":\"seek-forward\"}",
+    "controllerPopupBindingsJson": "{\"primary\":\"lookup\",\"back\":\"close-popup\",\"square\":\"toggle-pause\",\"audio\":\"audio-menu\",\"leftShoulder\":\"subtitle-previous\",\"rightShoulder\":\"subtitle-next\",\"leftTrigger\":\"anki-force-add\",\"rightTrigger\":\"anki-primary\",\"dpadUp\":\"popup-scroll-up\",\"dpadDown\":\"popup-scroll-down\",\"dpadLeft\":\"popup-left\",\"dpadRight\":\"popup-right\"}",
+    "controllerAudioBindingsJson": "{\"primary\":\"audio-activate\",\"back\":\"close-audio-list\",\"square\":\"none\",\"audio\":\"none\",\"leftShoulder\":\"none\",\"rightShoulder\":\"none\",\"leftTrigger\":\"none\",\"rightTrigger\":\"none\",\"dpadUp\":\"audio-up\",\"dpadDown\":\"audio-down\",\"dpadLeft\":\"audio-left\",\"dpadRight\":\"audio-right\"}"
   },
   "permissions": [
     "video-overlay",

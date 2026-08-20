@@ -76,7 +76,7 @@ assert.deepStrictEqual(version.mouseIntent, {
 assert.deepStrictEqual(version.controller, {
   protocol: 1,
   source: "native-hid",
-  products: ["dualsense"],
+  products: ["gamepad"],
 });
 const controllerState = JSON.parse(
   execFileSync(binary, ["controller-state"], { encoding: "utf8" }),

@@ -1,10 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Generalized controller input to macOS-recognized controllers and added independent No Popup, With Popup, and Audio List button mappings.
+
 ## 2.1.6 - 2026-08-20
 
 ### Added
 
-- Added optional DualSense controller support for navigating subtitles and dictionary popups, controlling playback, playing entry audio, and running Anki actions.
+- Added optional macOS controller support for navigating subtitles and dictionary popups, controlling playback, playing entry audio, and running Anki actions.
 
 ## 2.1.5 - 2026-08-19
 

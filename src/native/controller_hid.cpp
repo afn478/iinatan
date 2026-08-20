@@ -22,10 +22,11 @@ namespace fs = std::filesystem;
 namespace iinatan::controller {
 namespace {
 
-constexpr int kSonyVendorId = 0x054c;
-constexpr int kDualSenseProductId = 0x0ce6;
 constexpr uint32_t kGenericDesktopPage = 0x01;
 constexpr uint32_t kButtonPage = 0x09;
+constexpr uint32_t kJoystickUsage = 0x04;
+constexpr uint32_t kGamePadUsage = 0x05;
+constexpr uint32_t kMultiAxisControllerUsage = 0x08;
 constexpr uint32_t kUsageX = 0x30;
 constexpr uint32_t kUsageY = 0x31;
 constexpr uint32_t kUsageZ = 0x32;
@@ -175,26 +176,68 @@ struct Monitor::Impl {
     active_id.clear();
   }
 
-  bool is_dualsense(IOHIDDeviceRef candidate, std::string* id) const {
-    if (!candidate) return false;
-    const int vendor =
-        cf_int(IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDVendorIDKey)));
-    const int product =
-        cf_int(IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDProductIDKey)));
+  int controller_score(IOHIDDeviceRef candidate, std::string* id) const {
+    if (!candidate) return -1;
     const std::string product_name = cf_string(
         IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDProductKey)));
     const std::string manufacturer = cf_string(
         IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDManufacturerKey)));
-    const bool recognized =
-        vendor == kSonyVendorId &&
-        (product == kDualSenseProductId ||
-         product_name.find("DualSense") != std::string::npos ||
-         product_name.find("DUALSENSE") != std::string::npos);
-    if (recognized && id)
-      *id = product_name.empty() ? "DualSense Wireless Controller"
-                                 : product_name;
-    (void)manufacturer;
-    return recognized;
+    const int primary_page = cf_int(IOHIDDeviceGetProperty(
+        candidate, CFSTR(kIOHIDPrimaryUsagePageKey)));
+    const int primary_usage = cf_int(IOHIDDeviceGetProperty(
+        candidate, CFSTR(kIOHIDPrimaryUsageKey)));
+    const bool has_controller_usage =
+        primary_page == static_cast<int>(kGenericDesktopPage) &&
+        (primary_usage == static_cast<int>(kJoystickUsage) ||
+         primary_usage == static_cast<int>(kGamePadUsage) ||
+         primary_usage == static_cast<int>(kMultiAxisControllerUsage));
+    const bool is_known_non_controller =
+        primary_page == static_cast<int>(kGenericDesktopPage) &&
+        (primary_usage == 0x02 || primary_usage == 0x06);
+    if (is_known_non_controller) return -1;
+
+    int button_count = 0;
+    int axis_count = 0;
+    bool has_hat = false;
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(
+        candidate, nullptr, kIOHIDOptionsTypeNone);
+    if (elements) {
+      for (CFIndex index = 0; index < CFArrayGetCount(elements); ++index) {
+        auto* element = static_cast<IOHIDElementRef>(const_cast<void*>(
+            CFArrayGetValueAtIndex(elements, index)));
+        const IOHIDElementType type = IOHIDElementGetType(element);
+        if (type != kIOHIDElementTypeInput_Button &&
+            type != kIOHIDElementTypeInput_Axis &&
+            type != kIOHIDElementTypeInput_Misc)
+          continue;
+        const uint32_t page = IOHIDElementGetUsagePage(element);
+        const uint32_t usage = IOHIDElementGetUsage(element);
+        if (page == kButtonPage) ++button_count;
+        if (page == kGenericDesktopPage &&
+            (usage == kUsageX || usage == kUsageY || usage == kUsageZ ||
+             usage == kUsageRx || usage == kUsageRy || usage == kUsageRz))
+          ++axis_count;
+        if (page == kGenericDesktopPage && usage == kUsageHat) has_hat = true;
+      }
+      CFRelease(elements);
+    }
+    // Some macOS-recognized controllers expose only generic button and
+    // X/Y-axis elements, without a primary usage or hat descriptor. The
+    // button/axis minimum is sufficient to distinguish those from keyboards
+    // and pointing devices (which are filtered above by their primary usage).
+    if (button_count < 4 || axis_count < 2) return -1;
+    if (id) {
+      if (!product_name.empty()) {
+        *id = product_name;
+      } else if (!manufacturer.empty()) {
+        *id = manufacturer + " Controller";
+      } else {
+        *id = "Controller";
+      }
+    }
+    int score = button_count + axis_count * 2 + (has_hat ? 4 : 0);
+    if (has_controller_usage) score += 100;
+    return score;
   }
 
   bool open_device() {
@@ -210,25 +253,7 @@ struct Monitor::Impl {
     for (const void* value : values) {
       auto* candidate = static_cast<IOHIDDeviceRef>(const_cast<void*>(value));
       std::string candidate_id;
-      if (!is_dualsense(candidate, &candidate_id)) continue;
-      int score = 0;
-      CFArrayRef candidate_elements = IOHIDDeviceCopyMatchingElements(
-          candidate, nullptr, kIOHIDOptionsTypeNone);
-      if (candidate_elements) {
-        for (CFIndex index = 0; index < CFArrayGetCount(candidate_elements);
-             ++index) {
-          auto* element = static_cast<IOHIDElementRef>(const_cast<void*>(
-              CFArrayGetValueAtIndex(candidate_elements, index)));
-          const uint32_t page = IOHIDElementGetUsagePage(element);
-          const uint32_t usage = IOHIDElementGetUsage(element);
-          if (page == kButtonPage && usage >= 1 && usage <= 8) score += 2;
-          if (page == kGenericDesktopPage &&
-              (usage == kUsageX || usage == kUsageY || usage == kUsageZ ||
-               usage == kUsageRz || usage == kUsageHat))
-            score += 3;
-        }
-        CFRelease(candidate_elements);
-      }
+      const int score = controller_score(candidate, &candidate_id);
       if (score > found_score) {
         found = candidate;
         found_id = candidate_id;
@@ -290,6 +315,14 @@ struct Monitor::Impl {
     next.id = active_id;
     Binding hat;
     bool has_hat = false;
+    bool has_right_x_axis = false;
+    bool has_right_y_axis = false;
+    for (const Binding& binding : bindings) {
+      if (binding.page != kGenericDesktopPage) continue;
+      if (binding.usage == kUsageRx) has_right_x_axis = true;
+      if (binding.usage == kUsageRy) has_right_y_axis = true;
+    }
+    const bool standard_right_stick = has_right_x_axis && has_right_y_axis;
     for (const Binding& binding : bindings) {
       if (binding.page == kButtonPage) {
         size_t index = next.buttons.size();
@@ -302,6 +335,10 @@ struct Monitor::Impl {
           case 6: index = 5; break;  // R1
           case 7: index = 6; break;  // L2
           case 8: index = 7; break;  // R2
+          case 9: index = 8; break;  // D-pad up when exposed as buttons
+          case 10: index = 9; break;  // D-pad down when exposed as buttons
+          case 11: index = 10; break;  // D-pad left when exposed as buttons
+          case 12: index = 11; break;  // D-pad right when exposed as buttons
           default: break;
         }
         if (index < next.buttons.size()) next.buttons[index] = button_down(binding);
@@ -309,22 +346,28 @@ struct Monitor::Impl {
       if (binding.page != kGenericDesktopPage) continue;
       switch (binding.usage) {
         case kUsageX:
-          // Left-stick horizontal movement is intentionally not exposed to
-          // the controller action layer yet.
+          // The current snapshot contract exposes vertical left-stick motion.
           break;
         case kUsageY:
           next.axes[0] = normalize_axis(binding);
           break;
         case kUsageZ:
-          next.axes[1] = normalize_axis(binding);
-          break;
-        case kUsageRz:
-          next.axes[2] = normalize_axis(binding);
+          if (standard_right_stick)
+            next.buttons[6] = next.buttons[6] || button_down(binding);
+          else
+            next.axes[1] = normalize_axis(binding);
           break;
         case kUsageRx:
+          if (standard_right_stick) next.axes[1] = normalize_axis(binding);
+          break;
         case kUsageRy:
-          // Trigger values are exposed as buttons by most DualSense HID
-          // descriptors; the generic usage is intentionally ignored here.
+          if (standard_right_stick) next.axes[2] = normalize_axis(binding);
+          break;
+        case kUsageRz:
+          if (standard_right_stick)
+            next.buttons[7] = next.buttons[7] || button_down(binding);
+          else
+            next.axes[2] = normalize_axis(binding);
           break;
         case kUsageHat: {
           hat = binding;

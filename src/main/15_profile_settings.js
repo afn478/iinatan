@@ -6,6 +6,121 @@ const DEFAULT_AUDIO_SOURCES_JSON = JSON.stringify([
 ]);
 const DEFAULT_ANKI_CONNECT_URL = "http://127.0.0.1:8765";
 const DEFAULT_ANKI_FIELD_TEMPLATES_JSON = "{}";
+const CONTROLLER_BUTTON_NAMES = [
+  "primary",
+  "back",
+  "square",
+  "audio",
+  "leftShoulder",
+  "rightShoulder",
+  "leftTrigger",
+  "rightTrigger",
+  "dpadUp",
+  "dpadDown",
+  "dpadLeft",
+  "dpadRight",
+];
+const CONTROLLER_BINDING_ACTIONS = {
+  noPopup: [
+    "none",
+    "lookup",
+    "toggle-pause",
+    "resume-playback",
+    "subtitle-previous",
+    "subtitle-next",
+    "seek-backward",
+    "seek-forward",
+    "frame-step-backward",
+    "frame-step-forward",
+    "volume-down",
+    "volume-up",
+    "speed-down",
+    "speed-up",
+    "audio-menu",
+    "anki-primary",
+    "anki-force-add",
+  ],
+  popup: [
+    "none",
+    "lookup",
+    "toggle-pause",
+    "close-popup",
+    "subtitle-previous",
+    "subtitle-next",
+    "popup-up",
+    "popup-down",
+    "popup-left",
+    "popup-right",
+    "popup-scroll-up",
+    "popup-scroll-down",
+    "play-audio",
+    "audio-menu",
+    "anki-primary",
+    "anki-force-add",
+  ],
+  audio: [
+    "none",
+    "close-audio-list",
+    "audio-up",
+    "audio-down",
+    "audio-left",
+    "audio-right",
+    "audio-activate",
+  ],
+};
+const DEFAULT_CONTROLLER_BINDINGS = {
+  noPopup: {
+    primary: "lookup",
+    back: "resume-playback",
+    square: "toggle-pause",
+    audio: "audio-menu",
+    leftShoulder: "subtitle-previous",
+    rightShoulder: "subtitle-next",
+    leftTrigger: "anki-force-add",
+    rightTrigger: "anki-primary",
+    dpadUp: "volume-up",
+    dpadDown: "volume-down",
+    dpadLeft: "seek-backward",
+    dpadRight: "seek-forward",
+  },
+  popup: {
+    primary: "lookup",
+    back: "close-popup",
+    square: "toggle-pause",
+    audio: "audio-menu",
+    leftShoulder: "subtitle-previous",
+    rightShoulder: "subtitle-next",
+    leftTrigger: "anki-force-add",
+    rightTrigger: "anki-primary",
+    dpadUp: "popup-scroll-up",
+    dpadDown: "popup-scroll-down",
+    dpadLeft: "popup-left",
+    dpadRight: "popup-right",
+  },
+  audio: {
+    primary: "audio-activate",
+    back: "close-audio-list",
+    square: "none",
+    audio: "none",
+    leftShoulder: "none",
+    rightShoulder: "none",
+    leftTrigger: "none",
+    rightTrigger: "none",
+    dpadUp: "audio-up",
+    dpadDown: "audio-down",
+    dpadLeft: "audio-left",
+    dpadRight: "audio-right",
+  },
+};
+const DEFAULT_CONTROLLER_NO_POPUP_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.noPopup,
+);
+const DEFAULT_CONTROLLER_POPUP_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.popup,
+);
+const DEFAULT_CONTROLLER_AUDIO_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.audio,
+);
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
@@ -63,6 +178,9 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   directIpcPollMs: 2,
   workerIdleSleepMs: 2,
   controllerEnabled: false,
+  controllerNoPopupBindingsJson: DEFAULT_CONTROLLER_NO_POPUP_BINDINGS_JSON,
+  controllerPopupBindingsJson: DEFAULT_CONTROLLER_POPUP_BINDINGS_JSON,
+  controllerAudioBindingsJson: DEFAULT_CONTROLLER_AUDIO_BINDINGS_JSON,
 };
 const PROFILE_PREFERENCE_KEYS = Object.keys(PROFILE_PREFERENCE_DEFAULTS);
 const GLOBAL_SETTINGS_DEFAULTS = {
@@ -225,6 +343,41 @@ function normalizeProfilePreferenceBoolValue(value, fallback) {
   }
   return !!value;
 }
+function normalizeControllerBindings(value, context) {
+  let raw = value;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) raw = {};
+    else {
+      try {
+        raw = JSON.parse(text);
+      } catch (_) {
+        raw = {};
+      }
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+  const defaults = DEFAULT_CONTROLLER_BINDINGS[context] || {};
+  const actions = CONTROLLER_BINDING_ACTIONS[context] || ["none"];
+  const allowedActions = Object.create(null);
+  actions.forEach((action) => {
+    allowedActions[action] = true;
+  });
+  const out = {};
+  CONTROLLER_BUTTON_NAMES.forEach((button) => {
+    const candidate = String(
+      raw[button] === undefined ? defaults[button] || "none" : raw[button],
+    ).trim();
+    out[button] = allowedActions[candidate] ? candidate : "none";
+  });
+  return out;
+}
+function normalizeControllerBindingsJsonPreference(value, context) {
+  return JSON.stringify(normalizeControllerBindings(value, context));
+}
+function controllerBindingsFromPreference(value, context) {
+  return normalizeControllerBindings(value, context);
+}
 function normalizeProfilePreferences(prefs) {
   const out = {};
   PROFILE_PREFERENCE_KEYS.forEach((key) => {
@@ -280,6 +433,18 @@ function normalizeProfilePreferences(prefs) {
   out.controllerEnabled = normalizeProfilePreferenceBoolValue(
     out.controllerEnabled,
     PROFILE_PREFERENCE_DEFAULTS.controllerEnabled,
+  );
+  out.controllerNoPopupBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerNoPopupBindingsJson,
+    "noPopup",
+  );
+  out.controllerPopupBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerPopupBindingsJson,
+    "popup",
+  );
+  out.controllerAudioBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerAudioBindingsJson,
+    "audio",
   );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,

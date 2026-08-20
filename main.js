@@ -6057,6 +6057,20 @@ function overlayConfig() {
     debugLogVerbose: prefBool("debugLogVerbose", false),
     controllerWindowActive: nativeBitmapOcrWindowMain,
     controllerEnabled: prefBool("controllerEnabled", false),
+    controllerBindings: {
+      noPopup: controllerBindingsFromPreference(
+        pref("controllerNoPopupBindingsJson", "{}"),
+        "noPopup",
+      ),
+      withPopup: controllerBindingsFromPreference(
+        pref("controllerPopupBindingsJson", "{}"),
+        "popup",
+      ),
+      audioList: controllerBindingsFromPreference(
+        pref("controllerAudioBindingsJson", "{}"),
+        "audio",
+      ),
+    },
     overlayBridgePort,
   };
 }
@@ -9488,6 +9502,121 @@ const DEFAULT_AUDIO_SOURCES_JSON = JSON.stringify([
 ]);
 const DEFAULT_ANKI_CONNECT_URL = "http://127.0.0.1:8765";
 const DEFAULT_ANKI_FIELD_TEMPLATES_JSON = "{}";
+const CONTROLLER_BUTTON_NAMES = [
+  "primary",
+  "back",
+  "square",
+  "audio",
+  "leftShoulder",
+  "rightShoulder",
+  "leftTrigger",
+  "rightTrigger",
+  "dpadUp",
+  "dpadDown",
+  "dpadLeft",
+  "dpadRight",
+];
+const CONTROLLER_BINDING_ACTIONS = {
+  noPopup: [
+    "none",
+    "lookup",
+    "toggle-pause",
+    "resume-playback",
+    "subtitle-previous",
+    "subtitle-next",
+    "seek-backward",
+    "seek-forward",
+    "frame-step-backward",
+    "frame-step-forward",
+    "volume-down",
+    "volume-up",
+    "speed-down",
+    "speed-up",
+    "audio-menu",
+    "anki-primary",
+    "anki-force-add",
+  ],
+  popup: [
+    "none",
+    "lookup",
+    "toggle-pause",
+    "close-popup",
+    "subtitle-previous",
+    "subtitle-next",
+    "popup-up",
+    "popup-down",
+    "popup-left",
+    "popup-right",
+    "popup-scroll-up",
+    "popup-scroll-down",
+    "play-audio",
+    "audio-menu",
+    "anki-primary",
+    "anki-force-add",
+  ],
+  audio: [
+    "none",
+    "close-audio-list",
+    "audio-up",
+    "audio-down",
+    "audio-left",
+    "audio-right",
+    "audio-activate",
+  ],
+};
+const DEFAULT_CONTROLLER_BINDINGS = {
+  noPopup: {
+    primary: "lookup",
+    back: "resume-playback",
+    square: "toggle-pause",
+    audio: "audio-menu",
+    leftShoulder: "subtitle-previous",
+    rightShoulder: "subtitle-next",
+    leftTrigger: "anki-force-add",
+    rightTrigger: "anki-primary",
+    dpadUp: "volume-up",
+    dpadDown: "volume-down",
+    dpadLeft: "seek-backward",
+    dpadRight: "seek-forward",
+  },
+  popup: {
+    primary: "lookup",
+    back: "close-popup",
+    square: "toggle-pause",
+    audio: "audio-menu",
+    leftShoulder: "subtitle-previous",
+    rightShoulder: "subtitle-next",
+    leftTrigger: "anki-force-add",
+    rightTrigger: "anki-primary",
+    dpadUp: "popup-scroll-up",
+    dpadDown: "popup-scroll-down",
+    dpadLeft: "popup-left",
+    dpadRight: "popup-right",
+  },
+  audio: {
+    primary: "audio-activate",
+    back: "close-audio-list",
+    square: "none",
+    audio: "none",
+    leftShoulder: "none",
+    rightShoulder: "none",
+    leftTrigger: "none",
+    rightTrigger: "none",
+    dpadUp: "audio-up",
+    dpadDown: "audio-down",
+    dpadLeft: "audio-left",
+    dpadRight: "audio-right",
+  },
+};
+const DEFAULT_CONTROLLER_NO_POPUP_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.noPopup,
+);
+const DEFAULT_CONTROLLER_POPUP_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.popup,
+);
+const DEFAULT_CONTROLLER_AUDIO_BINDINGS_JSON = JSON.stringify(
+  DEFAULT_CONTROLLER_BINDINGS.audio,
+);
 const PROFILE_PREFERENCE_DEFAULTS = {
   enabledByDefault: true,
   hideNativeSubtitles: true,
@@ -9545,6 +9674,9 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   directIpcPollMs: 2,
   workerIdleSleepMs: 2,
   controllerEnabled: false,
+  controllerNoPopupBindingsJson: DEFAULT_CONTROLLER_NO_POPUP_BINDINGS_JSON,
+  controllerPopupBindingsJson: DEFAULT_CONTROLLER_POPUP_BINDINGS_JSON,
+  controllerAudioBindingsJson: DEFAULT_CONTROLLER_AUDIO_BINDINGS_JSON,
 };
 const PROFILE_PREFERENCE_KEYS = Object.keys(PROFILE_PREFERENCE_DEFAULTS);
 const GLOBAL_SETTINGS_DEFAULTS = {
@@ -9707,6 +9839,41 @@ function normalizeProfilePreferenceBoolValue(value, fallback) {
   }
   return !!value;
 }
+function normalizeControllerBindings(value, context) {
+  let raw = value;
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    if (!text) raw = {};
+    else {
+      try {
+        raw = JSON.parse(text);
+      } catch (_) {
+        raw = {};
+      }
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) raw = {};
+  const defaults = DEFAULT_CONTROLLER_BINDINGS[context] || {};
+  const actions = CONTROLLER_BINDING_ACTIONS[context] || ["none"];
+  const allowedActions = Object.create(null);
+  actions.forEach((action) => {
+    allowedActions[action] = true;
+  });
+  const out = {};
+  CONTROLLER_BUTTON_NAMES.forEach((button) => {
+    const candidate = String(
+      raw[button] === undefined ? defaults[button] || "none" : raw[button],
+    ).trim();
+    out[button] = allowedActions[candidate] ? candidate : "none";
+  });
+  return out;
+}
+function normalizeControllerBindingsJsonPreference(value, context) {
+  return JSON.stringify(normalizeControllerBindings(value, context));
+}
+function controllerBindingsFromPreference(value, context) {
+  return normalizeControllerBindings(value, context);
+}
 function normalizeProfilePreferences(prefs) {
   const out = {};
   PROFILE_PREFERENCE_KEYS.forEach((key) => {
@@ -9762,6 +9929,18 @@ function normalizeProfilePreferences(prefs) {
   out.controllerEnabled = normalizeProfilePreferenceBoolValue(
     out.controllerEnabled,
     PROFILE_PREFERENCE_DEFAULTS.controllerEnabled,
+  );
+  out.controllerNoPopupBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerNoPopupBindingsJson,
+    "noPopup",
+  );
+  out.controllerPopupBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerPopupBindingsJson,
+    "popup",
+  );
+  out.controllerAudioBindingsJson = normalizeControllerBindingsJsonPreference(
+    out.controllerAudioBindingsJson,
+    "audio",
   );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
@@ -13678,6 +13857,12 @@ const OVERLAY_BRIDGE_HANDLERS = {
   "controller-subtitle-seek"(payload) {
     handleControllerSubtitleSeek(payload);
   },
+  "controller-video-seek"(payload) {
+    handleControllerVideoSeek(payload);
+  },
+  "controller-mpv-command"(payload) {
+    handleControllerMpvCommand(payload);
+  },
   "controller-resume-playback"() {
     handleControllerResumePlayback();
   },
@@ -13712,6 +13897,52 @@ function handleControllerSubtitleSeek(payload) {
     return true;
   } catch (error) {
     debugWarn("controller subtitle seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerVideoSeek(payload) {
+  const seconds = Number(payload && payload.seconds);
+  if (!Number.isFinite(seconds) || seconds === 0 || Math.abs(seconds) > 3600) {
+    debugWarn("ignored invalid controller video seek seconds");
+    return false;
+  }
+  try {
+    mpv.command("seek", [String(seconds), "relative"]);
+    return true;
+  } catch (error) {
+    debugWarn("controller video seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerMpvCommand(payload) {
+  const input = payload && typeof payload === "object" ? payload : {};
+  const command = String(input.command || "");
+  const args = Array.isArray(input.args) ? input.args.map(String) : [];
+  let validatedArgs = null;
+  if (command === "frame-step" || command === "frame-back-step") {
+    if (args.length === 0) validatedArgs = [];
+  } else if (command === "add" && args.length === 2 && args[0] === "volume") {
+    const amount = Number(args[1]);
+    if (Number.isFinite(amount) && amount !== 0 && Math.abs(amount) <= 100)
+      validatedArgs = ["volume", String(amount)];
+  } else if (
+    command === "multiply" &&
+    args.length === 2 &&
+    args[0] === "speed"
+  ) {
+    const factor = Number(args[1]);
+    if (Number.isFinite(factor) && factor > 0 && factor <= 4)
+      validatedArgs = ["speed", String(factor)];
+  }
+  if (!validatedArgs) {
+    debugWarn("ignored invalid controller mpv command");
+    return false;
+  }
+  try {
+    mpv.command(command, validatedArgs);
+    return true;
+  } catch (error) {
+    debugWarn("controller mpv command failed: " + compactError(error));
     return false;
   }
 }
@@ -18070,6 +18301,12 @@ function initializeOverlay(options) {
   });
   overlay.onMessage("controller-subtitle-seek", (payload) => {
     handleControllerSubtitleSeek(payload);
+  });
+  overlay.onMessage("controller-video-seek", (payload) => {
+    handleControllerVideoSeek(payload);
+  });
+  overlay.onMessage("controller-mpv-command", (payload) => {
+    handleControllerMpvCommand(payload);
   });
   overlay.onMessage("controller-resume-playback", () => {
     handleControllerResumePlayback();

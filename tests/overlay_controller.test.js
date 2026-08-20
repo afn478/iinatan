@@ -9,6 +9,8 @@ const { context, overlay } = loadOverlayForTest([
   "applyConfig",
   "renderSubtitle",
   "normalizeControllerGamepad",
+  "controllerActionForButton",
+  "dispatchControllerButton",
   "controllerDirectionFromAxes",
   "processControllerSnapshot",
   "resetControllerInput",
@@ -48,6 +50,34 @@ overlay.applyConfig({
 });
 overlay.state.controller.suppressUntilNeutral = false;
 
+overlay.applyConfig({
+  controllerBindings: {
+    noPopup: { faceSouth: "togglePause" },
+    withPopup: { back: "close-popup" },
+    audioList: { primary: "audio-activate" },
+  },
+});
+assert(
+  overlay.controllerActionForButton("faceSouth", "noPopup") === "togglePause" &&
+    overlay.controllerActionForButton("faceSouth", "withPopup") ===
+      "selectEntry" &&
+    overlay.controllerActionForButton("faceSouth", "audioList") ===
+      "audioActivate",
+  "Controller assignments should accept profile button and action names independently for each context",
+);
+assert(
+  overlay.controllerActionForButton("faceEast", "withPopup") === "closePopup",
+  "Legacy profile button names should map to canonical face buttons",
+);
+overlay.applyConfig({
+  controllerBindings: { withPopup: { primary: "lookup" } },
+});
+assert(
+  overlay.controllerActionForButton("faceSouth", "withPopup") === "selectEntry",
+  "Popup lookup assignment should dispatch the selected-entry action",
+);
+overlay.applyConfig({ controllerBindings: undefined });
+
 const standardButtons = Array.from({ length: 16 }, () => ({
   pressed: false,
   value: 0,
@@ -83,19 +113,19 @@ assert(
   overlay.normalizeControllerGamepad({ mapping: "", connected: true }) === null,
   "Non-standard controllers should be ignored",
 );
-const rawDualSenseButtons = Array.from({ length: 16 }, () => ({
+const rawMacosControllerButtons = Array.from({ length: 16 }, () => ({
   pressed: false,
   value: 0,
 }));
 assert(
   overlay.normalizeControllerGamepad({
-    id: "DualSense Wireless Controller",
+    id: "Generic macOS Controller",
     mapping: "",
     connected: true,
-    buttons: rawDualSenseButtons,
+    buttons: rawMacosControllerButtons,
     axes: [0, 0, 0, 0],
   }),
-  "WebKit should accept a raw DualSense layout when it omits mapping",
+  "WebKit should accept a raw macOS controller layout when it omits mapping",
 );
 assert(
   overlay.controllerDirectionFromAxes(0.2, 0.2) === "" &&
@@ -232,6 +262,44 @@ assert(
 );
 overlay.hidePopup();
 
+overlay.resetControllerInput();
+overlay.processControllerSnapshot(snapshot(), 3080, 16);
+overlay.processControllerSnapshot(snapshot({ dpadLeft: true }), 3100, 20);
+overlay.processControllerSnapshot(snapshot(), 3120, 20);
+overlay.processControllerSnapshot(snapshot({ dpadRight: true }), 3140, 20);
+const videoSeeks = context.__sent.filter(
+  (message) => message.type === "controller-video-seek",
+);
+assert(
+  videoSeeks.some((message) => message.seconds === -5) &&
+    videoSeeks.some((message) => message.seconds === 5),
+  "No-popup d-pad left and right should request short video seeks",
+);
+
+overlay.applyConfig({
+  controllerBindings: {
+    noPopup: { dpadLeft: "seekBackwardLong" },
+    withPopup: { dpadLeft: "closePopup" },
+    audioList: { dpadLeft: "audioNextColumn" },
+  },
+});
+overlay.state.audioSourceMenu = {};
+assert(
+  overlay.controllerActionForButton("faceSouth") === "audioActivate",
+  "The audio-list context should override the same button assignment from broader contexts",
+);
+overlay.state.audioSourceMenu = null;
+overlay.resetControllerInput();
+overlay.processControllerSnapshot(snapshot(), 3160, 16);
+overlay.processControllerSnapshot(snapshot({ dpadLeft: true }), 3180, 20);
+assert(
+  context.__sent.some(
+    (message) =>
+      message.type === "controller-video-seek" && message.seconds === -60,
+  ),
+  "A custom no-popup binding should dispatch its configured video seek",
+);
+
 overlay.state.config.controllerWindowActive = true;
 overlay.resetControllerInput();
 overlay.processControllerSnapshot(snapshot(), 3100, 16);
@@ -240,7 +308,7 @@ assert(
   context.__sent.some(
     (message) => message.type === "controller-resume-playback",
   ),
-  "Circle should request playback resume when no popup layer is open",
+  "Circle should request playback resume when no popup context is open",
 );
 
 console.log("overlay controller tests passed");

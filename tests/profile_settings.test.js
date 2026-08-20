@@ -19,6 +19,12 @@ globalThis.__profileSettings = {
   DEFAULT_ANKI_CONNECT_URL,
   PROFILE_PREFERENCE_DEFAULTS,
   PROFILE_PREFERENCE_KEYS,
+  CONTROLLER_BUTTON_NAMES,
+  CONTROLLER_BINDING_ACTIONS,
+  DEFAULT_CONTROLLER_BINDINGS,
+  normalizeControllerBindings,
+  normalizeControllerBindingsJsonPreference,
+  controllerBindingsFromPreference,
   GLOBAL_SETTINGS_DEFAULTS,
   GLOBAL_SETTINGS_KEYS,
   profilePreferenceRuntimeEffects,
@@ -114,7 +120,43 @@ assert(
 );
 assert(
   prefs.controllerEnabled === false,
-  "DualSense controller input should default to disabled",
+  "Controller input should default to disabled",
+);
+assert(
+  prefs.controllerNoPopupBindingsJson ===
+    JSON.stringify(settings.DEFAULT_CONTROLLER_BINDINGS.noPopup) &&
+    prefs.controllerPopupBindingsJson ===
+      JSON.stringify(settings.DEFAULT_CONTROLLER_BINDINGS.popup) &&
+    prefs.controllerAudioBindingsJson ===
+      JSON.stringify(settings.DEFAULT_CONTROLLER_BINDINGS.audio),
+  "Controller context defaults should be persisted as normalized JSON",
+);
+const normalizedController = settings.normalizeControllerBindings(
+  {
+    primary: "seek-forward",
+    dpadUp: "unknown-action",
+    unexpected: "toggle-pause",
+  },
+  "noPopup",
+);
+assert(
+  normalizedController.primary === "seek-forward" &&
+    normalizedController.dpadUp === "none" &&
+    !Object.prototype.hasOwnProperty.call(normalizedController, "unexpected") &&
+    settings.CONTROLLER_BUTTON_NAMES.length === 12,
+  "Controller bindings should reject unknown actions and buttons",
+);
+assert(
+  settings.normalizeControllerBindingsJsonPreference("not-json", "audio") ===
+    JSON.stringify(settings.DEFAULT_CONTROLLER_BINDINGS.audio),
+  "Malformed controller binding JSON should restore context defaults",
+);
+assert(
+  settings.controllerBindingsFromPreference(
+    JSON.stringify({ primary: "lookup" }),
+    "noPopup",
+  ).primary === "lookup",
+  "Controller bindings should be available as parsed runtime objects",
 );
 assert(
   prefs.bitmapSubtitleOcrEnabled === true,

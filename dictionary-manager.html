@@ -607,6 +607,56 @@
       font-weight: 650;
       overflow-wrap: anywhere;
     }
+    .controller-contexts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .controller-context {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      background: var(--panel);
+    }
+    .controller-context h4 {
+      margin: 0 0 3px;
+      font-size: 13px;
+    }
+    .controller-context p {
+      min-height: 30px;
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .controller-bindings {
+      display: grid;
+      gap: 5px;
+    }
+    .controller-binding-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+      align-items: center;
+      gap: 6px;
+    }
+    .controller-binding-row label {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-size: 11px;
+    }
+    .controller-binding-row select {
+      width: 100%;
+      min-width: 0;
+      padding-left: 6px;
+      padding-right: 20px;
+      font-size: 11px;
+    }
+    .controller-context-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 9px;
+    }
     .anki-field-template {
       width: 100%;
       min-width: 0;
@@ -631,6 +681,7 @@
       }
       .profile-controls { justify-content: flex-start; }
       .form-grid { grid-template-columns: minmax(0, 1fr); }
+      .controller-contexts { grid-template-columns: minmax(0, 1fr); }
       .tabs { overflow-x: auto; }
       .dictionary-row {
         grid-template-columns: 34px 24px minmax(0, 1fr);
@@ -1041,8 +1092,8 @@
       <h3>Worker</h3>
       <div class="form-grid">
         <div>
-          <label class="check-field"><span>Enable DualSense controller input</span><span class="switch"><input data-profile-pref="controllerEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
-          <small class="hint">Off by default. Enabling this may prompt macOS for input monitoring permission.</small>
+          <label class="check-field"><span>Enable controller input</span><span class="switch"><input data-profile-pref="controllerEnabled" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
+          <small class="hint">Off by default. Uses controllers recognized by macOS and may prompt for input monitoring permission.</small>
         </div>
         <label class="check-field"><span>Use direct worker IPC</span><span class="switch"><input data-profile-pref="directWorkerIpc" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
         <label class="check-field"><span>Fall back to client executable lookup</span><span class="switch"><input data-profile-pref="fallbackToClientExec" type="checkbox"><span class="track"></span><span class="thumb"></span></span></label>
@@ -1054,6 +1105,29 @@
           <label for="workerIdleSleepMs">Worker idle sleep interval (ms)</label>
           <input id="workerIdleSleepMs" data-profile-pref="workerIdleSleepMs" type="number" min="1" max="100" step="1">
         </div>
+      </div>
+
+      <h3>Controller Buttons</h3>
+      <p class="hint">Choose what each controller button does in each part of the player. The active context takes precedence when more than one assignment matches.</p>
+      <div class="controller-contexts">
+        <section class="controller-context" data-controller-context="noPopup">
+          <h4>No Popup</h4>
+          <p>Actions while the video is playing without a dictionary popup.</p>
+          <div class="controller-bindings" data-controller-bindings="noPopup"></div>
+          <div class="controller-context-actions"><button type="button" data-controller-reset="noPopup">Reset No Popup</button></div>
+        </section>
+        <section class="controller-context" data-controller-context="popup">
+          <h4>With Popup</h4>
+          <p>Actions for navigating and controlling an open dictionary popup.</p>
+          <div class="controller-bindings" data-controller-bindings="popup"></div>
+          <div class="controller-context-actions"><button type="button" data-controller-reset="popup">Reset With Popup</button></div>
+        </section>
+        <section class="controller-context" data-controller-context="audio">
+          <h4>Audio List</h4>
+          <p>Actions while choosing an audio source.</p>
+          <div class="controller-bindings" data-controller-bindings="audio"></div>
+          <div class="controller-context-actions"><button type="button" data-controller-reset="audio">Reset Audio List</button></div>
+        </section>
       </div>
 
       <h3>Diagnostics</h3>
@@ -1101,6 +1175,68 @@
   </div>
   <script>
     const DEFAULT_AUDIO_SOURCE_URL = 'http://127.0.0.1:5050/?term={term}&reading={reading}';
+    const CONTROLLER_BUTTONS = [
+      { key: 'primary', label: 'Primary / Cross' },
+      { key: 'back', label: 'Back / Circle' },
+      { key: 'square', label: 'Square' },
+      { key: 'audio', label: 'Audio / Triangle' },
+      { key: 'leftShoulder', label: 'Left Shoulder' },
+      { key: 'rightShoulder', label: 'Right Shoulder' },
+      { key: 'leftTrigger', label: 'Left Trigger' },
+      { key: 'rightTrigger', label: 'Right Trigger' },
+      { key: 'dpadUp', label: 'D-pad Up' },
+      { key: 'dpadDown', label: 'D-pad Down' },
+      { key: 'dpadLeft', label: 'D-pad Left' },
+      { key: 'dpadRight', label: 'D-pad Right' }
+    ];
+    const CONTROLLER_ACTIONS = {
+      noPopup: [
+        ['none', 'Unassigned'],
+        ['lookup', 'Open lookup'],
+        ['toggle-pause', 'Play / pause'],
+        ['resume-playback', 'Resume playback'],
+        ['subtitle-previous', 'Previous subtitle'],
+        ['subtitle-next', 'Next subtitle'],
+        ['seek-backward', 'Seek backward'],
+        ['seek-forward', 'Seek forward'],
+        ['frame-step-backward', 'Previous frame'],
+        ['frame-step-forward', 'Next frame'],
+        ['volume-down', 'Volume down'],
+        ['volume-up', 'Volume up'],
+        ['speed-down', 'Playback speed down'],
+        ['speed-up', 'Playback speed up'],
+        ['audio-menu', 'Open audio list'],
+        ['anki-primary', 'Add to Anki'],
+        ['anki-force-add', 'Add to Anki anyway']
+      ],
+      popup: [
+        ['none', 'Unassigned'],
+        ['lookup', 'Select visible entry'],
+        ['toggle-pause', 'Play / pause'],
+        ['close-popup', 'Close popup'],
+        ['subtitle-previous', 'Previous subtitle'],
+        ['subtitle-next', 'Next subtitle'],
+        ['popup-up', 'Select entry up'],
+        ['popup-down', 'Select entry down'],
+        ['popup-left', 'Select entry left'],
+        ['popup-right', 'Select entry right'],
+        ['popup-scroll-up', 'Scroll up'],
+        ['popup-scroll-down', 'Scroll down'],
+        ['play-audio', 'Play selected audio'],
+        ['audio-menu', 'Open audio list'],
+        ['anki-primary', 'Add to Anki'],
+        ['anki-force-add', 'Add to Anki anyway']
+      ],
+      audio: [
+        ['none', 'Unassigned'],
+        ['close-audio-list', 'Close audio list'],
+        ['audio-up', 'Move up'],
+        ['audio-down', 'Move down'],
+        ['audio-left', 'Move left'],
+        ['audio-right', 'Move right'],
+        ['audio-activate', 'Choose audio source']
+      ]
+    };
 
     const state = {
       dictionaries: [],
@@ -1124,7 +1260,8 @@
       audioSourceSerial: 0,
       anki: null,
       ankiFieldTemplates: {},
-      ankiAutofillModelName: ''
+      ankiAutofillModelName: '',
+      controllerBindings: { noPopup: {}, popup: {}, audio: {} }
     };
 
     const els = {
@@ -1247,6 +1384,9 @@
       });
       Array.from(document.querySelectorAll('[data-busy-control]')).forEach(control => {
         control.disabled = disabled || control.dataset.positionDisabled === 'true';
+      });
+      Array.from(document.querySelectorAll('[data-controller-reset]')).forEach(control => {
+        control.disabled = disabled;
       });
       syncNativeSubtitleControls();
       Array.from(els.dictionaryList.querySelectorAll('.dictionary-row')).forEach(row => {
@@ -1379,6 +1519,92 @@
     }
     function syncAudioSourcesFromProfile() {
       state.audioSources = normalizeAudioSources(profileValue('audioSourcesJson'));
+    }
+    function controllerPreferenceKey(context) {
+      return context === 'popup'
+        ? 'controllerPopupBindingsJson'
+        : context === 'audio'
+          ? 'controllerAudioBindingsJson'
+          : 'controllerNoPopupBindingsJson';
+    }
+    function normalizeControllerBindings(value, context) {
+      let raw = value;
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw); } catch (_) { raw = {}; }
+      }
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = {};
+      const defaults = state.profilePreferenceDefaults[controllerPreferenceKey(context)];
+      let defaultValues = defaults;
+      if (typeof defaultValues === 'string') {
+        try { defaultValues = JSON.parse(defaultValues); } catch (_) { defaultValues = {}; }
+      }
+      const actions = CONTROLLER_ACTIONS[context] || CONTROLLER_ACTIONS.noPopup;
+      const valid = Object.create(null);
+      actions.forEach(action => { valid[action[0]] = true; });
+      const result = {};
+      CONTROLLER_BUTTONS.forEach(button => {
+        const fallback = defaultValues && defaultValues[button.key] || 'none';
+        const candidate = String(raw[button.key] === undefined ? fallback : raw[button.key]);
+        result[button.key] = valid[candidate] ? candidate : 'none';
+      });
+      return result;
+    }
+    function serializeControllerBindings(bindings, context) {
+      return JSON.stringify(normalizeControllerBindings(bindings, context));
+    }
+    function syncControllerBindingsFromProfile() {
+      ['noPopup', 'popup', 'audio'].forEach(context => {
+        state.controllerBindings[context] = normalizeControllerBindings(
+          profileValue(controllerPreferenceKey(context)),
+          context
+        );
+      });
+    }
+    function saveControllerBindings(context) {
+      if (state.rendering) return;
+      saveProfilePreferences();
+    }
+    function renderControllerBindings() {
+      ['noPopup', 'popup', 'audio'].forEach(context => {
+        const container = document.querySelector('[data-controller-bindings="' + context + '"]');
+        if (!container) return;
+        container.innerHTML = '';
+        const values = state.controllerBindings[context] || {};
+        CONTROLLER_BUTTONS.forEach(button => {
+          const row = document.createElement('div');
+          row.className = 'controller-binding-row';
+          const label = document.createElement('label');
+          label.textContent = button.label;
+          label.htmlFor = 'controller-' + context + '-' + button.key;
+          const select = document.createElement('select');
+          select.id = label.htmlFor;
+          select.dataset.controllerBinding = context;
+          select.dataset.controllerButton = button.key;
+          select.disabled = state.busy;
+          (CONTROLLER_ACTIONS[context] || []).forEach(action => {
+            const option = document.createElement('option');
+            option.value = action[0];
+            option.textContent = action[1];
+            option.selected = values[button.key] === action[0];
+            select.appendChild(option);
+          });
+          select.addEventListener('change', () => {
+            state.controllerBindings[context][button.key] = select.value;
+            saveControllerBindings(context);
+          });
+          row.appendChild(label);
+          row.appendChild(select);
+          container.appendChild(row);
+        });
+      });
+    }
+    function resetControllerBindings(context) {
+      state.controllerBindings[context] = normalizeControllerBindings(
+        state.profilePreferenceDefaults[controllerPreferenceKey(context)],
+        context
+      );
+      renderControllerBindings();
+      saveControllerBindings(context);
     }
     function normalizeAnkiFieldTemplates(value) {
       let raw = value;
@@ -1702,6 +1928,18 @@
       });
       prefs.audioSourcesJson = serializeAudioSources(state.audioSources);
       prefs.ankiFieldTemplatesJson = serializeAnkiFieldTemplates(state.ankiFieldTemplates);
+      prefs.controllerNoPopupBindingsJson = serializeControllerBindings(
+        state.controllerBindings.noPopup,
+        'noPopup'
+      );
+      prefs.controllerPopupBindingsJson = serializeControllerBindings(
+        state.controllerBindings.popup,
+        'popup'
+      );
+      prefs.controllerAudioBindingsJson = serializeControllerBindings(
+        state.controllerBindings.audio,
+        'audio'
+      );
       return prefs;
     }
     function collectGlobalSettings() {
@@ -1752,6 +1990,7 @@
         setControlValue(control, globalValue(control.dataset.globalSetting));
       });
       syncAudioSourcesFromProfile();
+      syncControllerBindingsFromProfile();
       syncAnkiFieldTemplatesFromProfile();
       syncNativeSubtitleControls();
       const bitmapStatus = document.getElementById('bitmapSubtitleOcrStatus');
@@ -1768,6 +2007,7 @@
           : 'Compatibility is checked when the native lookup worker starts during playback.';
       }
       state.rendering = false;
+      renderControllerBindings();
     }
     function syncNativeSubtitleControls() {
       const bitmapOcr = document.getElementById('bitmapSubtitleOcrEnabled');
@@ -2123,6 +2363,9 @@
         syncNativeSubtitleControls();
         saveProfilePreferences();
       });
+    });
+    Array.from(document.querySelectorAll('[data-controller-reset]')).forEach(control => {
+      control.addEventListener('click', () => resetControllerBindings(control.dataset.controllerReset));
     });
     Array.from(document.querySelectorAll('[data-global-setting]')).forEach(control => {
       control.addEventListener('change', saveGlobalSettings);

@@ -265,6 +265,68 @@ assert(
     mpvCommands.length === 2,
   "Invalid controller subtitle directions should be rejected",
 );
+assert(
+  context.handleControllerVideoSeek({ seconds: -5 }) === true &&
+    mpvCommands.length === 3 &&
+    mpvCommands[2].name === "seek" &&
+    mpvCommands[2].args[0] === "-5" &&
+    mpvCommands[2].args[1] === "relative",
+  "Controller video seek should invoke a relative mpv seek",
+);
+assert(
+  context.handleControllerVideoSeek({ seconds: Infinity }) === false &&
+    mpvCommands.length === 3,
+  "Invalid controller video seek values should be rejected",
+);
+assert(
+  context.dispatchOverlayBridgePayload({
+    type: "controller-video-seek",
+    seconds: 7,
+  }) === true &&
+    mpvCommands.length === 4 &&
+    mpvCommands[3].name === "seek" &&
+    mpvCommands[3].args.join(",") === "7,relative",
+  "The overlay bridge should dispatch controller video seeks",
+);
+assert(
+  context.handleControllerMpvCommand({
+    command: "frame-step",
+    args: [],
+  }) === true &&
+    context.handleControllerMpvCommand({
+      command: "frame-back-step",
+      args: [],
+    }) === true &&
+    context.handleControllerMpvCommand({
+      command: "add",
+      args: ["volume", "5"],
+    }) === true &&
+    context.handleControllerMpvCommand({
+      command: "multiply",
+      args: ["speed", "1.1"],
+    }) === true &&
+    mpvCommands.length === 8 &&
+    mpvCommands[4].name === "frame-step" &&
+    mpvCommands[5].name === "frame-back-step" &&
+    mpvCommands[6].args.join(",") === "volume,5" &&
+    mpvCommands[7].args.join(",") === "speed,1.1",
+  "Configured frame, volume, and speed actions should invoke approved mpv commands",
+);
+assert(
+  context.handleControllerMpvCommand({
+    command: "set",
+    args: ["pause", "false"],
+  }) === false && mpvCommands.length === 8,
+  "Controller mpv commands outside the configured action set should be rejected",
+);
+assert(
+  context.dispatchOverlayBridgePayload({
+    type: "controller-mpv-command",
+    command: "add",
+    args: ["volume", "NaN"],
+  }) === true && mpvCommands.length === 8,
+  "Invalid bridged controller mpv commands should be ignored",
+);
 resetCase(true);
 assert(
   context.handleControllerResumePlayback() === true &&

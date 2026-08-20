@@ -388,7 +388,7 @@ assert(
 );
 assert(
   /data-profile-pref="controllerEnabled"/.test(managerHtml),
-  "Settings manager should expose the opt-in DualSense controller toggle",
+  "Settings manager should expose the opt-in macOS controller toggle",
 );
 assert(
   /data-profile-pref="bitmapSubtitleOcrPrefetchEnabled"/.test(managerHtml),

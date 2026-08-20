@@ -311,6 +311,20 @@ function overlayConfig() {
     debugLogVerbose: prefBool("debugLogVerbose", false),
     controllerWindowActive: nativeBitmapOcrWindowMain,
     controllerEnabled: prefBool("controllerEnabled", false),
+    controllerBindings: {
+      noPopup: controllerBindingsFromPreference(
+        pref("controllerNoPopupBindingsJson", "{}"),
+        "noPopup",
+      ),
+      withPopup: controllerBindingsFromPreference(
+        pref("controllerPopupBindingsJson", "{}"),
+        "popup",
+      ),
+      audioList: controllerBindingsFromPreference(
+        pref("controllerAudioBindingsJson", "{}"),
+        "audio",
+      ),
+    },
     overlayBridgePort,
   };
 }

@@ -224,6 +224,12 @@ function initializeOverlay(options) {
   overlay.onMessage("controller-subtitle-seek", (payload) => {
     handleControllerSubtitleSeek(payload);
   });
+  overlay.onMessage("controller-video-seek", (payload) => {
+    handleControllerVideoSeek(payload);
+  });
+  overlay.onMessage("controller-mpv-command", (payload) => {
+    handleControllerMpvCommand(payload);
+  });
   overlay.onMessage("controller-resume-playback", () => {
     handleControllerResumePlayback();
   });

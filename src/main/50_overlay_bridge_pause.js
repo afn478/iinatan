@@ -34,6 +34,12 @@ const OVERLAY_BRIDGE_HANDLERS = {
   "controller-subtitle-seek"(payload) {
     handleControllerSubtitleSeek(payload);
   },
+  "controller-video-seek"(payload) {
+    handleControllerVideoSeek(payload);
+  },
+  "controller-mpv-command"(payload) {
+    handleControllerMpvCommand(payload);
+  },
   "controller-resume-playback"() {
     handleControllerResumePlayback();
   },
@@ -68,6 +74,52 @@ function handleControllerSubtitleSeek(payload) {
     return true;
   } catch (error) {
     debugWarn("controller subtitle seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerVideoSeek(payload) {
+  const seconds = Number(payload && payload.seconds);
+  if (!Number.isFinite(seconds) || seconds === 0 || Math.abs(seconds) > 3600) {
+    debugWarn("ignored invalid controller video seek seconds");
+    return false;
+  }
+  try {
+    mpv.command("seek", [String(seconds), "relative"]);
+    return true;
+  } catch (error) {
+    debugWarn("controller video seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerMpvCommand(payload) {
+  const input = payload && typeof payload === "object" ? payload : {};
+  const command = String(input.command || "");
+  const args = Array.isArray(input.args) ? input.args.map(String) : [];
+  let validatedArgs = null;
+  if (command === "frame-step" || command === "frame-back-step") {
+    if (args.length === 0) validatedArgs = [];
+  } else if (command === "add" && args.length === 2 && args[0] === "volume") {
+    const amount = Number(args[1]);
+    if (Number.isFinite(amount) && amount !== 0 && Math.abs(amount) <= 100)
+      validatedArgs = ["volume", String(amount)];
+  } else if (
+    command === "multiply" &&
+    args.length === 2 &&
+    args[0] === "speed"
+  ) {
+    const factor = Number(args[1]);
+    if (Number.isFinite(factor) && factor > 0 && factor <= 4)
+      validatedArgs = ["speed", String(factor)];
+  }
+  if (!validatedArgs) {
+    debugWarn("ignored invalid controller mpv command");
+    return false;
+  }
+  try {
+    mpv.command(command, validatedArgs);
+    return true;
+  } catch (error) {
+    debugWarn("controller mpv command failed: " + compactError(error));
     return false;
   }
 }

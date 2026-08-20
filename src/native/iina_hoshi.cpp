@@ -951,7 +951,7 @@ static void cmd_worker(int argc, char** argv) {
 #else
       "false"
 #endif
-      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"enabled\":" + (controller_enabled ? "true" : "false") + ",\"products\":[\"dualsense\"]},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"enabled\":" + (controller_enabled ? "true" : "false") + ",\"products\":[\"gamepad\"]},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
   const int active_sleep_ms = std::max(1, sleep_ms);
   const int idle_sleep_ms = std::max(active_sleep_ms, 16);
   int current_sleep_ms = active_sleep_ms;
@@ -1388,7 +1388,7 @@ static void cmd_version() {
             << ",\"observedPlain\":true"
             << ",\"ffmpeg\":" << json_quote(iinatan::ass::ffmpeg_geometry_version())
             << ",\"libass\":" << json_quote(iinatan::ass::libass_geometry_version())
-            << ",\"architecture\":\"arm64\"},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"products\":[\"dualsense\"]},\"bitmapOcr\":"
+            << ",\"architecture\":\"arm64\"},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"products\":[\"gamepad\"]},\"bitmapOcr\":"
             << bitmap_ocr_service.capability().dump()
             << ",\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }

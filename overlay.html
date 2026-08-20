@@ -1440,6 +1440,81 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   const CONTROLLER_DIRECTION_THRESHOLD = 0.62;
   const CONTROLLER_REPEAT_DELAY_MS = 340;
   const CONTROLLER_REPEAT_INTERVAL_MS = 120;
+  const CONTROLLER_CONTEXT_DEFAULTS = {
+    noPopup: {
+      faceSouth: "lookup",
+      faceEast: "resumePlayback",
+      faceWest: "togglePause",
+      leftShoulder: "subtitlePrevious",
+      rightShoulder: "subtitleNext",
+      dpadUp: "seekBackwardLong",
+      dpadDown: "seekForwardLong",
+      dpadLeft: "seekBackward",
+      dpadRight: "seekForward",
+    },
+    withPopup: {
+      faceSouth: "selectEntry",
+      faceEast: "closePopup",
+      faceWest: "togglePause",
+      faceNorth: "audioMenu",
+      leftShoulder: "subtitlePrevious",
+      rightShoulder: "subtitleNext",
+      dpadUp: "scrollUp",
+      dpadDown: "scrollDown",
+      dpadLeft: "entryPrevious",
+      dpadRight: "entryNext",
+      leftTrigger: "ankiForceAdd",
+      rightTrigger: "ankiPrimary",
+    },
+    audioList: {
+      faceSouth: "audioActivate",
+      faceEast: "closeAudioList",
+      dpadUp: "audioPrevious",
+      dpadDown: "audioNext",
+      dpadLeft: "audioPreviousColumn",
+      dpadRight: "audioNextColumn",
+    },
+  };
+  const CONTROLLER_ACTION_ALIASES = {
+    "subtitle-seek-previous": "subtitlePrevious",
+    "subtitle-seek-next": "subtitleNext",
+    "subtitle-previous": "subtitlePrevious",
+    "subtitle-next": "subtitleNext",
+    "seek-backward": "seekBackward",
+    "seek-forward": "seekForward",
+    "seek-backward-long": "seekBackwardLong",
+    "seek-forward-long": "seekForwardLong",
+    "toggle-pause": "togglePause",
+    "resume-playback": "resumePlayback",
+    "close-popup": "closePopup",
+    "close-audio-list": "closeAudioList",
+    "audio-menu": "audioMenu",
+    "audio-activate": "audioActivate",
+    "select-entry": "selectEntry",
+    "frame-step-backward": "frameStepBackward",
+    "frame-step-forward": "frameStepForward",
+    "volume-down": "volumeDown",
+    "volume-up": "volumeUp",
+    "speed-down": "speedDown",
+    "speed-up": "speedUp",
+    "entry-previous": "entryPrevious",
+    "entry-next": "entryNext",
+    "scroll-up": "scrollUp",
+    "scroll-down": "scrollDown",
+    "popup-up": "scrollUp",
+    "popup-down": "scrollDown",
+    "popup-left": "entryPrevious",
+    "popup-right": "entryNext",
+    "popup-scroll-up": "scrollUp",
+    "popup-scroll-down": "scrollDown",
+    "play-audio": "playAudio",
+    "audio-up": "audioPrevious",
+    "audio-down": "audioNext",
+    "audio-left": "audioPreviousColumn",
+    "audio-right": "audioNextColumn",
+    "anki-primary": "ankiPrimary",
+    "anki-force-add": "ankiForceAdd",
+  };
   const JAPANESE_KANJI_RANGE = "\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3005";
   const JAPANESE_KANJI_PATTERN = new RegExp("[" + JAPANESE_KANJI_RANGE + "]");
   const JAPANESE_KANJI_SEGMENT_PATTERN = new RegExp(
@@ -1452,6 +1527,115 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   let lastCustomPopupCss = null;
   let popupThemeHintQuery = null;
   let popupThemeHintListenerRegistered = false;
+
+  function normalizeControllerAction(action) {
+    if (action === null || action === false || action === "") return "";
+    const value = String(action || "").trim();
+    if (!value) return "";
+    return CONTROLLER_ACTION_ALIASES[value] || value;
+  }
+
+  function normalizeControllerBindings(bindings) {
+    const input = bindings && typeof bindings === "object" ? bindings : {};
+    const buttonAliases = {
+      faceSouth: "primary",
+      faceEast: "back",
+      faceWest: "square",
+      faceNorth: "audio",
+    };
+    const result = {};
+    Object.keys(CONTROLLER_CONTEXT_DEFAULTS).forEach((context) => {
+      const configured =
+        input[context] && typeof input[context] === "object"
+          ? input[context]
+          : {};
+      result[context] = Object.assign({}, CONTROLLER_CONTEXT_DEFAULTS[context]);
+      Object.keys(CONTROLLER_CONTEXT_DEFAULTS[context]).forEach((button) => {
+        const legacy = buttonAliases[button];
+        const configuredButton = Object.prototype.hasOwnProperty.call(
+          configured,
+          button,
+        )
+          ? button
+          : legacy && Object.prototype.hasOwnProperty.call(configured, legacy)
+            ? legacy
+            : null;
+        if (configuredButton)
+          result[context][button] = normalizeControllerAction(
+            configured[configuredButton],
+          );
+      });
+    });
+    return result;
+  }
+
+  function mergeControllerBindings(bindings) {
+    const input = bindings && typeof bindings === "object" ? bindings : {};
+    const result = {};
+    Object.keys(CONTROLLER_CONTEXT_DEFAULTS).forEach((context) => {
+      const configured =
+        input[context] && typeof input[context] === "object"
+          ? input[context]
+          : {};
+      result[context] = Object.assign({}, configured);
+    });
+    return result;
+  }
+
+  function controllerContext() {
+    if (state.audioSourceMenu) return "audioList";
+    return controllerPopupVisible() ? "withPopup" : "noPopup";
+  }
+
+  function controllerBindings() {
+    return normalizeControllerBindings(
+      state.config && state.config.controllerBindings,
+    );
+  }
+
+  function controllerActionForButton(button, context) {
+    const selectedContext =
+      context === "audioList" ||
+      context === "withPopup" ||
+      context === "noPopup"
+        ? context
+        : controllerContext();
+    const bindings = controllerBindings();
+    const action = Object.prototype.hasOwnProperty.call(
+      bindings[selectedContext],
+      String(button || ""),
+    )
+      ? bindings[selectedContext][String(button || "")]
+      : CONTROLLER_CONTEXT_DEFAULTS[selectedContext][String(button || "")];
+    const normalized = normalizeControllerAction(action);
+    // The popup editor's "lookup" option means opening the selected entry;
+    // the no-popup context uses the same stored action to open a subtitle
+    // lookup. Keep the persisted action vocabulary compact while honoring
+    // the context-specific command.
+    if (selectedContext === "withPopup" && normalized === "lookup")
+      return "selectEntry";
+    return normalized;
+  }
+
+  function canonicalControllerButtons(buttons) {
+    const input = buttons && typeof buttons === "object" ? buttons : {};
+    const value = (canonical, legacy) =>
+      !!(input[canonical] || (legacy && input[legacy]));
+    return {
+      faceSouth: value("faceSouth", "primary"),
+      faceEast: value("faceEast", "back"),
+      faceWest: value("faceWest", "square"),
+      faceNorth: value("faceNorth", "audio"),
+      leftShoulder: !!input.leftShoulder,
+      rightShoulder: !!input.rightShoulder,
+      leftTrigger: !!input.leftTrigger,
+      rightTrigger: !!input.rightTrigger,
+      dpadUp: !!input.dpadUp,
+      dpadDown: !!input.dpadDown,
+      dpadLeft: !!input.dpadLeft,
+      dpadRight: !!input.dpadRight,
+    };
+  }
 
   function escapeHtml(s) {
     return String(s || "")
@@ -2900,6 +3084,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const previousControllerEnabled = !!state.config.controllerEnabled;
     state.config = Object.assign({}, state.config, config || {});
     state.config.controllerEnabled = !!state.config.controllerEnabled;
+    state.config.controllerBindings = mergeControllerBindings(
+      state.config.controllerBindings,
+    );
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
     state.config.popupMaxWidth = Math.max(
       260,
@@ -6020,6 +6207,40 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     return sent;
   }
 
+  function sendControllerVideoSeek(seconds) {
+    const amount = Number(seconds);
+    if (!Number.isFinite(amount) || amount === 0) return false;
+    const payload = {
+      type: "controller-video-seek",
+      seconds: amount,
+      at: Date.now(),
+    };
+    const sent = sendBridgeMessage(payload) || postPluginMessage(payload);
+    reportControllerInput(
+      "action",
+      { action: "video-seek", seconds: amount, sent },
+      "action:video-seek:" + String(amount),
+    );
+    return sent;
+  }
+
+  function sendControllerMpvCommand(command, args) {
+    const payload = {
+      type: "controller-mpv-command",
+      command: String(command || ""),
+      args: Array.isArray(args) ? args.map((value) => String(value)) : [],
+      at: Date.now(),
+    };
+    if (!payload.command) return false;
+    const sent = sendBridgeMessage(payload) || postPluginMessage(payload);
+    reportControllerInput(
+      "action",
+      { action: "mpv-command", command: payload.command, sent },
+      "action:mpv-command:" + payload.command + ":" + payload.args.join(","),
+    );
+    return sent;
+  }
+
   function controllerScrollTarget() {
     return state.audioSourceMenu || (controllerPopupVisible() ? popupEl : null);
   }
@@ -6141,16 +6362,17 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   function normalizeControllerGamepad(gamepad) {
     if (!gamepad || gamepad.connected === false) return null;
     const mapping = String(gamepad.mapping || "").toLowerCase();
-    const id = String(gamepad.id || "").toLowerCase();
     const standardShape =
       gamepad.buttons &&
       gamepad.buttons.length >= 16 &&
       gamepad.axes &&
       gamepad.axes.length >= 4;
-    const recognized =
-      mapping === "standard" ||
-      (standardShape &&
-        (!mapping || /dualsense|wireless controller|sony|054c|0ce6/.test(id)));
+    const genericShape =
+      gamepad.buttons &&
+      gamepad.buttons.length >= 4 &&
+      gamepad.axes &&
+      gamepad.axes.length >= 2;
+    const recognized = mapping === "standard" || standardShape || genericShape;
     if (!recognized) return null;
     const pressed = (index) => {
       const button = gamepad.buttons && gamepad.buttons[index];
@@ -6171,21 +6393,27 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       const number = Number(value);
       return Number.isFinite(number) ? Math.round(number * 10) / 10 : 0;
     });
+    const buttons = {
+      faceSouth: pressed(0),
+      faceEast: pressed(1),
+      faceWest: pressed(2),
+      faceNorth: pressed(3),
+      leftShoulder: pressed(4),
+      rightShoulder: pressed(5),
+      leftTrigger: pressed(6),
+      rightTrigger: pressed(7),
+      dpadUp: pressed(12),
+      dpadDown: pressed(13),
+      dpadLeft: pressed(14),
+      dpadRight: pressed(15),
+    };
+    // Keep the old native names readable until every producer uses canonical names.
+    buttons.primary = buttons.faceSouth;
+    buttons.back = buttons.faceEast;
+    buttons.square = buttons.faceWest;
+    buttons.audio = buttons.faceNorth;
     return {
-      buttons: {
-        primary: pressed(0),
-        back: pressed(1),
-        square: pressed(2),
-        audio: pressed(3),
-        leftShoulder: pressed(4),
-        rightShoulder: pressed(5),
-        leftTrigger: pressed(6),
-        rightTrigger: pressed(7),
-        dpadUp: pressed(12),
-        dpadDown: pressed(13),
-        dpadLeft: pressed(14),
-        dpadRight: pressed(15),
-      },
+      buttons,
       axes: {
         leftY: axis(1),
         rightX: axis(2),
@@ -6228,6 +6456,94 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     return moveControllerEntry(direction === "left" ? -1 : 1);
   }
 
+  function runControllerAction(action, now) {
+    switch (normalizeControllerAction(action)) {
+      case "lookup":
+        return openFirstControllerLookup();
+      case "selectEntry":
+        return selectLargestVisibleControllerEntry();
+      case "closePopup":
+        hidePopup();
+        return true;
+      case "closeAudioList":
+        hideAudioSourceMenu();
+        return true;
+      case "togglePause":
+        return controllerTogglePause();
+      case "resumePlayback":
+        return sendControllerResumePlayback();
+      case "subtitlePrevious":
+        return sendControllerSubtitleSeek(-1);
+      case "subtitleNext":
+        return sendControllerSubtitleSeek(1);
+      case "seekBackward":
+        return sendControllerVideoSeek(-5);
+      case "seekForward":
+        return sendControllerVideoSeek(5);
+      case "seekBackwardLong":
+        return sendControllerVideoSeek(-60);
+      case "seekForwardLong":
+        return sendControllerVideoSeek(60);
+      case "frameStepBackward":
+        return sendControllerMpvCommand("frame-back-step");
+      case "frameStepForward":
+        return sendControllerMpvCommand("frame-step");
+      case "volumeDown":
+        return sendControllerMpvCommand("add", ["volume", "-5"]);
+      case "volumeUp":
+        return sendControllerMpvCommand("add", ["volume", "5"]);
+      case "speedDown":
+        return sendControllerMpvCommand("multiply", ["speed", "0.9"]);
+      case "speedUp":
+        return sendControllerMpvCommand("multiply", ["speed", "1.1"]);
+      case "audioMenu":
+        return startControllerHold("audio-menu", now);
+      case "audioActivate":
+        return activateControllerAudioFocus();
+      case "playAudio":
+        return controllerPlaySelectedAudio();
+      case "audioPrevious":
+        return moveControllerAudioFocus(-1, 0);
+      case "audioNext":
+        return moveControllerAudioFocus(1, 0);
+      case "audioPreviousColumn":
+        return moveControllerAudioFocus(0, -1);
+      case "audioNextColumn":
+        return moveControllerAudioFocus(0, 1);
+      case "scrollUp":
+        return scrollControllerPopupNotch(-1);
+      case "scrollDown":
+        return scrollControllerPopupNotch(1);
+      case "entryPrevious":
+        return moveControllerEntry(-1);
+      case "entryNext":
+        return moveControllerEntry(1);
+      case "ankiPrimary":
+        return startControllerHold("anki-primary", now);
+      case "ankiForceAdd":
+        return startControllerHold("anki-force-add", now);
+      case "none":
+      case "":
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  function dispatchControllerButton(button, now) {
+    const action = controllerActionForButton(button);
+    const dispatched = runControllerAction(action, now);
+    if (
+      dispatched &&
+      state.controller.hold &&
+      (action === "audioMenu" ||
+        action === "ankiPrimary" ||
+        action === "ankiForceAdd")
+    )
+      state.controller.hold.button = button;
+    return dispatched;
+  }
+
   function controllerPrimaryAction() {
     if (state.audioSourceMenu) return activateControllerAudioFocus();
     if (controllerPopupVisible()) return selectLargestVisibleControllerEntry();
@@ -6257,7 +6573,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       resetControllerInput();
       return false;
     }
-    const buttons = snapshot.buttons || {};
+    const buttons = canonicalControllerButtons(snapshot.buttons);
     const axes = snapshot.axes || {};
     const pressedNames = Object.keys(buttons)
       .filter((name) => !!buttons[name])
@@ -6317,28 +6633,46 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const previous = state.controller.buttons;
     const pressedEdge = (name) => !!buttons[name] && !previous[name];
     const releasedEdge = (name) => !buttons[name] && !!previous[name];
-    if (pressedEdge("leftShoulder")) sendControllerSubtitleSeek(-1);
-    if (pressedEdge("rightShoulder")) sendControllerSubtitleSeek(1);
-    if (pressedEdge("square")) controllerTogglePause();
-    if (pressedEdge("primary")) controllerPrimaryAction();
-    if (pressedEdge("back")) controllerBackAction();
-    if (pressedEdge("audio")) startControllerHold("audio-menu", now);
-    if (releasedEdge("audio")) finishControllerHold("audio-menu");
-    if (pressedEdge("leftTrigger")) startControllerHold("anki-force-add", now);
-    if (releasedEdge("leftTrigger")) finishControllerHold("anki-force-add");
-    if (pressedEdge("rightTrigger")) startControllerHold("anki-primary", now);
-    if (releasedEdge("rightTrigger")) finishControllerHold("anki-primary");
+    [
+      "faceSouth",
+      "faceEast",
+      "faceWest",
+      "faceNorth",
+      "leftShoulder",
+      "rightShoulder",
+      "leftTrigger",
+      "rightTrigger",
+    ].forEach((button) => {
+      if (pressedEdge(button)) dispatchControllerButton(button, now);
+    });
+    [
+      "faceSouth",
+      "faceEast",
+      "faceWest",
+      "faceNorth",
+      "leftShoulder",
+      "rightShoulder",
+      "leftTrigger",
+      "rightTrigger",
+    ].forEach((button) => {
+      if (
+        releasedEdge(button) &&
+        state.controller.hold &&
+        state.controller.hold.button === button
+      )
+        finishControllerHold(state.controller.hold.action);
+    });
     controllerRepeatButton("dpadUp", !!buttons.dpadUp, now, () =>
-      controllerDpadAction("up"),
+      dispatchControllerButton("dpadUp", now),
     );
     controllerRepeatButton("dpadDown", !!buttons.dpadDown, now, () =>
-      controllerDpadAction("down"),
+      dispatchControllerButton("dpadDown", now),
     );
     controllerRepeatButton("dpadLeft", !!buttons.dpadLeft, now, () =>
-      controllerDpadAction("left"),
+      dispatchControllerButton("dpadLeft", now),
     );
     controllerRepeatButton("dpadRight", !!buttons.dpadRight, now, () =>
-      controllerDpadAction("right"),
+      dispatchControllerButton("dpadRight", now),
     );
     const direction = controllerDirectionFromAxes(axes.rightX, axes.rightY);
     const rightRepeat = state.controller.repeats.rightStick;
@@ -10162,7 +10496,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     state.controller.nativeAvailable = true;
     state.controller.nativeSnapshot = payload.connected
       ? {
-          id: String(payload.id || "DualSense Wireless Controller"),
+          id: String(payload.id || "macOS Controller"),
           buttons: Object.assign(Object.create(null), payload.buttons || {}),
           axes: Object.assign(
             { leftY: 0, rightX: 0, rightY: 0 },

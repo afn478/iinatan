@@ -98,17 +98,27 @@ const controllerSource = fs.readFileSync(
 );
 assert(
   /IOHIDManagerCreate/.test(controllerSource) &&
-    /kDualSenseProductId/.test(controllerSource) &&
+    /kGamePadUsage/.test(controllerSource) &&
+    /kJoystickUsage/.test(controllerSource) &&
+    /controller_score/.test(controllerSource) &&
+    !/kDualSenseProductId|is_dualsense/.test(controllerSource) &&
     /milliseconds\(250\)/.test(controllerSource) &&
     /updatedAt/.test(controllerSource) &&
     /source\\\":\\\"native-hid/.test(controllerSource) &&
     /controller_monitor->poll/.test(nativeSource),
-  "Native worker should poll and publish DualSense HID snapshots",
+  "Native worker should poll and publish generic HID controller snapshots",
+);
+assert(
+  /button_count < 4 \|\| axis_count < 2/.test(controllerSource) &&
+    !/!has_controller_usage && !has_hat && axis_count < 4/.test(
+      controllerSource,
+    ),
+  "Generic HID controller fallback should not require a primary usage or hat descriptor",
 );
 assert(
   /"square"/.test(controllerSource) &&
     /case 1: index = 2/.test(controllerSource),
-  "Native DualSense snapshots should preserve the Square face button",
+  "Native controller snapshots should preserve the west face button",
 );
 assert(
   /bitmap-subtitle-ocr/.test(nativeSource) &&
