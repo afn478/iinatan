@@ -144,7 +144,7 @@ if mouse.get("protocol") != 1 or mouse.get("source") != "coregraphics-counter":
 controller = version.get("controller", {})
 if controller.get("protocol") != 1 or controller.get("source") != "native-hid":
     raise SystemExit(1)
-if "dualsense" not in controller.get("products", []):
+if "gamepad" not in controller.get("products", []):
     raise SystemExit(1)
 '; then
     echo "Bitmap subtitle OCR, mouse-intent, or controller capability was not enabled in the finished helper." >&2

@@ -24,6 +24,8 @@ namespace {
 
 constexpr uint32_t kGenericDesktopPage = 0x01;
 constexpr uint32_t kButtonPage = 0x09;
+constexpr int kSonyVendorId = 0x054c;
+constexpr int kDualSenseProductId = 0x0ce6;
 constexpr uint32_t kJoystickUsage = 0x04;
 constexpr uint32_t kGamePadUsage = 0x05;
 constexpr uint32_t kMultiAxisControllerUsage = 0x08;
@@ -154,6 +156,9 @@ struct Monitor::Impl {
     manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     if (manager) {
       IOHIDManagerSetDeviceMatching(manager, nullptr);
+      run_loop = CFRunLoopGetCurrent();
+      IOHIDManagerScheduleWithRunLoop(
+          manager, run_loop, kCFRunLoopDefaultMode);
       IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone);
     }
   }
@@ -161,13 +166,24 @@ struct Monitor::Impl {
   ~Impl() {
     close_device();
     if (manager) {
+      if (run_loop)
+        IOHIDManagerUnscheduleFromRunLoop(
+            manager, run_loop, kCFRunLoopDefaultMode);
       IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
       CFRelease(manager);
     }
   }
 
+  void pump_run_loop() const {
+    if (run_loop)
+      CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+  }
+
   void close_device() {
     if (device) {
+      if (run_loop)
+        IOHIDDeviceUnscheduleFromRunLoop(
+            device, run_loop, kCFRunLoopDefaultMode);
       IOHIDDeviceClose(device, kIOHIDOptionsTypeNone);
       CFRelease(device);
       device = nullptr;
@@ -182,6 +198,8 @@ struct Monitor::Impl {
         IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDProductKey)));
     const std::string manufacturer = cf_string(
         IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDManufacturerKey)));
+    const std::string transport = cf_string(
+        IOHIDDeviceGetProperty(candidate, CFSTR(kIOHIDTransportKey)));
     const int primary_page = cf_int(IOHIDDeviceGetProperty(
         candidate, CFSTR(kIOHIDPrimaryUsagePageKey)));
     const int primary_usage = cf_int(IOHIDDeviceGetProperty(
@@ -221,11 +239,13 @@ struct Monitor::Impl {
       }
       CFRelease(elements);
     }
-    // Some macOS-recognized controllers expose only generic button and
-    // X/Y-axis elements, without a primary usage or hat descriptor. The
-    // button/axis minimum is sufficient to distinguish those from keyboards
-    // and pointing devices (which are filtered above by their primary usage).
-    if (button_count < 4 || axis_count < 2) return -1;
+    // Some macOS HID manager objects do not expose their elements until the
+    // device is opened. A controller primary usage is enough to keep that
+    // candidate eligible; the full button/axis check still filters generic
+    // devices that do not identify themselves as controllers.
+    if (button_count < 4 || axis_count < 2) {
+      if (!has_controller_usage) return -1;
+    }
     if (id) {
       if (!product_name.empty()) {
         *id = product_name;
@@ -237,6 +257,13 @@ struct Monitor::Impl {
     }
     int score = button_count + axis_count * 2 + (has_hat ? 4 : 0);
     if (has_controller_usage) score += 100;
+    // macOS may expose a physical controller alongside an Apple
+    // GameController synthetic device. Prefer the physical HID descriptor,
+    // whose button usages preserve the controller's actual layout.
+    if (!transport.empty() && transport != kIOHIDTransportVirtualValue)
+      score += 50;
+    else if (transport == kIOHIDTransportVirtualValue)
+      score -= 50;
     return score;
   }
 
@@ -270,6 +297,9 @@ struct Monitor::Impl {
       CFRelease(found);
       return false;
     }
+    if (run_loop)
+      IOHIDDeviceScheduleWithRunLoop(
+          found, run_loop, kCFRunLoopDefaultMode);
     device = found;
     active_id = found_id;
     CFArrayRef elements = IOHIDDeviceCopyMatchingElements(
@@ -309,6 +339,20 @@ struct Monitor::Impl {
     return present;
   }
 
+  bool uses_dualsense_axis_layout() const {
+    if (!device) return false;
+    const int vendor =
+        cf_int(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDVendorIDKey)));
+    const int product =
+        cf_int(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductIDKey)));
+    const std::string product_name = cf_string(
+        IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey)));
+    return vendor == kSonyVendorId &&
+        (product == kDualSenseProductId ||
+         product_name.find("DualSense") != std::string::npos ||
+         product_name.find("DUALSENSE") != std::string::npos);
+  }
+
   Snapshot read_snapshot() const {
     Snapshot next;
     next.connected = device != nullptr;
@@ -322,7 +366,10 @@ struct Monitor::Impl {
       if (binding.usage == kUsageRx) has_right_x_axis = true;
       if (binding.usage == kUsageRy) has_right_y_axis = true;
     }
-    const bool standard_right_stick = has_right_x_axis && has_right_y_axis;
+    // DualSense reports the right stick as Z/Rz and analog triggers as Rx/Ry.
+    // Most standard HID gamepads use Rx/Ry for the right stick instead.
+    const bool standard_right_stick =
+        !uses_dualsense_axis_layout() && has_right_x_axis && has_right_y_axis;
     for (const Binding& binding : bindings) {
       if (binding.page == kButtonPage) {
         size_t index = next.buttons.size();
@@ -341,7 +388,8 @@ struct Monitor::Impl {
           case 12: index = 11; break;  // D-pad right when exposed as buttons
           default: break;
         }
-        if (index < next.buttons.size()) next.buttons[index] = button_down(binding);
+        if (index < next.buttons.size())
+          next.buttons[index] = next.buttons[index] || button_down(binding);
       }
       if (binding.page != kGenericDesktopPage) continue;
       switch (binding.usage) {
@@ -383,10 +431,14 @@ struct Monitor::Impl {
       const int offset = value - static_cast<int>(hat.minimum);
       const int direction = offset >= 0 && offset < 8 ? offset : -1;
       // D-pad directions are stored in button slots 8..11.
-      next.buttons[8] = direction == 0 || direction == 1 || direction == 7;
-      next.buttons[9] = direction == 3 || direction == 4 || direction == 5;
-      next.buttons[10] = direction == 5 || direction == 6 || direction == 7;
-      next.buttons[11] = direction == 1 || direction == 2 || direction == 3;
+      next.buttons[8] =
+          next.buttons[8] || direction == 0 || direction == 1 || direction == 7;
+      next.buttons[9] =
+          next.buttons[9] || direction == 3 || direction == 4 || direction == 5;
+      next.buttons[10] =
+          next.buttons[10] || direction == 5 || direction == 6 || direction == 7;
+      next.buttons[11] =
+          next.buttons[11] || direction == 1 || direction == 2 || direction == 3;
     }
     return next;
   }
@@ -430,6 +482,10 @@ struct Monitor::Impl {
   }
 
   void poll() {
+    // IOHIDManager enumerates hot-plugged devices through its scheduled run
+    // loop. Service pending HID events before reading its device set so a
+    // controller connected after IINA startup becomes visible immediately.
+    pump_run_loop();
     if (device && !device_is_present()) close_device();
     if (!device && !open_device()) {
       Snapshot disconnected;
@@ -443,6 +499,7 @@ struct Monitor::Impl {
 
   fs::path state_path;
   IOHIDManagerRef manager = nullptr;
+  CFRunLoopRef run_loop = nullptr;
   IOHIDDeviceRef device = nullptr;
   std::vector<Binding> bindings;
   std::string active_id;

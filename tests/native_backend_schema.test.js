@@ -98,18 +98,29 @@ const controllerSource = fs.readFileSync(
 );
 assert(
   /IOHIDManagerCreate/.test(controllerSource) &&
+    /IOHIDManagerScheduleWithRunLoop/.test(controllerSource) &&
+    /CFRunLoopRunInMode/.test(controllerSource) &&
+    /IOHIDManagerUnscheduleFromRunLoop/.test(controllerSource) &&
+    /IOHIDDeviceScheduleWithRunLoop/.test(controllerSource) &&
+    /IOHIDDeviceUnscheduleFromRunLoop/.test(controllerSource) &&
     /kGamePadUsage/.test(controllerSource) &&
     /kJoystickUsage/.test(controllerSource) &&
     /controller_score/.test(controllerSource) &&
-    !/kDualSenseProductId|is_dualsense/.test(controllerSource) &&
+    /kIOHIDTransportKey/.test(controllerSource) &&
+    /kIOHIDTransportVirtualValue/.test(controllerSource) &&
+    /uses_dualsense_axis_layout/.test(controllerSource) &&
+    /kDualSenseProductId/.test(controllerSource) &&
+    !/is_dualsense/.test(controllerSource) &&
     /milliseconds\(250\)/.test(controllerSource) &&
     /updatedAt/.test(controllerSource) &&
+    /next\.buttons\[index\] \|\| button_down/.test(controllerSource) &&
     /source\\\":\\\"native-hid/.test(controllerSource) &&
     /controller_monitor->poll/.test(nativeSource),
-  "Native worker should poll and publish generic HID controller snapshots",
+  "Native worker should poll and publish hot-plugged generic HID controller snapshots",
 );
 assert(
   /button_count < 4 \|\| axis_count < 2/.test(controllerSource) &&
+    /if \(!has_controller_usage\) return -1/.test(controllerSource) &&
     !/!has_controller_usage && !has_hat && axis_count < 4/.test(
       controllerSource,
     ),

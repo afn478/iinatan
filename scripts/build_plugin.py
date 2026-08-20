@@ -333,7 +333,7 @@ def validate_native_backend() -> None:
     if (
         controller.get("protocol") != 1
         or controller.get("source") != "native-hid"
-        or "dualsense" not in controller.get("products", [])
+        or "gamepad" not in controller.get("products", [])
     ):
         raise SystemExit("Native backend has an incompatible controller capability")
     dependencies = subprocess.run(
