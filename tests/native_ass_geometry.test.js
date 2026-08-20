@@ -73,6 +73,20 @@ assert.deepStrictEqual(version.mouseIntent, {
   protocol: 1,
   source: "coregraphics-counter",
 });
+assert.deepStrictEqual(version.controller, {
+  protocol: 1,
+  source: "native-hid",
+  products: ["dualsense"],
+});
+const controllerState = JSON.parse(
+  execFileSync(binary, ["controller-state"], { encoding: "utf8" }),
+);
+assert.strictEqual(controllerState.protocol, 1);
+assert.strictEqual(controllerState.source, "native-hid");
+assert.strictEqual(typeof controllerState.updatedAt, "number");
+assert.strictEqual(typeof controllerState.connected, "boolean");
+assert.strictEqual(typeof controllerState.buttons.primary, "boolean");
+assert.strictEqual(typeof controllerState.axes.rightY, "number");
 
 const cases = [
   {

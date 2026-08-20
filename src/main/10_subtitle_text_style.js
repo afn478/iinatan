@@ -309,6 +309,7 @@ function overlayConfig() {
     customPopupCss: String(pref("customPopupCss", "") || ""),
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
+    controllerWindowActive: nativeBitmapOcrWindowMain,
     overlayBridgePort,
   };
 }

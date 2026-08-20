@@ -71,6 +71,22 @@ class FakeElement {
   focus() {
     this.focused = true;
   }
+  click() {
+    if (typeof this.listeners.click === "function")
+      this.listeners.click({
+        currentTarget: this,
+        target: this,
+        preventDefault() {},
+        stopPropagation() {},
+      });
+  }
+  scrollBy(options) {
+    this.scrollTop =
+      Number(this.scrollTop || 0) + Number((options && options.top) || 0);
+  }
+  scrollIntoView() {
+    this.scrolledIntoView = true;
+  }
   set textContent(value) {
     this._textContent = String(value || "");
     if (this.tagName !== "#text") {
@@ -271,6 +287,7 @@ function makeOverlayContext(options) {
     status: new FakeElement("status"),
     "bitmap-ocr-status": new FakeElement("bitmap-ocr-status"),
     task: new FakeElement("task"),
+    "controller-hold-progress": new FakeElement("controller-hold-progress"),
   };
   elements.popup.classList.add("hidden");
   elements.popup.classList.add("lookup-popup");
@@ -279,6 +296,7 @@ function makeOverlayContext(options) {
   elements["popup-safety-zone"].setAttribute("data-clickable", "true");
   elements["popup-row-safety-zone"].classList.add("hidden");
   elements["popup-row-safety-zone"].setAttribute("data-clickable", "true");
+  elements["controller-hold-progress"].classList.add("hidden");
   const overlayRoot = new FakeElement("root");
   overlayRoot.id = "root";
   elements.root = overlayRoot;

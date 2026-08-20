@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added DualSense navigation for subtitle lookup, dictionary entry selection, popup scrolling, entry audio, Anki actions, and direct previous/next subtitle seeking, with foreground gating and visual long-press feedback. Input is captured through the persistent native HoshiDicts worker because IINA's WebKit Gamepad objects do not publish live controller state.
+- Circle now resumes playback when no controller popup layer is open.
+
 ## 2.1.5 - 2026-08-19
 
 ### Fixed

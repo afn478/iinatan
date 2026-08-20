@@ -234,6 +234,12 @@ let nativeBitmapOcrMouseActivitySeen = false;
 let nativeBitmapOcrMouseIntentSeen = false;
 let nativeBitmapOcrMouseActivityCounter = null;
 let nativeBitmapOcrWindowMain = true;
+let nativeControllerPollTimer = null;
+let nativeControllerLastSequence = -1;
+let nativeControllerLastSnapshot = null;
+let nativeControllerShoulderState = { left: false, right: false };
+let nativeControllerNeedsNeutral = true;
+let nativeControllerMissingPolls = 0;
 let nativeExternalSrtCache = Object.create(null);
 let nativeExternalSrtInFlight = Object.create(null);
 let nativeExternalSrtGeneration = 0;
@@ -944,6 +950,9 @@ function workerReadyPath() {
 }
 function workerMouseActivityPath() {
   return pathJoin(workerStateDir(), "mouse.json");
+}
+function workerControllerStatePath() {
+  return pathJoin(workerStateDir(), "controller.json");
 }
 function workerLogPath() {
   return pathJoin(workerRoot(), "worker.log");

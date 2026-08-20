@@ -5,11 +5,16 @@ const vm = require("vm");
 const root = path.resolve(__dirname, "..");
 const writes = [];
 const removals = [];
+const controllerSeeks = [];
+const controllerDismissals = [];
 let nextIntervalId = 1;
 let activeInterval = null;
 let intervalStarts = 0;
 let intervalClears = 0;
 const context = {
+  nativeBitmapOcrWindowMain: true,
+  nativeControllerNeedsNeutral: false,
+  nativeControllerShoulderState: { left: false, right: false },
   workerQueueDir() {
     return "/worker/queue";
   },
@@ -36,6 +41,13 @@ const context = {
     if (activeInterval === task) activeInterval = null;
     intervalClears++;
   },
+  postToOverlay(name) {
+    if (name === "controller-dismiss") controllerDismissals.push(name);
+  },
+  finishLookupPopupPause() {},
+  handleControllerSubtitleSeek(payload) {
+    controllerSeeks.push(Number(payload && payload.direction));
+  },
 };
 vm.createContext(context);
 vm.runInContext(
@@ -49,6 +61,42 @@ vm.runInContext(
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
+
+const normalizedController = context.normalizeNativeControllerState({
+  protocol: 1,
+  sequence: 3,
+  source: "native-hid",
+  connected: true,
+  id: "DualSense",
+  buttons: { primary: true, back: "true" },
+  axes: { leftY: 3, rightX: -4, rightY: "invalid" },
+});
+assert(
+  normalizedController.buttons.primary === true &&
+    normalizedController.buttons.back === false &&
+    normalizedController.axes.leftY === 1 &&
+    normalizedController.axes.rightX === -1 &&
+    normalizedController.axes.rightY === 0,
+  "native controller snapshots should validate buttons and clamp axes",
+);
+context.handleNativeControllerShoulders({
+  connected: true,
+  buttons: { leftShoulder: true },
+});
+context.handleNativeControllerShoulders({
+  connected: true,
+  buttons: { leftShoulder: true },
+});
+context.handleNativeControllerShoulders({ connected: true, buttons: {} });
+context.handleNativeControllerShoulders({
+  connected: true,
+  buttons: { rightShoulder: true },
+});
+assert(
+  JSON.stringify(controllerSeeks) === JSON.stringify([-1, 1]) &&
+    controllerDismissals.length === 2,
+  "native shoulders should dismiss once and seek once per press edge",
+);
 
 context.publishWorkerRequest("request-1", {
   requestId: "request-1",

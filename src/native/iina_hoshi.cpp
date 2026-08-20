@@ -32,6 +32,7 @@
 #include "hoshidicts/lookup.hpp"
 #include "hoshidicts/query.hpp"
 #include "ass_geometry.hpp"
+#include "controller_hid.hpp"
 #include "vision_ocr.hpp"
 #include "worker_protocol.hpp"
 
@@ -922,11 +923,13 @@ static void cmd_worker(int argc, char** argv) {
   fs::path responses = root / "responses";
   fs::path state = root / "state";
   fs::path mouse_activity = state / "mouse.json";
+  fs::path controller_state = state / "controller.json";
   fs::path stop = root / "stop";
   fs::path config_path = root / "config.tsv";
   fs::create_directories(queue); fs::create_directories(responses); fs::create_directories(state);
   std::error_code state_ec;
   fs::remove(mouse_activity, state_ec);
+  fs::remove(controller_state, state_ec);
   WorkerConfig cfg = read_worker_config(config_path);
   if (cfg.dicts.empty()) throw std::runtime_error("worker config has no dictionaries");
   DictionaryQuery dict_query;
@@ -935,13 +938,14 @@ static void cmd_worker(int argc, char** argv) {
   Lookup lookup(dict_query, deinflector);
   iinatan::ass::GeometryService geometry_service;
   BitmapOcrExecutor bitmap_ocr_executor(responses);
+  iinatan::controller::Monitor controller_monitor(controller_state);
   write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + ",\"assGeometry\":{\"protocol\":1,\"available\":" +
 #ifdef IINATAN_ASS_GEOMETRY
       "true"
 #else
       "false"
 #endif
-      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"products\":[\"dualsense\"]},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
   const int active_sleep_ms = std::max(1, sleep_ms);
   const int idle_sleep_ms = std::max(active_sleep_ms, 16);
   int current_sleep_ms = active_sleep_ms;
@@ -954,6 +958,7 @@ static void cmd_worker(int argc, char** argv) {
   uint32_t mouse_counter = CGEventSourceCounterForEventType(
       kCGEventSourceStateCombinedSessionState, kCGEventMouseMoved);
   while (!fs::exists(stop)) {
+    controller_monitor.poll();
     if (owner_pid > 0 && std::chrono::steady_clock::now() >= next_owner_check) {
       if (!process_exists(owner_pid)) {
         std::cerr << "iina-hoshi-dicts worker stopping because owner pid " << owner_pid << " exited\n";
@@ -1377,7 +1382,7 @@ static void cmd_version() {
             << ",\"observedPlain\":true"
             << ",\"ffmpeg\":" << json_quote(iinatan::ass::ffmpeg_geometry_version())
             << ",\"libass\":" << json_quote(iinatan::ass::libass_geometry_version())
-            << ",\"architecture\":\"arm64\"},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"bitmapOcr\":"
+            << ",\"architecture\":\"arm64\"},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"products\":[\"dualsense\"]},\"bitmapOcr\":"
             << bitmap_ocr_service.capability().dump()
             << ",\"modes\":[\"yomitan-japanese\",\"exact\",\"prefix\"]}\n";
 }
@@ -1411,9 +1416,23 @@ static void cmd_bitmap_ocr(int argc, char** argv) {
     std::cout << service.handle(root).dump() << "\n";
   }
 }
+static void cmd_controller_state() {
+  const fs::path state_path =
+      fs::temp_directory_path() /
+      ("iinatan-controller-state-" +
+       std::to_string(std::chrono::steady_clock::now()
+                          .time_since_epoch()
+                          .count()) +
+       ".json");
+  iinatan::controller::Monitor monitor(state_path);
+  monitor.poll();
+  std::cout << read_file(state_path);
+  std::error_code error;
+  fs::remove(state_path, error);
+}
 int main(int argc, char** argv) {
   try {
-    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, ass-geometry, bitmap-subtitle-ocr, version"); return 2; }
+    if (argc < 2) { print_error("expected command: import, lookup, worker, client, font-metrics, ass-geometry, bitmap-subtitle-ocr, controller-state, version"); return 2; }
     std::string command = argv[1];
     if (command == "import") cmd_import(argc, argv);
     else if (command == "lookup") cmd_lookup(argc, argv);
@@ -1422,6 +1441,7 @@ int main(int argc, char** argv) {
     else if (command == "font-metrics") cmd_font_metrics(argc, argv);
     else if (command == "ass-geometry") cmd_ass_geometry(argc, argv);
     else if (command == "bitmap-subtitle-ocr") cmd_bitmap_ocr(argc, argv);
+    else if (command == "controller-state") cmd_controller_state();
     else if (command == "version") cmd_version();
     else { print_error("unknown command: " + command); return 2; }
     return 0;

@@ -329,6 +329,13 @@ def validate_native_backend() -> None:
         or mouse_intent.get("source") != "coregraphics-counter"
     ):
         raise SystemExit("Native backend has an incompatible mouse intent capability")
+    controller = version.get("controller", {})
+    if (
+        controller.get("protocol") != 1
+        or controller.get("source") != "native-hid"
+        or "dualsense" not in controller.get("products", [])
+    ):
+        raise SystemExit("Native backend has an incompatible controller capability")
     dependencies = subprocess.run(
         ["otool", "-L", str(backend)],
         check=True,
@@ -356,6 +363,8 @@ def validate_native_backend() -> None:
         names = set(archive.getnames())
         required = {
             "iinatan-native-source/src/native/ass_geometry.cpp",
+            "iinatan-native-source/src/native/controller_hid.cpp",
+            "iinatan-native-source/src/native/controller_hid.hpp",
             "iinatan-native-source/src/native/media_demux.cpp",
             "iinatan-native-source/src/native/bitmap_subtitle.cpp",
             "iinatan-native-source/src/native/vision_ocr.mm",

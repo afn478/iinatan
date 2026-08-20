@@ -15,6 +15,9 @@
   const statusEl = document.getElementById("status");
   const bitmapOcrStatusEl = document.getElementById("bitmap-ocr-status");
   const taskEl = document.getElementById("task");
+  const controllerHoldProgressEl = document.getElementById(
+    "controller-hold-progress",
+  );
 
   const state = {
     enabled: false,
@@ -64,6 +67,7 @@
       },
       hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false,
+      controllerWindowActive: true,
     },
     hideTimer: null,
     currentAnchor: null,
@@ -110,10 +114,33 @@
     bitmapOcrStatus: null,
     nativeDiagnosticKey: "",
     nativeAcceptedDiagnosticKey: "",
+    controller: {
+      connected: false,
+      buttons: Object.create(null),
+      axes: Object.create(null),
+      repeats: Object.create(null),
+      rightStickDirection: "",
+      hold: null,
+      selectedEntryIndex: -1,
+      audioRowIndex: 0,
+      audioColumnIndex: 0,
+      lastFrameAt: 0,
+      lastStatusKey: "",
+      lastInputKey: "",
+      nativeAvailable: false,
+      nativeSnapshot: null,
+      suppressUntilNeutral: true,
+      pollingStarted: false,
+    },
   };
   const LOOKUP_RETRY_INTERVAL_MS = 60;
   const AUDIO_CACHE_MAX_ENTRIES = 32;
   const AUDIO_CANDIDATE_CACHE_MAX_ENTRIES = 64;
+  const CONTROLLER_HOLD_MS = 650;
+  const CONTROLLER_AXIS_DEAD_ZONE = 0.18;
+  const CONTROLLER_DIRECTION_THRESHOLD = 0.62;
+  const CONTROLLER_REPEAT_DELAY_MS = 340;
+  const CONTROLLER_REPEAT_INTERVAL_MS = 120;
   const JAPANESE_KANJI_RANGE = "\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u3005";
   const JAPANESE_KANJI_PATTERN = new RegExp("[" + JAPANESE_KANJI_RANGE + "]");
   const JAPANESE_KANJI_SEGMENT_PATTERN = new RegExp(
@@ -1076,6 +1103,8 @@
   function hideAudioSourceMenu() {
     const menu = state.audioSourceMenu;
     state.audioSourceMenu = null;
+    state.controller.audioRowIndex = 0;
+    state.controller.audioColumnIndex = 0;
     try {
       if (menu && typeof menu.remove === "function") menu.remove();
     } catch (_) {}
@@ -4238,7 +4267,939 @@
     state.pendingLookupRequests = Object.create(null);
     state.ankiCardContexts = Object.create(null);
     state.audioAnkiSelections = Object.create(null);
+    resetControllerEntrySelection();
+    cancelControllerHold();
     clearActiveMatch();
+  }
+
+  function controllerPopupVisible() {
+    return state.lookupPopupVisible && !popupEl.classList.contains("hidden");
+  }
+
+  function controllerInputAllowed() {
+    if (!state.enabled || state.config.controllerWindowActive === false)
+      return false;
+    try {
+      if (document.visibilityState === "hidden") return false;
+    } catch (_) {}
+    return true;
+  }
+
+  function controllerStatusKey(status) {
+    return JSON.stringify({
+      reason: String(status.reason || ""),
+      apiAvailable: !!status.apiAvailable,
+      connected: !!status.connected,
+      recognized: !!status.recognized,
+      gamepadCount: Number(status.gamepadCount || 0),
+      id: String(status.id || ""),
+      mapping: String(status.mapping || ""),
+      buttonCount: Number(status.buttonCount || 0),
+      axisCount: Number(status.axisCount || 0),
+      enabled: !!state.enabled,
+      windowActive: state.config.controllerWindowActive !== false,
+      visible: (() => {
+        try {
+          return document.visibilityState !== "hidden";
+        } catch (_) {
+          return true;
+        }
+      })(),
+    });
+  }
+
+  function reportControllerStatus(status) {
+    const normalized = status && typeof status === "object" ? status : {};
+    const key = controllerStatusKey(normalized);
+    if (state.controller.lastStatusKey === key) return;
+    state.controller.lastStatusKey = key;
+    const payload = {
+      type: "controller-status",
+      reason: String(normalized.reason || "poll"),
+      apiAvailable: !!normalized.apiAvailable,
+      connected: !!normalized.connected,
+      recognized: !!normalized.recognized,
+      gamepadCount: Number(normalized.gamepadCount || 0),
+      id: String(normalized.id || ""),
+      mapping: String(normalized.mapping || ""),
+      buttonCount: Number(normalized.buttonCount || 0),
+      axisCount: Number(normalized.axisCount || 0),
+      enabled: !!state.enabled,
+      windowActive: state.config.controllerWindowActive !== false,
+      visible: (() => {
+        try {
+          return document.visibilityState !== "hidden";
+        } catch (_) {
+          return true;
+        }
+      })(),
+      allowed: controllerInputAllowed(),
+      at: Date.now(),
+    };
+    if (!sendBridgeMessage(payload)) postPluginMessage(payload);
+  }
+
+  function reportControllerInput(event, details, key) {
+    const diagnosticKey = String(key || event || "state");
+    if (state.controller.lastInputKey === diagnosticKey) return;
+    state.controller.lastInputKey = diagnosticKey;
+    const payload = Object.assign(
+      {
+        type: "controller-input",
+        event: String(event || "state"),
+        at: Date.now(),
+      },
+      details && typeof details === "object" ? details : {},
+    );
+    if (!sendBridgeMessage(payload)) postPluginMessage(payload);
+  }
+
+  function controllerEntryElements() {
+    try {
+      return Array.from(popupEl.querySelectorAll(".entry"));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function applyControllerEntrySelection(scrollIntoView) {
+    const entries = controllerEntryElements();
+    const head = popupEl.querySelector(".head");
+    entries.forEach((entry) =>
+      entry.classList.remove("controller-selected-entry"),
+    );
+    if (head) head.classList.remove("controller-selected-entry-header");
+    const index = state.controller.selectedEntryIndex;
+    if (index < 0 || index >= entries.length) return false;
+    entries[index].classList.add("controller-selected-entry");
+    if (index === 0 && head)
+      head.classList.add("controller-selected-entry-header");
+    if (scrollIntoView && typeof entries[index].scrollIntoView === "function")
+      entries[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+    return true;
+  }
+
+  function resetControllerEntrySelection() {
+    state.controller.selectedEntryIndex = -1;
+    applyControllerEntrySelection(false);
+  }
+
+  function selectControllerEntry(index, scrollIntoView) {
+    const entries = controllerEntryElements();
+    if (!entries.length) {
+      state.controller.selectedEntryIndex = -1;
+      return false;
+    }
+    state.controller.selectedEntryIndex = Math.max(
+      0,
+      Math.min(entries.length - 1, Number(index) || 0),
+    );
+    return applyControllerEntrySelection(scrollIntoView !== false);
+  }
+
+  function moveControllerEntry(direction) {
+    const entries = controllerEntryElements();
+    if (!entries.length) return false;
+    const current = Math.max(0, state.controller.selectedEntryIndex);
+    return selectControllerEntry(current + (direction < 0 ? -1 : 1), true);
+  }
+
+  function selectLargestVisibleControllerEntry() {
+    const entries = controllerEntryElements();
+    if (!entries.length) return false;
+    const viewport = popupEl.getBoundingClientRect();
+    let bestIndex = 0;
+    let bestArea = -1;
+    entries.forEach((entry, index) => {
+      const rect = entry.getBoundingClientRect();
+      const width = Math.max(
+        0,
+        Math.min(rect.right, viewport.right) -
+          Math.max(rect.left, viewport.left),
+      );
+      const height = Math.max(
+        0,
+        Math.min(rect.bottom, viewport.bottom) -
+          Math.max(rect.top, viewport.top),
+      );
+      const area = width * height;
+      if (area > bestArea) {
+        bestArea = area;
+        bestIndex = index;
+      }
+    });
+    return selectControllerEntry(bestIndex, false);
+  }
+
+  function controllerSelectedActionContainer() {
+    const entries = controllerEntryElements();
+    if (!entries.length) return popupEl.querySelector(".head") || null;
+    const index =
+      state.controller.selectedEntryIndex >= 0
+        ? state.controller.selectedEntryIndex
+        : 0;
+    if (index >= entries.length) return null;
+    if (index === 0) return popupEl.querySelector(".head") || entries[0];
+    return entries[index];
+  }
+
+  function controllerSelectedControl(selector) {
+    const container = controllerSelectedActionContainer();
+    return container && typeof container.querySelector === "function"
+      ? container.querySelector(selector)
+      : null;
+  }
+
+  function controllerControlAvailable(control) {
+    if (!control || control.hidden || control.disabled) return false;
+    if (
+      control.dataset &&
+      (control.dataset.ankiAction === "disabled" ||
+        control.dataset.ankiState === "disabled")
+    )
+      return false;
+    return true;
+  }
+
+  function activateControllerControl(control) {
+    if (!controllerControlAvailable(control)) return false;
+    if (typeof control.click === "function") {
+      control.click();
+      return true;
+    }
+    return false;
+  }
+
+  function controllerPlaySelectedAudio() {
+    return activateControllerControl(
+      controllerSelectedControl(".audio-button"),
+    );
+  }
+
+  function controllerOpenSelectedAudioMenu() {
+    const button = controllerSelectedControl(".audio-button");
+    if (!controllerControlAvailable(button)) return false;
+    const rect = button.getBoundingClientRect();
+    const shown = showAudioSourceMenu(button, {
+      clientX: rect.right,
+      clientY: rect.bottom,
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    if (shown) setControllerAudioFocus(0, 0);
+    return shown;
+  }
+
+  function controllerActivateAnki(role) {
+    const selector =
+      role === "force-add" ? ".anki-add-anyway-button" : ".anki-primary-button";
+    return activateControllerControl(controllerSelectedControl(selector));
+  }
+
+  function controllerAudioRows() {
+    const menu = state.audioSourceMenu;
+    if (!menu) return [];
+    try {
+      return Array.from(menu.querySelectorAll(".audio-source-menu-row"));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function setControllerAudioFocus(rowIndex, columnIndex) {
+    const rows = controllerAudioRows();
+    if (!rows.length) return false;
+    rows.forEach((row) =>
+      row
+        .querySelectorAll(".audio-source-menu-item, .audio-source-menu-export")
+        .forEach((control) =>
+          control.classList.remove("controller-audio-focused"),
+        ),
+    );
+    const row = Math.max(0, Math.min(rows.length - 1, Number(rowIndex) || 0));
+    const item = rows[row].querySelector(".audio-source-menu-item");
+    const exportButton = rows[row].querySelector(".audio-source-menu-export");
+    const column = columnIndex > 0 && exportButton ? 1 : 0;
+    const control = column ? exportButton : item;
+    if (!control) return false;
+    state.controller.audioRowIndex = row;
+    state.controller.audioColumnIndex = column;
+    control.classList.add("controller-audio-focused");
+    if (typeof control.focus === "function") control.focus();
+    if (typeof control.scrollIntoView === "function")
+      control.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return true;
+  }
+
+  function moveControllerAudioFocus(rowDelta, columnDelta) {
+    return setControllerAudioFocus(
+      state.controller.audioRowIndex + rowDelta,
+      state.controller.audioColumnIndex + columnDelta,
+    );
+  }
+
+  function activateControllerAudioFocus() {
+    const rows = controllerAudioRows();
+    const row = rows[state.controller.audioRowIndex];
+    if (!row) return false;
+    const selector = state.controller.audioColumnIndex
+      ? ".audio-source-menu-export"
+      : ".audio-source-menu-item";
+    return activateControllerControl(row.querySelector(selector));
+  }
+
+  function controllerLookupTargets() {
+    let elements = Object.keys(state.charByPos || {})
+      .map((position) => state.charByPos[position])
+      .filter(Boolean);
+    if (!elements.length && nativeSubtitleHitBoxesEl)
+      elements = Array.from(nativeSubtitleHitBoxesEl.children || []);
+    if (!elements.length) {
+      try {
+        elements = Array.from(subtitleEl.querySelectorAll(".char.lookupable"));
+      } catch (_) {}
+    }
+    const positions = Object.create(null);
+    const targets = [];
+    elements.forEach((element) => {
+      const rawPosition = Number(element.dataset && element.dataset.pos);
+      if (!Number.isFinite(rawPosition)) return;
+      const unit = lookupUnitForPosition(rawPosition);
+      if (unit.pos !== rawPosition || positions[unit.pos]) return;
+      const rect = element.getBoundingClientRect();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      positions[unit.pos] = true;
+      targets.push({
+        element,
+        pos: unit.pos,
+        rect,
+        centerX: (rect.left + rect.right) / 2,
+        centerY: (rect.top + rect.bottom) / 2,
+      });
+    });
+    return targets;
+  }
+
+  function controllerTargetRows(targets) {
+    const rows = [];
+    targets
+      .slice()
+      .sort((left, right) =>
+        left.centerY === right.centerY
+          ? left.centerX - right.centerX
+          : left.centerY - right.centerY,
+      )
+      .forEach((target) => {
+        let row = rows[rows.length - 1];
+        const tolerance = Math.max(8, target.rect.height * 0.55);
+        if (!row || Math.abs(row.centerY - target.centerY) > tolerance) {
+          row = { centerY: target.centerY, targets: [] };
+          rows.push(row);
+        }
+        row.targets.push(target);
+        row.centerY =
+          row.targets.reduce((sum, item) => sum + item.centerY, 0) /
+          row.targets.length;
+      });
+    rows.forEach((row) =>
+      row.targets.sort((left, right) => left.centerX - right.centerX),
+    );
+    return rows;
+  }
+
+  function openControllerLookupTarget(target) {
+    if (!target || !target.element) return false;
+    onCharEnter({
+      currentTarget: target.element,
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    return true;
+  }
+
+  function openFirstControllerLookup() {
+    const targets = controllerLookupTargets();
+    if (!targets.length) return false;
+    targets.sort((left, right) => left.pos - right.pos);
+    return openControllerLookupTarget(targets[0]);
+  }
+
+  function navigateControllerSubtitle(direction) {
+    const targets = controllerLookupTargets();
+    if (!targets.length) return false;
+    if (!controllerPopupVisible() || state.currentPos === null)
+      return openFirstControllerLookup();
+    const rows = controllerTargetRows(targets);
+    let current = targets.find((target) => target.pos === state.currentPos);
+    if (!current) current = targets[0];
+    if (direction === "left" || direction === "right") {
+      const ordered = targets
+        .slice()
+        .sort((left, right) => left.pos - right.pos);
+      const currentIndex = Math.max(0, ordered.indexOf(current));
+      const nextIndex = Math.max(
+        0,
+        Math.min(
+          ordered.length - 1,
+          currentIndex + (direction === "left" ? -1 : 1),
+        ),
+      );
+      if (nextIndex === currentIndex) return false;
+      return openControllerLookupTarget(ordered[nextIndex]);
+    }
+    let rowIndex = rows.findIndex((row) => row.targets.includes(current));
+    if (rowIndex < 0) rowIndex = 0;
+    const nextRowIndex = Math.max(
+      0,
+      Math.min(rows.length - 1, rowIndex + (direction === "up" ? -1 : 1)),
+    );
+    if (nextRowIndex === rowIndex) return false;
+    const next = rows[nextRowIndex].targets.reduce(
+      (best, target) =>
+        !best ||
+        Math.abs(target.centerX - current.centerX) <
+          Math.abs(best.centerX - current.centerX)
+          ? target
+          : best,
+      null,
+    );
+    return openControllerLookupTarget(next);
+  }
+
+  function sendControllerSubtitleSeek(direction) {
+    if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
+    const payload = {
+      type: "controller-subtitle-seek",
+      direction: direction < 0 ? -1 : 1,
+      at: Date.now(),
+    };
+    const sent = sendBridgeMessage(payload) || postPluginMessage(payload);
+    reportControllerInput(
+      "action",
+      {
+        action: "subtitle-seek",
+        direction: payload.direction,
+        sent,
+      },
+      "action:subtitle-seek:" + String(payload.direction),
+    );
+    return sent;
+  }
+
+  function sendControllerResumePlayback() {
+    const payload = {
+      type: "controller-resume-playback",
+      at: Date.now(),
+    };
+    const sent = sendBridgeMessage(payload) || postPluginMessage(payload);
+    reportControllerInput(
+      "action",
+      {
+        action: "resume-playback",
+        sent,
+      },
+      "action:resume-playback",
+    );
+    return sent;
+  }
+
+  function controllerScrollTarget() {
+    return state.audioSourceMenu || (controllerPopupVisible() ? popupEl : null);
+  }
+
+  function scrollControllerPopupNotch(direction) {
+    const target = controllerScrollTarget();
+    if (!target) return false;
+    const amount = (direction < 0 ? -1 : 1) * 52;
+    if (typeof target.scrollBy === "function")
+      target.scrollBy({ top: amount, left: 0, behavior: "auto" });
+    else target.scrollTop = Number(target.scrollTop || 0) + amount;
+    return true;
+  }
+
+  function scrollControllerPopupSmooth(axis, deltaMs) {
+    const target = controllerScrollTarget();
+    const magnitude = Math.abs(axis);
+    if (!target || magnitude <= CONTROLLER_AXIS_DEAD_ZONE) return false;
+    const normalized =
+      ((magnitude - CONTROLLER_AXIS_DEAD_ZONE) /
+        (1 - CONTROLLER_AXIS_DEAD_ZONE)) *
+      (axis < 0 ? -1 : 1);
+    target.scrollTop =
+      Number(target.scrollTop || 0) +
+      normalized * 680 * (Math.min(50, Math.max(0, deltaMs)) / 1000);
+    return true;
+  }
+
+  function showControllerHoldProgress(progress) {
+    if (!controllerHoldProgressEl) return;
+    controllerHoldProgressEl.classList.remove("hidden");
+    const fill = controllerHoldProgressEl.querySelector(
+      ".controller-hold-fill",
+    );
+    if (fill)
+      fill.style.strokeDashoffset = String(
+        100.531 * (1 - Math.max(0, Math.min(1, progress))),
+      );
+  }
+
+  function hideControllerHoldProgress() {
+    if (!controllerHoldProgressEl) return;
+    controllerHoldProgressEl.classList.add("hidden");
+  }
+
+  function controllerHoldActionAvailable(action) {
+    if (!controllerPopupVisible()) return false;
+    if (action === "audio-menu")
+      return controllerControlAvailable(
+        controllerSelectedControl(".audio-button"),
+      );
+    if (action === "anki-primary")
+      return controllerControlAvailable(
+        controllerSelectedControl(".anki-primary-button"),
+      );
+    if (action === "anki-force-add")
+      return controllerControlAvailable(
+        controllerSelectedControl(".anki-add-anyway-button"),
+      );
+    return false;
+  }
+
+  function startControllerHold(action, now) {
+    if (state.controller.hold || !controllerHoldActionAvailable(action))
+      return false;
+    state.controller.hold = { action, startedAt: now, completed: false };
+    showControllerHoldProgress(0);
+    return true;
+  }
+
+  function runControllerHoldAction(action) {
+    if (action === "audio-menu") return controllerOpenSelectedAudioMenu();
+    if (action === "anki-primary") return controllerActivateAnki("primary");
+    if (action === "anki-force-add") return controllerActivateAnki("force-add");
+    return false;
+  }
+
+  function updateControllerHold(now) {
+    const hold = state.controller.hold;
+    if (!hold || hold.completed) return;
+    const progress = Math.max(
+      0,
+      Math.min(1, (now - hold.startedAt) / CONTROLLER_HOLD_MS),
+    );
+    showControllerHoldProgress(progress);
+    if (progress < 1) return;
+    hold.completed = true;
+    hideControllerHoldProgress();
+    runControllerHoldAction(hold.action);
+  }
+
+  function finishControllerHold(action) {
+    const hold = state.controller.hold;
+    if (!hold || hold.action !== action) return false;
+    const completed = hold.completed;
+    state.controller.hold = null;
+    hideControllerHoldProgress();
+    if (action === "audio-menu" && !completed) controllerPlaySelectedAudio();
+    return true;
+  }
+
+  function cancelControllerHold() {
+    state.controller.hold = null;
+    hideControllerHoldProgress();
+  }
+
+  function controllerDirectionFromAxes(x, y) {
+    const horizontal = Math.abs(Number(x) || 0);
+    const vertical = Math.abs(Number(y) || 0);
+    if (
+      horizontal < CONTROLLER_DIRECTION_THRESHOLD &&
+      vertical < CONTROLLER_DIRECTION_THRESHOLD
+    )
+      return "";
+    if (horizontal > vertical) return x < 0 ? "left" : "right";
+    return y < 0 ? "up" : "down";
+  }
+
+  function normalizeControllerGamepad(gamepad) {
+    if (!gamepad || gamepad.connected === false) return null;
+    const mapping = String(gamepad.mapping || "").toLowerCase();
+    const id = String(gamepad.id || "").toLowerCase();
+    const standardShape =
+      gamepad.buttons &&
+      gamepad.buttons.length >= 16 &&
+      gamepad.axes &&
+      gamepad.axes.length >= 4;
+    const recognized =
+      mapping === "standard" ||
+      (standardShape &&
+        (!mapping || /dualsense|wireless controller|sony|054c|0ce6/.test(id)));
+    if (!recognized) return null;
+    const pressed = (index) => {
+      const button = gamepad.buttons && gamepad.buttons[index];
+      return !!(
+        button &&
+        (button.pressed || Number(button.value || 0) >= 0.65)
+      );
+    };
+    const axis = (index) => {
+      const value = Number(gamepad.axes && gamepad.axes[index]);
+      return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
+    };
+    const rawButtonValues = Array.from(gamepad.buttons || []).map((button) => {
+      const value = Number(button && button.value);
+      return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+    });
+    const rawAxes = Array.from(gamepad.axes || []).map((value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.round(number * 10) / 10 : 0;
+    });
+    return {
+      buttons: {
+        primary: pressed(0),
+        back: pressed(1),
+        audio: pressed(3),
+        leftShoulder: pressed(4),
+        rightShoulder: pressed(5),
+        leftTrigger: pressed(6),
+        rightTrigger: pressed(7),
+        dpadUp: pressed(12),
+        dpadDown: pressed(13),
+        dpadLeft: pressed(14),
+        dpadRight: pressed(15),
+      },
+      axes: {
+        leftY: axis(1),
+        rightX: axis(2),
+        rightY: axis(3),
+      },
+      raw: {
+        buttons: rawButtonValues,
+        axes: rawAxes,
+      },
+    };
+  }
+
+  function controllerRepeatButton(name, pressed, now, action) {
+    const repeat = state.controller.repeats[name];
+    if (!pressed) {
+      delete state.controller.repeats[name];
+      return;
+    }
+    if (!repeat) {
+      action();
+      state.controller.repeats[name] = {
+        nextAt: now + CONTROLLER_REPEAT_DELAY_MS,
+      };
+      return;
+    }
+    if (now < repeat.nextAt) return;
+    action();
+    repeat.nextAt = now + CONTROLLER_REPEAT_INTERVAL_MS;
+  }
+
+  function controllerDpadAction(direction) {
+    if (state.audioSourceMenu) {
+      if (direction === "up") return moveControllerAudioFocus(-1, 0);
+      if (direction === "down") return moveControllerAudioFocus(1, 0);
+      if (direction === "left") return moveControllerAudioFocus(0, -1);
+      return moveControllerAudioFocus(0, 1);
+    }
+    if (direction === "up") return scrollControllerPopupNotch(-1);
+    if (direction === "down") return scrollControllerPopupNotch(1);
+    return moveControllerEntry(direction === "left" ? -1 : 1);
+  }
+
+  function controllerPrimaryAction() {
+    if (state.audioSourceMenu) return activateControllerAudioFocus();
+    if (controllerPopupVisible()) return selectLargestVisibleControllerEntry();
+    return openFirstControllerLookup();
+  }
+
+  function controllerBackAction() {
+    if (state.audioSourceMenu) {
+      hideAudioSourceMenu();
+      return true;
+    }
+    if (controllerPopupVisible()) {
+      hidePopup();
+      return true;
+    }
+    return sendControllerResumePlayback();
+  }
+
+  function processControllerSnapshot(snapshot, now, deltaMs) {
+    if (!snapshot) {
+      resetControllerInput();
+      return false;
+    }
+    const buttons = snapshot.buttons || {};
+    const axes = snapshot.axes || {};
+    const pressedNames = Object.keys(buttons)
+      .filter((name) => !!buttons[name])
+      .sort();
+    const diagnosticAxes = {
+      leftY:
+        Math.abs(Number(axes.leftY) || 0) > CONTROLLER_AXIS_DEAD_ZONE
+          ? Math.round((Number(axes.leftY) || 0) * 10) / 10
+          : 0,
+      rightX:
+        Math.abs(Number(axes.rightX) || 0) > CONTROLLER_AXIS_DEAD_ZONE
+          ? Math.round((Number(axes.rightX) || 0) * 10) / 10
+          : 0,
+      rightY:
+        Math.abs(Number(axes.rightY) || 0) > CONTROLLER_AXIS_DEAD_ZONE
+          ? Math.round((Number(axes.rightY) || 0) * 10) / 10
+          : 0,
+    };
+    const inputKey = JSON.stringify({
+      pressed: pressedNames,
+      axes: diagnosticAxes,
+      rawButtons: snapshot.raw && snapshot.raw.buttons,
+      rawAxes: snapshot.raw && snapshot.raw.axes,
+    });
+    reportControllerInput(
+      "state",
+      {
+        pressed: pressedNames,
+        axes: diagnosticAxes,
+        rawButtons: snapshot.raw && snapshot.raw.buttons,
+        rawAxes: snapshot.raw && snapshot.raw.axes,
+        allowed: controllerInputAllowed(),
+      },
+      inputKey,
+    );
+    if (!controllerInputAllowed()) {
+      state.controller.buttons = Object.create(null);
+      state.controller.axes = Object.create(null);
+      state.controller.repeats = Object.create(null);
+      state.controller.rightStickDirection = "";
+      state.controller.suppressUntilNeutral = true;
+      cancelControllerHold();
+      return false;
+    }
+    const neutral =
+      pressedNames.length === 0 &&
+      Math.abs(Number(axes.leftY) || 0) <= CONTROLLER_AXIS_DEAD_ZONE &&
+      Math.abs(Number(axes.rightX) || 0) <= CONTROLLER_AXIS_DEAD_ZONE &&
+      Math.abs(Number(axes.rightY) || 0) <= CONTROLLER_AXIS_DEAD_ZONE;
+    if (state.controller.suppressUntilNeutral) {
+      state.controller.buttons = Object.assign(Object.create(null), buttons);
+      state.controller.axes = Object.assign(Object.create(null), axes);
+      if (neutral) state.controller.suppressUntilNeutral = false;
+      cancelControllerHold();
+      return false;
+    }
+    const previous = state.controller.buttons;
+    const pressedEdge = (name) => !!buttons[name] && !previous[name];
+    const releasedEdge = (name) => !buttons[name] && !!previous[name];
+    if (pressedEdge("leftShoulder")) sendControllerSubtitleSeek(-1);
+    if (pressedEdge("rightShoulder")) sendControllerSubtitleSeek(1);
+    if (pressedEdge("primary")) controllerPrimaryAction();
+    if (pressedEdge("back")) controllerBackAction();
+    if (pressedEdge("audio")) startControllerHold("audio-menu", now);
+    if (releasedEdge("audio")) finishControllerHold("audio-menu");
+    if (pressedEdge("leftTrigger")) startControllerHold("anki-force-add", now);
+    if (releasedEdge("leftTrigger")) finishControllerHold("anki-force-add");
+    if (pressedEdge("rightTrigger")) startControllerHold("anki-primary", now);
+    if (releasedEdge("rightTrigger")) finishControllerHold("anki-primary");
+    controllerRepeatButton("dpadUp", !!buttons.dpadUp, now, () =>
+      controllerDpadAction("up"),
+    );
+    controllerRepeatButton("dpadDown", !!buttons.dpadDown, now, () =>
+      controllerDpadAction("down"),
+    );
+    controllerRepeatButton("dpadLeft", !!buttons.dpadLeft, now, () =>
+      controllerDpadAction("left"),
+    );
+    controllerRepeatButton("dpadRight", !!buttons.dpadRight, now, () =>
+      controllerDpadAction("right"),
+    );
+    const direction = controllerDirectionFromAxes(axes.rightX, axes.rightY);
+    const rightRepeat = state.controller.repeats.rightStick;
+    if (!direction) {
+      state.controller.rightStickDirection = "";
+      delete state.controller.repeats.rightStick;
+    } else if (direction !== state.controller.rightStickDirection) {
+      state.controller.rightStickDirection = direction;
+      navigateControllerSubtitle(direction);
+      state.controller.repeats.rightStick = {
+        nextAt: now + CONTROLLER_REPEAT_DELAY_MS,
+      };
+    } else if (rightRepeat && now >= rightRepeat.nextAt) {
+      navigateControllerSubtitle(direction);
+      rightRepeat.nextAt = now + CONTROLLER_REPEAT_INTERVAL_MS;
+    }
+    scrollControllerPopupSmooth(Number(axes.leftY) || 0, deltaMs);
+    state.controller.buttons = Object.assign(Object.create(null), buttons);
+    state.controller.axes = Object.assign(Object.create(null), axes);
+    updateControllerHold(now);
+    return true;
+  }
+
+  function resetControllerInput() {
+    state.controller.buttons = Object.create(null);
+    state.controller.axes = Object.create(null);
+    state.controller.repeats = Object.create(null);
+    state.controller.rightStickDirection = "";
+    state.controller.lastFrameAt = 0;
+    state.controller.lastInputKey = "";
+    state.controller.suppressUntilNeutral = true;
+    cancelControllerHold();
+  }
+
+  function registerControllerWindowListeners() {
+    try {
+      if (!window || typeof window.addEventListener !== "function") return;
+      window.addEventListener("gamepadconnected", (event) => {
+        resetControllerInput();
+        reportControllerStatus({
+          reason: "gamepadconnected",
+          apiAvailable: true,
+          connected: true,
+          recognized: !!normalizeControllerGamepad(event && event.gamepad),
+          id: event && event.gamepad && event.gamepad.id,
+          mapping: event && event.gamepad && event.gamepad.mapping,
+          buttonCount:
+            event && event.gamepad && event.gamepad.buttons
+              ? event.gamepad.buttons.length
+              : 0,
+          axisCount:
+            event && event.gamepad && event.gamepad.axes
+              ? event.gamepad.axes.length
+              : 0,
+        });
+        pollControllerFrame(Date.now());
+      });
+      window.addEventListener("gamepaddisconnected", (event) => {
+        resetControllerInput();
+        state.controller.connected = false;
+        reportControllerStatus({
+          reason: "gamepaddisconnected",
+          apiAvailable: true,
+          connected: false,
+          recognized: false,
+          id: event && event.gamepad && event.gamepad.id,
+          mapping: event && event.gamepad && event.gamepad.mapping,
+        });
+      });
+      window.addEventListener("blur", () => {
+        resetControllerInput();
+        reportControllerStatus({ reason: "window-blur" });
+      });
+    } catch (_) {}
+    try {
+      if (document && typeof document.addEventListener === "function")
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") resetControllerInput();
+          reportControllerStatus({ reason: "visibility-change" });
+        });
+    } catch (_) {}
+  }
+
+  function pollControllerFrame(timestamp) {
+    const now = Number.isFinite(Number(timestamp))
+      ? Number(timestamp)
+      : Date.now();
+    const previousAt = state.controller.lastFrameAt || now;
+    state.controller.lastFrameAt = now;
+    let snapshot = null;
+    let apiAvailable = false;
+    let gamepadCount = 0;
+    let selectedGamepad = null;
+    if (state.controller.nativeAvailable) {
+      snapshot = state.controller.nativeSnapshot;
+      apiAvailable = true;
+      gamepadCount = snapshot ? 1 : 0;
+      reportControllerStatus({
+        reason: "native-hid",
+        apiAvailable: true,
+        connected: !!snapshot,
+        recognized: !!snapshot,
+        gamepadCount,
+        id: snapshot && snapshot.id,
+        mapping: "native-hid",
+        buttonCount: snapshot ? Object.keys(snapshot.buttons || {}).length : 0,
+        axisCount: snapshot ? Object.keys(snapshot.axes || {}).length : 0,
+      });
+    } else {
+      try {
+        const gamepads = navigator.getGamepads() || [];
+        apiAvailable = true;
+        gamepadCount = gamepads.length || 0;
+        for (let index = 0; index < gamepads.length; index++) {
+          const gamepad = gamepads[index];
+          const candidate = normalizeControllerGamepad(gamepad);
+          if (candidate) {
+            selectedGamepad = gamepad;
+            snapshot = candidate;
+            break;
+          }
+          if (!selectedGamepad && gamepad && gamepad.connected !== false)
+            selectedGamepad = gamepad;
+        }
+        reportControllerStatus({
+          reason: "poll",
+          apiAvailable,
+          connected: !!selectedGamepad,
+          recognized: !!snapshot,
+          gamepadCount,
+          id: selectedGamepad && selectedGamepad.id,
+          mapping: selectedGamepad && selectedGamepad.mapping,
+          buttonCount:
+            selectedGamepad && selectedGamepad.buttons
+              ? selectedGamepad.buttons.length
+              : 0,
+          axisCount:
+            selectedGamepad && selectedGamepad.axes
+              ? selectedGamepad.axes.length
+              : 0,
+        });
+      } catch (error) {
+        reportControllerStatus({
+          reason: "poll-error",
+          apiAvailable,
+          connected: false,
+          recognized: false,
+          gamepadCount,
+        });
+      }
+    }
+    state.controller.connected = !!snapshot;
+    processControllerSnapshot(snapshot, now, now - previousAt);
+    if (
+      state.controller.pollingStarted &&
+      window &&
+      typeof window.requestAnimationFrame === "function"
+    )
+      window.requestAnimationFrame(pollControllerFrame);
+  }
+
+  function startControllerPolling() {
+    try {
+      if (state.controller.pollingStarted) return true;
+      if (!window || typeof window.requestAnimationFrame !== "function") {
+        reportControllerStatus({ reason: "animation-frame-unavailable" });
+        return false;
+      }
+      const browserAvailable =
+        typeof navigator !== "undefined" &&
+        typeof navigator.getGamepads === "function";
+      if (!state.controller.nativeAvailable && !browserAvailable) {
+        reportControllerStatus({ reason: "input-source-unavailable" });
+        return false;
+      }
+      reportControllerStatus({
+        reason: "polling-started",
+        apiAvailable: browserAvailable,
+      });
+      state.controller.pollingStarted = true;
+      window.requestAnimationFrame(pollControllerFrame);
+      return true;
+    } catch (error) {
+      reportControllerStatus({ reason: "polling-start-error" });
+      return false;
+    }
   }
 
   function renderAudioButtonHtml(term, reading) {
@@ -4967,6 +5928,7 @@
       '</div><div class="body">' +
       bodyHtml +
       "</div>";
+    resetControllerEntrySelection();
     markPopupClickable();
     if (options && options.pending) popupEl.classList.add("lookup-pending");
     else popupEl.classList.remove("lookup-pending");
@@ -5005,6 +5967,7 @@
     markElementClickable(popup);
     bindPopupAudioButtons(popup);
     bindPopupAnkiButtons(popup);
+    if (popup === popupEl) resetControllerEntrySelection();
     updateNestedPopupScanningState();
     const revealPendingPopup = popup.classList.contains("lookup-pending");
     if (
@@ -7509,7 +8472,10 @@
     let html = "";
     entries.slice(0, maxEntries).forEach((entry, entryIndex) => {
       const term = entry.term || {};
-      html += '<div class="entry">';
+      html +=
+        '<div class="entry" data-controller-entry-index="' +
+        String(entryIndex) +
+        '">';
       if (term.expression || term.reading) {
         const entryHeadword = displayHeadwordForEntry(entry);
         const entryReading = displayReadingForTerm(term, entryHeadword);
@@ -7863,6 +8829,36 @@
   }
 
   iina.onMessage("config", (payload) => applyConfig(payload));
+  iina.onMessage("controller-state", (payload) => {
+    if (!payload || payload.protocol !== 1 || payload.source !== "native-hid")
+      return;
+    const wasConnected = !!state.controller.nativeSnapshot;
+    state.controller.nativeAvailable = true;
+    state.controller.nativeSnapshot = payload.connected
+      ? {
+          id: String(payload.id || "DualSense Wireless Controller"),
+          buttons: Object.assign(Object.create(null), payload.buttons || {}),
+          axes: Object.assign(
+            { leftY: 0, rightX: 0, rightY: 0 },
+            payload.axes || {},
+          ),
+        }
+      : null;
+    if (wasConnected !== !!state.controller.nativeSnapshot)
+      resetControllerInput();
+    startControllerPolling();
+  });
+  iina.onMessage("controller-dismiss", () => {
+    if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
+  });
+  iina.onMessage("controller-active", (payload) => {
+    state.config.controllerWindowActive = !!(payload && payload.active);
+    resetControllerInput();
+    reportControllerStatus({
+      reason: "window-main-changed",
+      windowActive: state.config.controllerWindowActive,
+    });
+  });
   window.addEventListener("resize", () => {
     if (
       !state.enabled ||
@@ -8056,4 +9052,6 @@
       at: Date.now(),
     });
   } catch (_) {}
+  registerControllerWindowListeners();
+  startControllerPolling();
 })();

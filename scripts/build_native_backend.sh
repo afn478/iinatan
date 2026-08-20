@@ -44,6 +44,7 @@ add_executable(
   iina-hoshi-dicts
   "$ROOT/src/native/iina_hoshi.cpp"
   "$ROOT/src/native/worker_protocol.cpp"
+  "$ROOT/src/native/controller_hid.cpp"
   "$ROOT/src/native/media_demux.cpp"
   "$ROOT/src/native/ass_geometry.cpp"
   "$ROOT/src/native/bitmap_subtitle.cpp"
@@ -58,6 +59,7 @@ find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(VISION_FRAMEWORK Vision REQUIRED)
 find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
 find_library(IMAGEIO_FRAMEWORK ImageIO REQUIRED)
+find_library(IOKIT_FRAMEWORK IOKit REQUIRED)
 set_source_files_properties(
   "$ROOT/src/native/vision_ocr.mm"
   PROPERTIES COMPILE_FLAGS "-fobjc-arc"
@@ -72,6 +74,7 @@ target_link_libraries(
   "\${VISION_FRAMEWORK}"
   "\${COREGRAPHICS_FRAMEWORK}"
   "\${IMAGEIO_FRAMEWORK}"
+  "\${IOKIT_FRAMEWORK}"
 )
 CMAKEEOF
 
@@ -138,8 +141,13 @@ if value.get("screenshotDiff") is not True or not required.issubset(value.get("d
 mouse = version.get("mouseIntent", {})
 if mouse.get("protocol") != 1 or mouse.get("source") != "coregraphics-counter":
     raise SystemExit(1)
+controller = version.get("controller", {})
+if controller.get("protocol") != 1 or controller.get("source") != "native-hid":
+    raise SystemExit(1)
+if "dualsense" not in controller.get("products", []):
+    raise SystemExit(1)
 '; then
-    echo "Bitmap subtitle OCR or mouse-intent capability was not enabled in the finished helper." >&2
+    echo "Bitmap subtitle OCR, mouse-intent, or controller capability was not enabled in the finished helper." >&2
     exit 2
   fi
   non_system="$(otool -L "$BIN_DIR/iina-hoshi-dicts" | tail -n +2 | awk '{print $1}' | grep -Ev '^(/usr/lib/|/System/Library/)' || true)"

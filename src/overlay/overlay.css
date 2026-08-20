@@ -287,6 +287,13 @@
     .lookup-popup .loading, .lookup-popup .error, .lookup-popup .empty { color: var(--popup-muted); font-weight: 600; white-space: normal; }
     .lookup-popup .error { color: var(--popup-error); }
     .entry + .entry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--popup-divider); }
+    .entry.controller-selected-entry {
+      border-radius: 6px;
+      box-shadow: 0 0 0 2px var(--popup-focus-ring);
+    }
+    .lookup-popup .head.controller-selected-entry-header {
+      box-shadow: inset 0 -2px 0 var(--popup-focus-ring);
+    }
     .dict { color: var(--popup-muted); font-size: 13px; font-weight: 600; margin-bottom: 4px; }
     .gloss { margin: 5px 0; white-space: pre-line; overflow-wrap: anywhere; }
     .trace { margin-top: 6px; color: var(--popup-soft); font-size: 12px; }
@@ -489,6 +496,46 @@
     }
     .audio-source-menu-export[data-selected="true"] {
       color: var(--popup-accent);
+    }
+    .audio-source-menu-item.controller-audio-focused,
+    .audio-source-menu-export.controller-audio-focused {
+      outline: none;
+      color: var(--popup-heading);
+      background: var(--popup-chip-bg);
+      box-shadow: inset 0 0 0 2px var(--popup-focus-ring);
+    }
+    .audio-source-menu-export.controller-audio-focused { opacity: 1; }
+    #controller-hold-progress {
+      position: fixed;
+      left: 50%;
+      bottom: 42px;
+      z-index: 100;
+      width: 40px;
+      height: 40px;
+      margin-left: -20px;
+      border-radius: 50%;
+      background: var(--popup-bg);
+      box-shadow: var(--popup-shadow);
+      pointer-events: none;
+    }
+    #controller-hold-progress.hidden { display: none; }
+    #controller-hold-progress svg {
+      display: block;
+      width: 40px;
+      height: 40px;
+      transform: rotate(-90deg);
+    }
+    .controller-hold-track,
+    .controller-hold-fill {
+      fill: none;
+      stroke-width: 4;
+    }
+    .controller-hold-track { stroke: var(--popup-divider); }
+    .controller-hold-fill {
+      stroke: var(--popup-accent);
+      stroke-linecap: round;
+      stroke-dasharray: 100.531;
+      stroke-dashoffset: 100.531;
     }
     @keyframes lookup-popup-appear {
       from { opacity: 0; scale: 0.98; }

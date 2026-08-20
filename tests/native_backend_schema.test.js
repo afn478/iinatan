@@ -92,6 +92,19 @@ assert(
     /mouseIntent/.test(nativeSource),
   "Native worker should publish bounded CoreGraphics mouse-activity counters",
 );
+const controllerSource = fs.readFileSync(
+  path.join(root, "src/native/controller_hid.cpp"),
+  "utf8",
+);
+assert(
+  /IOHIDManagerCreate/.test(controllerSource) &&
+    /kDualSenseProductId/.test(controllerSource) &&
+    /milliseconds\(250\)/.test(controllerSource) &&
+    /updatedAt/.test(controllerSource) &&
+    /source\\\":\\\"native-hid/.test(controllerSource) &&
+    /controller_monitor\.poll/.test(nativeSource),
+  "Native worker should poll and publish DualSense HID snapshots",
+);
 assert(
   /bitmap-subtitle-ocr/.test(nativeSource) &&
     /bitmapOcr/.test(nativeSource) &&
@@ -224,6 +237,11 @@ assert(
     /coregraphics-counter/.test(nativeBuildScript),
   "Release validation should reject a helper without native mouse intent",
 );
+assert(
+  /incompatible controller capability/.test(buildScript) &&
+    /controller\.get\("source"\) != "native-hid"/.test(nativeBuildScript),
+  "Release validation should reject a helper without native controller input",
+);
 const nativeDependencyBuildScript = fs.readFileSync(
   path.join(root, "scripts/build_native_geometry_dependencies.sh"),
   "utf8",
@@ -235,8 +253,10 @@ const nativeDependencyLock = fs.readFileSync(
 assert(
   /find_library\(CORETEXT_FRAMEWORK CoreText REQUIRED\)/.test(
     nativeBuildScript,
-  ) && /COREFOUNDATION_FRAMEWORK/.test(nativeBuildScript),
-  "Native backend build should link CoreText and CoreFoundation",
+  ) &&
+    /COREFOUNDATION_FRAMEWORK/.test(nativeBuildScript) &&
+    /find_library\(IOKIT_FRAMEWORK IOKit REQUIRED\)/.test(nativeBuildScript),
+  "Native backend build should link CoreText, CoreFoundation, and IOKit",
 );
 assert(
   /validate_hoshidicts_submodule/.test(buildScript),

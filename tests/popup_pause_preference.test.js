@@ -39,6 +39,7 @@ const preferenceValues = {
 };
 let paused = false;
 const pauseWrites = [];
+const mpvCommands = [];
 let nextTimerId = 1;
 const timers = new Map();
 
@@ -100,6 +101,9 @@ const context = {
           context.iina.core.status.paused = paused;
           pauseWrites.push(!!value);
         }
+      },
+      command(name, args) {
+        mpvCommands.push({ name, args });
       },
     },
     event: {},
@@ -241,9 +245,33 @@ function resetCase(initialPaused) {
   context.resetLookupPopupPause();
   timers.clear();
   pauseWrites.length = 0;
+  mpvCommands.length = 0;
   paused = !!initialPaused;
   context.iina.core.status.paused = paused;
 }
+
+resetCase(false);
+assert(
+  context.handleControllerSubtitleSeek({ direction: -1 }) === true &&
+    context.handleControllerSubtitleSeek({ direction: 1 }) === true &&
+    mpvCommands.length === 2 &&
+    mpvCommands[0].name === "sub-seek" &&
+    mpvCommands[0].args[0] === "-1" &&
+    mpvCommands[1].args[0] === "1",
+  "Controller subtitle navigation should invoke mpv sub-seek directly",
+);
+assert(
+  context.handleControllerSubtitleSeek({ direction: 0 }) === false &&
+    mpvCommands.length === 2,
+  "Invalid controller subtitle directions should be rejected",
+);
+resetCase(true);
+assert(
+  context.handleControllerResumePlayback() === true &&
+    paused === false &&
+    pauseWrites[pauseWrites.length - 1] === false,
+  "Circle resume should clear a manual pause when no popup is open",
+);
 
 storage["/data/manifest.json"] = manifestWithPopupPause(false);
 preferenceValues.pauseWhilePopupVisible = true;

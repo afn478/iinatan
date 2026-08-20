@@ -88,6 +88,8 @@ function handleOverlayDocumentReady(payload, source) {
     handleLookupPopupOverlayReady(payload);
   postToOverlay("config", overlayConfig());
   postToOverlay("enabled", { enabled });
+  if (typeof replayNativeControllerState === "function")
+    replayNativeControllerState();
   replayActiveOverlayTask();
   if (enabled) {
     nativeSubtitleLayoutTrigger =
@@ -218,6 +220,18 @@ function initializeOverlay(options) {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,
     );
+  });
+  overlay.onMessage("controller-subtitle-seek", (payload) => {
+    handleControllerSubtitleSeek(payload);
+  });
+  overlay.onMessage("controller-resume-playback", () => {
+    handleControllerResumePlayback();
+  });
+  overlay.onMessage("controller-status", (payload) => {
+    handleControllerStatus(payload);
+  });
+  overlay.onMessage("controller-input", (payload) => {
+    handleControllerInput(payload);
   });
   overlay.onMessage("anki-card-status", (payload) => {
     handleBridgeAnkiCardStatus(payload);

@@ -21,7 +21,11 @@ event.on("iina.window-loaded", () => {
 });
 event.on("iina.window-main.changed", (status) => {
   nativeBitmapOcrWindowMain = !!status;
+  nativeControllerNeedsNeutral = true;
   nativeBitmapOcrMouseActivityCounter = null;
+  postToOverlay("controller-active", {
+    active: nativeBitmapOcrWindowMain,
+  });
 });
 event.on("mpv.file-loaded", () => {
   if (pluginShuttingDown) return;

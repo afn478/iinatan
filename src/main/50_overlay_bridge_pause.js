@@ -31,6 +31,18 @@ const OVERLAY_BRIDGE_HANDLERS = {
       throw new Error("open-url message is missing url");
     openExternalUrlFromOverlay(payload.url);
   },
+  "controller-subtitle-seek"(payload) {
+    handleControllerSubtitleSeek(payload);
+  },
+  "controller-resume-playback"() {
+    handleControllerResumePlayback();
+  },
+  "controller-status"(payload) {
+    handleControllerStatus(payload);
+  },
+  "controller-input"(payload) {
+    handleControllerInput(payload);
+  },
   "native-layout-diagnostic"(payload) {
     handleNativeLayoutDiagnostic(payload);
   },
@@ -41,6 +53,72 @@ const OVERLAY_BRIDGE_HANDLERS = {
     debugVerbose("[overlay] " + String(payload.message || ""));
   },
 };
+
+function handleControllerSubtitleSeek(payload) {
+  const direction = Number(payload && payload.direction);
+  if (direction !== -1 && direction !== 1) {
+    debugWarn("ignored invalid controller subtitle seek direction");
+    return false;
+  }
+  try {
+    mpv.command("sub-seek", [String(direction)]);
+    return true;
+  } catch (error) {
+    debugWarn("controller subtitle seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerResumePlayback() {
+  try {
+    const resumed = setPauseState(false);
+    if (resumed)
+      debugLog("controller circle resumed playback without an open popup");
+    return resumed;
+  } catch (error) {
+    debugWarn("controller playback resume failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerStatus(payload) {
+  const status = payload && typeof payload === "object" ? payload : {};
+  debugLog(
+    "controller status " +
+      JSON.stringify({
+        reason: String(status.reason || ""),
+        apiAvailable: !!status.apiAvailable,
+        connected: !!status.connected,
+        recognized: !!status.recognized,
+        gamepadCount: Number(status.gamepadCount || 0),
+        id: String(status.id || ""),
+        mapping: String(status.mapping || ""),
+        buttonCount: Number(status.buttonCount || 0),
+        axisCount: Number(status.axisCount || 0),
+        enabled: !!status.enabled,
+        windowActive: status.windowActive !== false,
+        visible: status.visible !== false,
+        allowed: !!status.allowed,
+      }),
+  );
+}
+function handleControllerInput(payload) {
+  const input = payload && typeof payload === "object" ? payload : {};
+  debugLog(
+    "controller input " +
+      JSON.stringify({
+        event: String(input.event || ""),
+        action: String(input.action || ""),
+        direction: input.direction,
+        sent: input.sent === undefined ? undefined : !!input.sent,
+        pressed: Array.isArray(input.pressed) ? input.pressed : undefined,
+        axes: input.axes || undefined,
+        rawButtons: Array.isArray(input.rawButtons)
+          ? input.rawButtons
+          : undefined,
+        rawAxes: Array.isArray(input.rawAxes) ? input.rawAxes : undefined,
+        allowed: input.allowed === undefined ? undefined : !!input.allowed,
+      }),
+  );
+}
 function dispatchOverlayBridgePayload(payload) {
   const type =
     payload && typeof payload === "object" && typeof payload.type === "string"

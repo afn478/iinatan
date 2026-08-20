@@ -235,6 +235,12 @@ let nativeBitmapOcrMouseActivitySeen = false;
 let nativeBitmapOcrMouseIntentSeen = false;
 let nativeBitmapOcrMouseActivityCounter = null;
 let nativeBitmapOcrWindowMain = true;
+let nativeControllerPollTimer = null;
+let nativeControllerLastSequence = -1;
+let nativeControllerLastSnapshot = null;
+let nativeControllerShoulderState = { left: false, right: false };
+let nativeControllerNeedsNeutral = true;
+let nativeControllerMissingPolls = 0;
 let nativeExternalSrtCache = Object.create(null);
 let nativeExternalSrtInFlight = Object.create(null);
 let nativeExternalSrtGeneration = 0;
@@ -945,6 +951,9 @@ function workerReadyPath() {
 }
 function workerMouseActivityPath() {
   return pathJoin(workerStateDir(), "mouse.json");
+}
+function workerControllerStatePath() {
+  return pathJoin(workerStateDir(), "controller.json");
 }
 function workerLogPath() {
   return pathJoin(workerRoot(), "worker.log");
@@ -6046,6 +6055,7 @@ function overlayConfig() {
     customPopupCss: String(pref("customPopupCss", "") || ""),
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
+    controllerWindowActive: nativeBitmapOcrWindowMain,
     overlayBridgePort,
   };
 }
@@ -12353,6 +12363,7 @@ echo $! > "$PID"
   await execChecked("/bin/chmod", ["755", workerStartScriptPath()]);
 }
 function requestBackendWorkerStop() {
+  stopNativeControllerPolling();
   try {
     file.write(workerStopPath(), "stop\n");
   } catch (_) {}
@@ -12441,6 +12452,7 @@ async function startBackendWorkerProcess(dicts, language) {
   await clearDirFiles(workerResponseDir());
   safeDelete(workerStopPath());
   safeDelete(workerReadyPath());
+  safeDelete(workerControllerStatePath());
   activeWorkerReady = null;
   const lang = language || selectedLanguageModule();
   const fingerprint = workerFingerprint(dicts, lang);
@@ -12487,6 +12499,179 @@ function readWorkerReady() {
     return null;
   }
 }
+function normalizeNativeControllerState(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    value.protocol !== 1 ||
+    value.source !== "native-hid"
+  )
+    return null;
+  const inputButtons = value.buttons || {};
+  const inputAxes = value.axes || {};
+  const buttonNames = [
+    "primary",
+    "back",
+    "audio",
+    "leftShoulder",
+    "rightShoulder",
+    "leftTrigger",
+    "rightTrigger",
+    "dpadUp",
+    "dpadDown",
+    "dpadLeft",
+    "dpadRight",
+  ];
+  const buttons = Object.create(null);
+  buttonNames.forEach((name) => {
+    buttons[name] = inputButtons[name] === true;
+  });
+  const axis = (name) => {
+    const number = Number(inputAxes[name]);
+    return Number.isFinite(number) ? Math.max(-1, Math.min(1, number)) : 0;
+  };
+  return {
+    protocol: 1,
+    sequence: Math.max(0, Number(value.sequence) || 0),
+    updatedAt: Number(value.updatedAt),
+    source: "native-hid",
+    connected: value.connected === true,
+    id: String(value.id || "").slice(0, 160),
+    buttons,
+    axes: {
+      leftY: axis("leftY"),
+      rightX: axis("rightX"),
+      rightY: axis("rightY"),
+    },
+  };
+}
+const NATIVE_CONTROLLER_STATE_STALE_MS = 500;
+const NATIVE_CONTROLLER_MISSING_POLL_LIMIT = 30;
+function dismissPopupForNativeControllerSeek() {
+  postToOverlay("controller-dismiss", { reason: "subtitle-seek" });
+  finishLookupPopupPause("controller-subtitle-seek", { resume: true });
+}
+function handleNativeControllerShoulders(snapshot) {
+  const buttons = (snapshot && snapshot.buttons) || {};
+  const next = {
+    left: !!buttons.leftShoulder,
+    right: !!buttons.rightShoulder,
+  };
+  if (!nativeBitmapOcrWindowMain || !snapshot.connected) {
+    nativeControllerNeedsNeutral = true;
+    nativeControllerShoulderState = next;
+    return;
+  }
+  if (nativeControllerNeedsNeutral) {
+    nativeControllerShoulderState = next;
+    if (!next.left && !next.right) nativeControllerNeedsNeutral = false;
+    return;
+  }
+  const previous = nativeControllerShoulderState;
+  nativeControllerShoulderState = next;
+  if (next.left && !previous.left) {
+    dismissPopupForNativeControllerSeek();
+    handleControllerSubtitleSeek({ direction: -1 });
+  }
+  if (next.right && !previous.right) {
+    dismissPopupForNativeControllerSeek();
+    handleControllerSubtitleSeek({ direction: 1 });
+  }
+}
+function publishNativeControllerState(snapshot) {
+  if (!snapshot) return;
+  handleNativeControllerShoulders(snapshot);
+  const overlaySnapshot = {
+    protocol: snapshot.protocol,
+    sequence: snapshot.sequence,
+    source: snapshot.source,
+    connected: snapshot.connected,
+    id: snapshot.id,
+    buttons: Object.assign({}, snapshot.buttons, {
+      leftShoulder: false,
+      rightShoulder: false,
+    }),
+    axes: snapshot.axes,
+  };
+  nativeControllerLastSnapshot = overlaySnapshot;
+  postToOverlay("controller-state", overlaySnapshot);
+}
+function pollNativeControllerState(force) {
+  try {
+    if (!file.exists(workerControllerStatePath())) {
+      nativeControllerMissingPolls++;
+      if (nativeControllerMissingPolls > NATIVE_CONTROLLER_MISSING_POLL_LIMIT)
+        stopNativeControllerPolling();
+      return false;
+    }
+    const snapshot = normalizeNativeControllerState(
+      JSON.parse(String(file.read(workerControllerStatePath()) || "")),
+    );
+    if (!snapshot) {
+      stopNativeControllerPolling();
+      return false;
+    }
+    const age = Date.now() - snapshot.updatedAt;
+    if (
+      !Number.isFinite(snapshot.updatedAt) ||
+      age > NATIVE_CONTROLLER_STATE_STALE_MS
+    ) {
+      debugWarn(
+        "stopping stale native controller state ageMs=" +
+          String(Number.isFinite(age) ? age : "invalid"),
+      );
+      stopNativeControllerPolling();
+      return false;
+    }
+    nativeControllerMissingPolls = 0;
+    if (!force && snapshot.sequence === nativeControllerLastSequence)
+      return true;
+    nativeControllerLastSequence = snapshot.sequence;
+    publishNativeControllerState(snapshot);
+    return true;
+  } catch (error) {
+    debugVerbose("native controller state read failed: " + compactError(error));
+    return false;
+  }
+}
+function startNativeControllerPolling() {
+  if (typeof nativeControllerPollTimer === "undefined") return;
+  if (nativeControllerPollTimer !== null) return;
+  nativeControllerLastSequence = -1;
+  nativeControllerMissingPolls = 0;
+  nativeControllerNeedsNeutral = true;
+  pollNativeControllerState(true);
+  nativeControllerPollTimer = scheduleRepeating(
+    () => pollNativeControllerState(false),
+    16,
+  );
+}
+function stopNativeControllerPolling() {
+  if (typeof nativeControllerPollTimer === "undefined") return;
+  if (nativeControllerPollTimer !== null)
+    cancelRepeating(nativeControllerPollTimer);
+  nativeControllerPollTimer = null;
+  nativeControllerLastSequence = -1;
+  nativeControllerMissingPolls = 0;
+  nativeControllerLastSnapshot = null;
+  nativeControllerShoulderState = { left: false, right: false };
+  nativeControllerNeedsNeutral = true;
+  postToOverlay("controller-state", {
+    protocol: 1,
+    sequence: 0,
+    source: "native-hid",
+    connected: false,
+    id: "",
+    buttons: {},
+    axes: {},
+  });
+}
+function replayNativeControllerState() {
+  if (typeof nativeControllerLastSnapshot === "undefined") return;
+  if (nativeControllerLastSnapshot)
+    postToOverlay("controller-state", nativeControllerLastSnapshot);
+  else pollNativeControllerState(true);
+}
 async function waitForWorkerReady(fingerprint, timeoutMs, generation) {
   const deadline =
     Date.now() +
@@ -12499,6 +12684,8 @@ async function waitForWorkerReady(fingerprint, timeoutMs, generation) {
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
       activeWorkerReady = ready;
+      if (ready.controller && ready.controller.protocol === 1)
+        startNativeControllerPolling();
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
     }
@@ -12552,8 +12739,14 @@ async function ensureBackendWorker(dicts, language) {
       " activeFingerprintMatches=" +
       String(activeWorkerFingerprint === fingerprint),
   );
-  if (activeWorkerFingerprint === fingerprint && activeWorkerReady)
+  if (activeWorkerFingerprint === fingerprint && activeWorkerReady) {
+    if (
+      activeWorkerReady.controller &&
+      activeWorkerReady.controller.protocol === 1
+    )
+      startNativeControllerPolling();
     return activeWorkerReady;
+  }
   if (workerStartInFlight) {
     if (
       workerStartInFlight.fingerprint === fingerprint &&
@@ -13462,6 +13655,18 @@ const OVERLAY_BRIDGE_HANDLERS = {
       throw new Error("open-url message is missing url");
     openExternalUrlFromOverlay(payload.url);
   },
+  "controller-subtitle-seek"(payload) {
+    handleControllerSubtitleSeek(payload);
+  },
+  "controller-resume-playback"() {
+    handleControllerResumePlayback();
+  },
+  "controller-status"(payload) {
+    handleControllerStatus(payload);
+  },
+  "controller-input"(payload) {
+    handleControllerInput(payload);
+  },
   "native-layout-diagnostic"(payload) {
     handleNativeLayoutDiagnostic(payload);
   },
@@ -13472,6 +13677,72 @@ const OVERLAY_BRIDGE_HANDLERS = {
     debugVerbose("[overlay] " + String(payload.message || ""));
   },
 };
+
+function handleControllerSubtitleSeek(payload) {
+  const direction = Number(payload && payload.direction);
+  if (direction !== -1 && direction !== 1) {
+    debugWarn("ignored invalid controller subtitle seek direction");
+    return false;
+  }
+  try {
+    mpv.command("sub-seek", [String(direction)]);
+    return true;
+  } catch (error) {
+    debugWarn("controller subtitle seek failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerResumePlayback() {
+  try {
+    const resumed = setPauseState(false);
+    if (resumed)
+      debugLog("controller circle resumed playback without an open popup");
+    return resumed;
+  } catch (error) {
+    debugWarn("controller playback resume failed: " + compactError(error));
+    return false;
+  }
+}
+function handleControllerStatus(payload) {
+  const status = payload && typeof payload === "object" ? payload : {};
+  debugLog(
+    "controller status " +
+      JSON.stringify({
+        reason: String(status.reason || ""),
+        apiAvailable: !!status.apiAvailable,
+        connected: !!status.connected,
+        recognized: !!status.recognized,
+        gamepadCount: Number(status.gamepadCount || 0),
+        id: String(status.id || ""),
+        mapping: String(status.mapping || ""),
+        buttonCount: Number(status.buttonCount || 0),
+        axisCount: Number(status.axisCount || 0),
+        enabled: !!status.enabled,
+        windowActive: status.windowActive !== false,
+        visible: status.visible !== false,
+        allowed: !!status.allowed,
+      }),
+  );
+}
+function handleControllerInput(payload) {
+  const input = payload && typeof payload === "object" ? payload : {};
+  debugLog(
+    "controller input " +
+      JSON.stringify({
+        event: String(input.event || ""),
+        action: String(input.action || ""),
+        direction: input.direction,
+        sent: input.sent === undefined ? undefined : !!input.sent,
+        pressed: Array.isArray(input.pressed) ? input.pressed : undefined,
+        axes: input.axes || undefined,
+        rawButtons: Array.isArray(input.rawButtons)
+          ? input.rawButtons
+          : undefined,
+        rawAxes: Array.isArray(input.rawAxes) ? input.rawAxes : undefined,
+        allowed: input.allowed === undefined ? undefined : !!input.allowed,
+      }),
+  );
+}
 function dispatchOverlayBridgePayload(payload) {
   const type =
     payload && typeof payload === "object" && typeof payload.type === "string"
@@ -17631,6 +17902,8 @@ function handleOverlayDocumentReady(payload, source) {
     handleLookupPopupOverlayReady(payload);
   postToOverlay("config", overlayConfig());
   postToOverlay("enabled", { enabled });
+  if (typeof replayNativeControllerState === "function")
+    replayNativeControllerState();
   replayActiveOverlayTask();
   if (enabled) {
     nativeSubtitleLayoutTrigger =
@@ -17761,6 +18034,18 @@ function initializeOverlay(options) {
     openExternalUrlFromOverlay(
       payload && payload.url !== undefined ? payload.url : payload,
     );
+  });
+  overlay.onMessage("controller-subtitle-seek", (payload) => {
+    handleControllerSubtitleSeek(payload);
+  });
+  overlay.onMessage("controller-resume-playback", () => {
+    handleControllerResumePlayback();
+  });
+  overlay.onMessage("controller-status", (payload) => {
+    handleControllerStatus(payload);
+  });
+  overlay.onMessage("controller-input", (payload) => {
+    handleControllerInput(payload);
   });
   overlay.onMessage("anki-card-status", (payload) => {
     handleBridgeAnkiCardStatus(payload);
@@ -18893,7 +19178,11 @@ event.on("iina.window-loaded", () => {
 });
 event.on("iina.window-main.changed", (status) => {
   nativeBitmapOcrWindowMain = !!status;
+  nativeControllerNeedsNeutral = true;
   nativeBitmapOcrMouseActivityCounter = null;
+  postToOverlay("controller-active", {
+    active: nativeBitmapOcrWindowMain,
+  });
 });
 event.on("mpv.file-loaded", () => {
   if (pluginShuttingDown) return;
