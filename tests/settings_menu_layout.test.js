@@ -116,8 +116,8 @@ assert(
   "Settings manager should use opaque surfaces and the system accent color",
 );
 assert(
-  (managerHtml.match(/class="check-field"/g) || []).length === 19 &&
-    (managerHtml.match(/class="switch"/g) || []).length === 19,
+  (managerHtml.match(/class="check-field"/g) || []).length === 20 &&
+    (managerHtml.match(/class="switch"/g) || []).length === 20,
   "Boolean settings should use switches while preserving every setting control",
 );
 assert(
@@ -385,6 +385,10 @@ assert(
 assert(
   /data-profile-pref="flattenSubtitleLineBreaks"/.test(managerHtml),
   "Settings manager should expose opt-in subtitle line-break flattening",
+);
+assert(
+  /data-profile-pref="controllerEnabled"/.test(managerHtml),
+  "Settings manager should expose the opt-in DualSense controller toggle",
 );
 assert(
   /data-profile-pref="bitmapSubtitleOcrPrefetchEnabled"/.test(managerHtml),

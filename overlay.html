@@ -1366,6 +1366,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false,
       controllerWindowActive: true,
+      controllerEnabled: false,
     },
     hideTimer: null,
     currentAnchor: null,
@@ -2896,7 +2897,9 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const previousAudioSignature = audioSourcesSignature(activeAudioSources());
     const previousNativeLookupHighlight =
       !!state.config.experimentalNativeSubtitleLookupHighlight;
+    const previousControllerEnabled = !!state.config.controllerEnabled;
     state.config = Object.assign({}, state.config, config || {});
+    state.config.controllerEnabled = !!state.config.controllerEnabled;
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
     state.config.popupMaxWidth = Math.max(
       260,
@@ -3032,6 +3035,16 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       );
     applyCustomPopupCss(state.config.customPopupCss || "");
     updateNestedPopupScanningState();
+    if (!state.config.controllerEnabled) {
+      state.controller.pollingStarted = false;
+      state.controller.nativeAvailable = false;
+      state.controller.nativeSnapshot = null;
+      state.controller.connected = false;
+      resetControllerInput();
+    } else if (!previousControllerEnabled) {
+      resetControllerInput();
+      startControllerPolling();
+    }
     const configuredBridgePort = Number(state.config.overlayBridgePort);
     if (Number.isFinite(configuredBridgePort) && configuredBridgePort > 0) {
       if (configuredBridgePort !== state.bridgePort) {
@@ -5575,7 +5588,11 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   }
 
   function controllerInputAllowed() {
-    if (!state.enabled || state.config.controllerWindowActive === false)
+    if (
+      !state.enabled ||
+      state.config.controllerEnabled !== true ||
+      state.config.controllerWindowActive === false
+    )
       return false;
     try {
       if (document.visibilityState === "hidden") return false;
@@ -5595,6 +5612,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       buttonCount: Number(status.buttonCount || 0),
       axisCount: Number(status.axisCount || 0),
       enabled: !!state.enabled,
+      controllerEnabled: state.config.controllerEnabled === true,
       windowActive: state.config.controllerWindowActive !== false,
       visible: (() => {
         try {
@@ -5623,6 +5641,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       buttonCount: Number(normalized.buttonCount || 0),
       axisCount: Number(normalized.axisCount || 0),
       enabled: !!state.enabled,
+      controllerEnabled: state.config.controllerEnabled === true,
       windowActive: state.config.controllerWindowActive !== false,
       visible: (() => {
         try {
@@ -6475,6 +6494,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
 
   function startControllerPolling() {
     try {
+      if (state.config.controllerEnabled !== true) return false;
       if (state.controller.pollingStarted) return true;
       if (!window || typeof window.requestAnimationFrame !== "function") {
         reportControllerStatus({ reason: "animation-frame-unavailable" });
@@ -10144,7 +10164,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       : null;
     if (wasConnected !== !!state.controller.nativeSnapshot)
       resetControllerInput();
-    startControllerPolling();
+    if (state.config.controllerEnabled === true) startControllerPolling();
   });
   iina.onMessage("controller-dismiss", () => {
     if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
@@ -10351,7 +10371,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     });
   } catch (_) {}
   registerControllerWindowListeners();
-  startControllerPolling();
+  if (state.config.controllerEnabled === true) startControllerPolling();
 })();
   </script>
 </body>

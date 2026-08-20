@@ -68,6 +68,7 @@
       hoverRequestTimeoutMs: 15000,
       debugLogVerbose: false,
       controllerWindowActive: true,
+      controllerEnabled: false,
     },
     hideTimer: null,
     currentAnchor: null,
@@ -1598,7 +1599,9 @@
     const previousAudioSignature = audioSourcesSignature(activeAudioSources());
     const previousNativeLookupHighlight =
       !!state.config.experimentalNativeSubtitleLookupHighlight;
+    const previousControllerEnabled = !!state.config.controllerEnabled;
     state.config = Object.assign({}, state.config, config || {});
+    state.config.controllerEnabled = !!state.config.controllerEnabled;
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
     state.config.popupMaxWidth = Math.max(
       260,
@@ -1734,6 +1737,16 @@
       );
     applyCustomPopupCss(state.config.customPopupCss || "");
     updateNestedPopupScanningState();
+    if (!state.config.controllerEnabled) {
+      state.controller.pollingStarted = false;
+      state.controller.nativeAvailable = false;
+      state.controller.nativeSnapshot = null;
+      state.controller.connected = false;
+      resetControllerInput();
+    } else if (!previousControllerEnabled) {
+      resetControllerInput();
+      startControllerPolling();
+    }
     const configuredBridgePort = Number(state.config.overlayBridgePort);
     if (Number.isFinite(configuredBridgePort) && configuredBridgePort > 0) {
       if (configuredBridgePort !== state.bridgePort) {
@@ -4277,7 +4290,11 @@
   }
 
   function controllerInputAllowed() {
-    if (!state.enabled || state.config.controllerWindowActive === false)
+    if (
+      !state.enabled ||
+      state.config.controllerEnabled !== true ||
+      state.config.controllerWindowActive === false
+    )
       return false;
     try {
       if (document.visibilityState === "hidden") return false;
@@ -4297,6 +4314,7 @@
       buttonCount: Number(status.buttonCount || 0),
       axisCount: Number(status.axisCount || 0),
       enabled: !!state.enabled,
+      controllerEnabled: state.config.controllerEnabled === true,
       windowActive: state.config.controllerWindowActive !== false,
       visible: (() => {
         try {
@@ -4325,6 +4343,7 @@
       buttonCount: Number(normalized.buttonCount || 0),
       axisCount: Number(normalized.axisCount || 0),
       enabled: !!state.enabled,
+      controllerEnabled: state.config.controllerEnabled === true,
       windowActive: state.config.controllerWindowActive !== false,
       visible: (() => {
         try {
@@ -5177,6 +5196,7 @@
 
   function startControllerPolling() {
     try {
+      if (state.config.controllerEnabled !== true) return false;
       if (state.controller.pollingStarted) return true;
       if (!window || typeof window.requestAnimationFrame !== "function") {
         reportControllerStatus({ reason: "animation-frame-unavailable" });
@@ -8846,7 +8866,7 @@
       : null;
     if (wasConnected !== !!state.controller.nativeSnapshot)
       resetControllerInput();
-    startControllerPolling();
+    if (state.config.controllerEnabled === true) startControllerPolling();
   });
   iina.onMessage("controller-dismiss", () => {
     if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
@@ -9053,5 +9073,5 @@
     });
   } catch (_) {}
   registerControllerWindowListeners();
-  startControllerPolling();
+  if (state.config.controllerEnabled === true) startControllerPolling();
 })();

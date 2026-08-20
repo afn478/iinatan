@@ -42,6 +42,7 @@ overlay.applyConfig({
   },
   experimentalNativeSubtitleHitLayer: false,
   controllerWindowActive: true,
+  controllerEnabled: true,
   overlayBridgePort: 19741,
   audioSources: [{ name: "Test audio", url: "https://audio/{term}.mp3" }],
 });

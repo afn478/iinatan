@@ -102,7 +102,7 @@ assert(
     /milliseconds\(250\)/.test(controllerSource) &&
     /updatedAt/.test(controllerSource) &&
     /source\\\":\\\"native-hid/.test(controllerSource) &&
-    /controller_monitor\.poll/.test(nativeSource),
+    /controller_monitor->poll/.test(nativeSource),
   "Native worker should poll and publish DualSense HID snapshots",
 );
 assert(
@@ -196,16 +196,27 @@ assert(
   "Worker launch script should pass IINA's owner pid to the native worker",
 );
 assert(
+  /--controller-enabled "\$CONTROLLER_ENABLED"/.test(workerSource) &&
+    /prefBool\("controllerEnabled", false\)/.test(workerSource),
+  "Worker launch should pass the opt-in controller preference to the native helper",
+);
+assert(
   /umask 077/.test(workerSource) &&
     /chmod 700 "\$WORKER_ROOT"/.test(workerSource),
   "Worker IPC containing media URLs should stay private to the current user",
 );
 assert(
   /WORKER_ROOT="\$2"/.test(workerSource) &&
-    /\[workerStartScriptPath\(\), dataRoot\(\), workerRoot\(\)/.test(
+    /\[\s*workerStartScriptPath\(\),\s*dataRoot\(\),\s*workerRoot\(\)/.test(
       workerSource,
     ),
   "Each player should launch its worker with an isolated runtime directory",
+);
+assert(
+  /--controller-enabled bool/.test(nativeSource) &&
+    /if \(controller_enabled\)/.test(nativeSource) &&
+    /\\\"enabled\\\":/.test(nativeSource),
+  "Native worker controller monitoring should be conditional and advertised",
 );
 assert(
   workerSource.indexOf("file.write(bodyPath") <

@@ -70,7 +70,8 @@
     "directWorkerIpc": true,
     "fallbackToClientExec": true,
     "directIpcPollMs": 2,
-    "workerIdleSleepMs": 2
+    "workerIdleSleepMs": 2,
+    "controllerEnabled": false
   },
   "permissions": [
     "video-overlay",

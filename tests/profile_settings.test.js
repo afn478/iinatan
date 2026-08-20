@@ -113,6 +113,10 @@ assert(
   "Subtitle line-break flattening should default to off",
 );
 assert(
+  prefs.controllerEnabled === false,
+  "DualSense controller input should default to disabled",
+);
+assert(
   prefs.bitmapSubtitleOcrEnabled === true,
   "Bitmap subtitle OCR should default to enabled on compatible profiles",
 );

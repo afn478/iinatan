@@ -62,6 +62,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   fallbackToClientExec: true,
   directIpcPollMs: 2,
   workerIdleSleepMs: 2,
+  controllerEnabled: false,
 };
 const PROFILE_PREFERENCE_KEYS = Object.keys(PROFILE_PREFERENCE_DEFAULTS);
 const GLOBAL_SETTINGS_DEFAULTS = {
@@ -85,6 +86,7 @@ const PROFILE_PREFERENCE_RUNTIME_EFFECTS = {
   subtitlePollMs: ["polling"],
   hideNativeSubtitles: ["nativeVisibility"],
   workerIdleSleepMs: ["backendRestart"],
+  controllerEnabled: ["backendRestart"],
 };
 function profilePreferenceRuntimeEffects(keys) {
   const effects = Object.create(null);
@@ -275,6 +277,10 @@ function normalizeProfilePreferences(prefs) {
       out.experimentalNativeSubtitleValidation,
       PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleValidation,
     );
+  out.controllerEnabled = normalizeProfilePreferenceBoolValue(
+    out.controllerEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.controllerEnabled,
+  );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -910,14 +911,16 @@ class BitmapOcrExecutor {
 };
 
 static void cmd_worker(int argc, char** argv) {
-  if (argc < 3) { print_error("usage: worker <worker_dir> [--sleep-ms n] [--owner-pid pid]"); std::exit(2); }
+  if (argc < 3) { print_error("usage: worker <worker_dir> [--sleep-ms n] [--owner-pid pid] [--controller-enabled bool]"); std::exit(2); }
   fs::path root = argv[2];
   int sleep_ms = 2;
   int owner_pid = 0;
+  bool controller_enabled = false;
   for (int i = 3; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--sleep-ms" && i + 1 < argc) sleep_ms = std::max(1, to_int(argv[++i], sleep_ms));
     else if (arg == "--owner-pid" && i + 1 < argc) owner_pid = std::max(0, to_int(argv[++i], 0));
+    else if (arg == "--controller-enabled" && i + 1 < argc) controller_enabled = to_bool(argv[++i], false);
   }
   fs::path queue = root / "queue";
   fs::path responses = root / "responses";
@@ -938,14 +941,17 @@ static void cmd_worker(int argc, char** argv) {
   Lookup lookup(dict_query, deinflector);
   iinatan::ass::GeometryService geometry_service;
   BitmapOcrExecutor bitmap_ocr_executor(responses);
-  iinatan::controller::Monitor controller_monitor(controller_state);
+  std::unique_ptr<iinatan::controller::Monitor> controller_monitor;
+  if (controller_enabled)
+    controller_monitor =
+        std::make_unique<iinatan::controller::Monitor>(controller_state);
   write_file_atomic(state / "ready.json", std::string("{\"ok\":true,\"worker\":true,\"wrapperVersion\":") + json_quote(WRAPPER_VERSION) + ",\"fingerprint\":" + json_quote(cfg.fingerprint) + ",\"dictCount\":" + std::to_string(cfg.dicts.size()) + ",\"assGeometry\":{\"protocol\":1,\"available\":" +
 #ifdef IINATAN_ASS_GEOMETRY
       "true"
 #else
       "false"
 #endif
-      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"products\":[\"dualsense\"]},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
+      ",\"patch\":" + json_quote(iinatan::ass::kAssGeometryPatch) + ",\"observedPlain\":true},\"mouseIntent\":{\"protocol\":1,\"source\":\"coregraphics-counter\"},\"controller\":{\"protocol\":1,\"source\":\"native-hid\",\"enabled\":" + (controller_enabled ? "true" : "false") + ",\"products\":[\"dualsense\"]},\"bitmapOcr\":" + bitmap_ocr_executor.capability().dump() + "}\n");
   const int active_sleep_ms = std::max(1, sleep_ms);
   const int idle_sleep_ms = std::max(active_sleep_ms, 16);
   int current_sleep_ms = active_sleep_ms;
@@ -958,7 +964,7 @@ static void cmd_worker(int argc, char** argv) {
   uint32_t mouse_counter = CGEventSourceCounterForEventType(
       kCGEventSourceStateCombinedSessionState, kCGEventMouseMoved);
   while (!fs::exists(stop)) {
-    controller_monitor.poll();
+    if (controller_monitor) controller_monitor->poll();
     if (owner_pid > 0 && std::chrono::steady_clock::now() >= next_owner_check) {
       if (!process_exists(owner_pid)) {
         std::cerr << "iina-hoshi-dicts worker stopping because owner pid " << owner_pid << " exited\n";

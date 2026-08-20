@@ -6056,6 +6056,7 @@ function overlayConfig() {
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
     controllerWindowActive: nativeBitmapOcrWindowMain,
+    controllerEnabled: prefBool("controllerEnabled", false),
     overlayBridgePort,
   };
 }
@@ -9543,6 +9544,7 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   fallbackToClientExec: true,
   directIpcPollMs: 2,
   workerIdleSleepMs: 2,
+  controllerEnabled: false,
 };
 const PROFILE_PREFERENCE_KEYS = Object.keys(PROFILE_PREFERENCE_DEFAULTS);
 const GLOBAL_SETTINGS_DEFAULTS = {
@@ -9566,6 +9568,7 @@ const PROFILE_PREFERENCE_RUNTIME_EFFECTS = {
   subtitlePollMs: ["polling"],
   hideNativeSubtitles: ["nativeVisibility"],
   workerIdleSleepMs: ["backendRestart"],
+  controllerEnabled: ["backendRestart"],
 };
 function profilePreferenceRuntimeEffects(keys) {
   const effects = Object.create(null);
@@ -9756,6 +9759,10 @@ function normalizeProfilePreferences(prefs) {
       out.experimentalNativeSubtitleValidation,
       PROFILE_PREFERENCE_DEFAULTS.experimentalNativeSubtitleValidation,
     );
+  out.controllerEnabled = normalizeProfilePreferenceBoolValue(
+    out.controllerEnabled,
+    PROFILE_PREFERENCE_DEFAULTS.controllerEnabled,
+  );
   out.experimentalNativeSubtitleTextOpacity = Math.max(
     0,
     Math.min(1, Number(out.experimentalNativeSubtitleTextOpacity) || 0),
@@ -12336,6 +12343,7 @@ umask 077
 DATA_ROOT="$1"
 WORKER_ROOT="$2"
 SLEEP_MS="${"$"}{3:-2}"
+CONTROLLER_ENABLED="${"$"}{4:-false}"
 BIN="$DATA_ROOT/bin/iina-hoshi-dicts"
 CONFIG="$WORKER_ROOT/config.tsv"
 LOG="$WORKER_ROOT/worker.log"
@@ -12356,7 +12364,7 @@ if [ -z "${"$"}{HOME:-}" ]; then
   fi
 fi
 OWNER_PID="${"$"}{IINATAN_OWNER_PID:-${"$"}PPID}"
-nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" --owner-pid "$OWNER_PID" > "$LOG" 2>&1 < /dev/null &
+nohup "$BIN" worker "$WORKER_ROOT" --sleep-ms "$SLEEP_MS" --owner-pid "$OWNER_PID" --controller-enabled "$CONTROLLER_ENABLED" > "$LOG" 2>&1 < /dev/null &
 echo $! > "$PID"
 `;
   file.write(workerStartScriptPath(), script);
@@ -12469,7 +12477,13 @@ async function startBackendWorkerProcess(dicts, language) {
   const sleepMs = Math.max(1, prefNumber("workerIdleSleepMs", 2));
   const res = await execExternalProcess(
     "/bin/bash",
-    [workerStartScriptPath(), dataRoot(), workerRoot(), String(sleepMs)],
+    [
+      workerStartScriptPath(),
+      dataRoot(),
+      workerRoot(),
+      String(sleepMs),
+      String(prefBool("controllerEnabled", false)),
+    ],
     dataRoot(),
   );
   if (!res || res.status !== 0)
@@ -12684,7 +12698,11 @@ async function waitForWorkerReady(fingerprint, timeoutMs, generation) {
     if (ready && ready.fingerprint === fingerprint) {
       activeWorkerFingerprint = fingerprint;
       activeWorkerReady = ready;
-      if (ready.controller && ready.controller.protocol === 1)
+      if (
+        ready.controller &&
+        ready.controller.protocol === 1 &&
+        ready.controller.enabled === true
+      )
         startNativeControllerPolling();
       setOverlayStatus("Dictionary lookup ready.", "info", 2500);
       return ready;
@@ -12742,7 +12760,8 @@ async function ensureBackendWorker(dicts, language) {
   if (activeWorkerFingerprint === fingerprint && activeWorkerReady) {
     if (
       activeWorkerReady.controller &&
-      activeWorkerReady.controller.protocol === 1
+      activeWorkerReady.controller.protocol === 1 &&
+      activeWorkerReady.controller.enabled === true
     )
       startNativeControllerPolling();
     return activeWorkerReady;

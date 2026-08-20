@@ -310,6 +310,7 @@ function overlayConfig() {
     debugLogEnabled: prefBool("debugLogEnabled", true),
     debugLogVerbose: prefBool("debugLogVerbose", false),
     controllerWindowActive: nativeBitmapOcrWindowMain,
+    controllerEnabled: prefBool("controllerEnabled", false),
     overlayBridgePort,
   };
 }
