@@ -1,13 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.1.6 - 2026-08-20
 
 ### Added
 
-- Added DualSense navigation for subtitle lookup, dictionary entry selection, popup scrolling, entry audio, Anki actions, and direct previous/next subtitle seeking, with foreground gating and visual long-press feedback. Input is captured through the persistent native HoshiDicts worker because IINA's WebKit Gamepad objects do not publish live controller state.
-- Circle now resumes playback when no controller popup layer is open.
-- Square now toggles playback pause and resume directly.
-- Added a default-off Advanced setting for DualSense input; the native HID monitor and overlay polling now start only after the setting is enabled, at which point macOS can request input monitoring permission.
+- Added optional DualSense controller support for navigating subtitles and dictionary popups, controlling playback, playing entry audio, and running Anki actions.
 
 ## 2.1.5 - 2026-08-19
 

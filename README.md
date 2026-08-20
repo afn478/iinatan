@@ -26,7 +26,7 @@ Anki export is available through AnkiConnect when Anki is running in the backgro
 - Frequency and pitch-accent dictionary support for Japanese
 - Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
 - One-click Anki card creation with duplicate detection, subtitle sentences, screenshots, and subtitle audio.
-- DualSense controller support for lookup navigation and playback controls (requests macOS Input Monitoring permission when enabled).
+- DualSense controller support for lookup navigation and playback controls (requests macOS Input Monitoring permission when enabled); see the [current input mapping](docs/dualsense-controls.md).
 - Profiles for keeping separate language, dictionary, popup, and anki export settings.
 
 ## Installation
