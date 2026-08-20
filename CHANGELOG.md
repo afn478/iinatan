@@ -11,7 +11,6 @@
 - Detected controllers connected after IINA startup by servicing the native HID manager's run loop while polling.
 - Kept native backend controller capability validation aligned with the generalized gamepad support.
 - Preferred physical HID descriptors over macOS synthetic gamepad descriptors so face, trigger, and d-pad buttons retain their intended mappings.
-- Restored the DualSense right-stick layout so trigger axes no longer hold the overlay's input-safety gate open.
 
 ## 2.1.6 - 2026-08-20
 
