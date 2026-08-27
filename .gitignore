@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 GOAL.md
 AGENTS.override.md
+.vscode/
