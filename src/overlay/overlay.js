@@ -2674,22 +2674,31 @@
     });
   }
 
-  function nativeSubtitleFallbackFaceNames(resolvedFace) {
+  function nativeSubtitleFallbackFaces(resolvedFace) {
     const runs =
       resolvedFace && Array.isArray(resolvedFace.fallbackRuns)
         ? resolvedFace.fallbackRuns
         : [];
-    const names = [];
+    const faces = [];
     const seen = Object.create(null);
     runs.forEach((run) => {
       const name = String(
         run && run.postScriptName ? run.postScriptName : "",
       ).trim();
-      if (!name || /[\u0000-\u001f;{}]/.test(name) || seen[name]) return;
+      const fontMetricScale = Number(run && run.fontMetricScale);
+      if (
+        !name ||
+        /[\u0000-\u001f;{}]/.test(name) ||
+        !Number.isFinite(fontMetricScale) ||
+        fontMetricScale <= 0.1 ||
+        fontMetricScale > 2 ||
+        seen[name]
+      )
+        return;
       seen[name] = true;
-      names.push(name);
+      faces.push({ name, fontMetricScale });
     });
-    return names;
+    return faces;
   }
 
   function nativeSubtitleFontResolution(
@@ -2704,6 +2713,7 @@
         cssFamily: '"' + loadedRecord.alias + '"',
         localFontVerified: loadedRecord.localFontVerified === true,
         fallbackRequired: loadedRecord.fallbackRequired === true,
+        primaryFontMetricScale: loadedRecord.primaryFontMetricScale,
         fallbackAliases: Object.assign(
           Object.create(null),
           loadedRecord.fallbackAliases,
@@ -2720,13 +2730,13 @@
   ) {
     const target = copyElement || nativeSubtitleCopyEl;
     const family = nativePrimaryFontFamily(requestedFamily);
-    const fallbackNames = nativeSubtitleFallbackFaceNames(resolvedFace);
+    const fallbackFaces = nativeSubtitleFallbackFaces(resolvedFace);
     const fallbackRequired = !!(
       resolvedFace &&
       Array.isArray(resolvedFace.fallbackRuns) &&
       resolvedFace.fallbackRuns.length
     );
-    const fallbackFingerprint = JSON.stringify(fallbackNames);
+    const fallbackFingerprint = JSON.stringify(fallbackFaces);
     const genericFamily =
       /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system)$/i.test(
         family,
@@ -2736,6 +2746,7 @@
         cssFamily: requestedFamily,
         localFontVerified: true,
         fallbackRequired: false,
+        primaryFontMetricScale: 1,
         fallbackAliases: Object.create(null),
       });
     const FontFaceConstructor = window.FontFace;
@@ -2751,6 +2762,7 @@
         cssFamily: requestedFamily,
         localFontVerified: false,
         fallbackRequired,
+        primaryFontMetricScale: 0,
         fallbackAliases: Object.create(null),
       });
     if (
@@ -2771,19 +2783,22 @@
       {
         name: family,
         alias,
+        fallback: false,
       },
     ];
-    fallbackNames.forEach((name, index) => {
+    fallbackFaces.forEach((face, index) => {
       faceRequests.push({
-        name,
+        name: face.name,
         alias:
           "iinatan-native-subtitle-fallback-font-" + generation + "-" + index,
+        fallback: true,
+        fontMetricScale: face.fontMetricScale,
       });
     });
     const faceRecords = [];
     const fallbackAliases = Object.create(null);
     try {
-      faceRequests.forEach((request, index) => {
+      faceRequests.forEach((request) => {
         const source =
           'local("' +
           request.name.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
@@ -2794,7 +2809,7 @@
             resolvedFace && resolvedFace.resolvedItalic ? "italic" : "normal",
         });
         faceRecords.push({ face, added: false });
-        if (index > 0)
+        if (request.fallback)
           fallbackAliases[request.name] = '"' + request.alias + '"';
       });
     } catch (_) {
@@ -2807,6 +2822,9 @@
       faceRecords,
       fallbackAliases,
       fallbackRequired,
+      primaryFontMetricScale: Number(
+        resolvedFace && resolvedFace.fontMetricScale,
+      ),
       localFontVerified: false,
       ready: null,
     };
@@ -2847,6 +2865,15 @@
       fontResolution && fontResolution.fallbackAliases
         ? fontResolution.fallbackAliases
         : {};
+    const primaryMetricScale = Number(
+      fontResolution && fontResolution.primaryFontMetricScale,
+    );
+    if (
+      !Number.isFinite(primaryMetricScale) ||
+      primaryMetricScale <= 0.1 ||
+      primaryMetricScale > 2
+    )
+      return false;
     const baseOffset = Number.isInteger(Number(displayOffset))
       ? Number(displayOffset)
       : 0;
@@ -2872,10 +2899,25 @@
       if (start < cursor || end <= start) return false;
       const postScriptName = String(run.postScriptName || "");
       const fallbackFamily = aliases[postScriptName];
-      if (!fallbackFamily) return false;
+      const fallbackMetricScale = Number(run.fontMetricScale);
+      if (
+        !fallbackFamily ||
+        !Number.isFinite(fallbackMetricScale) ||
+        fallbackMetricScale <= 0.1 ||
+        fallbackMetricScale > 2
+      )
+        return false;
+      const fontSizeRatio = fallbackMetricScale / primaryMetricScale;
+      if (
+        !Number.isFinite(fontSizeRatio) ||
+        fontSizeRatio <= 0.05 ||
+        fontSizeRatio > 20
+      )
+        return false;
       appendText(displayText.slice(cursor, start));
       const fallbackRun = document.createElement("span");
       setImportantStyle(fallbackRun, "font-family", fallbackFamily);
+      setImportantStyle(fallbackRun, "font-size", fontSizeRatio + "em");
       fallbackRun.textContent = displayText.slice(start, end);
       target.appendChild(fallbackRun);
       cursor = end;

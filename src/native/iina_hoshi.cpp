@@ -40,8 +40,8 @@
 // This is the native command/protocol implementation version, not the plugin
 // release version. Plugin release metadata is owned by Info.json.
 static constexpr const char* WRAPPER_VERSION = "1.11.0";
-static constexpr int FONT_METRIC_RESOLVER_VERSION = 3;
-static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v3";
+static constexpr int FONT_METRIC_RESOLVER_VERSION = 4;
+static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v4";
 namespace fs = std::filesystem;
 
 static std::string json_escape(const std::string& s) {
@@ -339,6 +339,54 @@ static uint16_t read_be_u16(const UInt8* bytes, CFIndex length, CFIndex offset) 
       (static_cast<uint16_t>(bytes[offset]) << 8) |
       static_cast<uint16_t>(bytes[offset + 1]));
 }
+struct NativeFontWinMetrics {
+  uint16_t units_per_em;
+  uint16_t win_ascent;
+  uint16_t win_descent;
+  double scale;
+};
+static std::optional<NativeFontWinMetrics> coretext_font_win_metrics(
+    CTFontRef font) {
+  if (!font) return std::nullopt;
+  CFDataRef head_table = CTFontCopyTable(
+      font, kCTFontTableHead, kCTFontTableOptionNoOptions);
+  CFDataRef os2_table = CTFontCopyTable(
+      font, kCTFontTableOS2, kCTFontTableOptionNoOptions);
+  if (!head_table || !os2_table) {
+    if (head_table) CFRelease(head_table);
+    if (os2_table) CFRelease(os2_table);
+    return std::nullopt;
+  }
+  try {
+    const uint16_t units_per_em = read_be_u16(
+        CFDataGetBytePtr(head_table), CFDataGetLength(head_table), 18);
+    const uint16_t win_ascent = read_be_u16(
+        CFDataGetBytePtr(os2_table), CFDataGetLength(os2_table), 74);
+    const uint16_t win_descent = read_be_u16(
+        CFDataGetBytePtr(os2_table), CFDataGetLength(os2_table), 76);
+    CFRelease(head_table);
+    CFRelease(os2_table);
+    const uint32_t win_height =
+        static_cast<uint32_t>(win_ascent) + static_cast<uint32_t>(win_descent);
+    const double scale =
+        win_height > 0
+        ? static_cast<double>(units_per_em) / static_cast<double>(win_height)
+        : 0.0;
+    if (units_per_em == 0 || win_height == 0 || !std::isfinite(scale) ||
+        scale <= 0.1 || scale > 2.0)
+      return std::nullopt;
+    return NativeFontWinMetrics{
+        units_per_em,
+        win_ascent,
+        win_descent,
+        scale,
+    };
+  } catch (...) {
+    CFRelease(head_table);
+    CFRelease(os2_table);
+    return std::nullopt;
+  }
+}
 static std::vector<std::string> microsoft_font_names(
     CTFontRef font, uint16_t requested_name_id) {
   std::vector<std::string> names;
@@ -459,6 +507,7 @@ struct NativeFontFallbackRun {
   CFIndex start_utf16;
   CFIndex end_utf16;
   std::string postscript;
+  double font_metric_scale;
 };
 static std::optional<NativeFontFallbackRun> coretext_font_fallback_run(
     CTFontRef primary,
@@ -491,8 +540,10 @@ static std::optional<NativeFontFallbackRun> coretext_font_fallback_run(
     legacy_families.push_back(family);
   const std::vector<std::string> fallback_legacy_full_names =
       legacy_full_names(fallback);
+  const auto fallback_metrics = coretext_font_win_metrics(fallback);
   const bool selectable =
       !provider_path.empty() &&
+      fallback_metrics.has_value() &&
       libass_name_can_select_face(
           family, postscript, legacy_families, fallback_legacy_full_names, format);
   CFRelease(fallback);
@@ -501,6 +552,7 @@ static std::optional<NativeFontFallbackRun> coretext_font_fallback_run(
       range.location,
       range.location + range.length,
       postscript,
+      fallback_metrics->scale,
   };
 }
 static bool process_exists(int pid) {
@@ -1465,7 +1517,8 @@ static void cmd_font_metrics(int argc, char** argv) {
     const NativeFontFallbackRun& run = fallback_runs[index];
     output << "{\"startUtf16\":" << run.start_utf16
            << ",\"endUtf16\":" << run.end_utf16
-           << ",\"postScriptName\":" << json_quote(run.postscript) << "}";
+           << ",\"postScriptName\":" << json_quote(run.postscript)
+           << ",\"fontMetricScale\":" << run.font_metric_scale << "}";
   }
   output << "]}}\n";
   std::cout << output.str();

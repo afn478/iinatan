@@ -417,7 +417,10 @@ if (
           run.startUtf16 === 2 &&
           run.endUtf16 === 3 &&
           typeof run.postScriptName === "string" &&
-          run.postScriptName.length > 0,
+          run.postScriptName.length > 0 &&
+          Number.isFinite(run.fontMetricScale) &&
+          run.fontMetricScale > 0.1 &&
+          run.fontMetricScale <= 2,
       ),
     "Fallback coverage should identify the exact uncovered UTF-16 run and face",
   );

@@ -12,6 +12,7 @@
 - Kept native backend controller capability validation aligned with the generalized gamepad support.
 - Preferred physical HID descriptors over macOS synthetic gamepad descriptors so face, trigger, and d-pad buttons retain their intended mappings.
 - Matched native-subtitle overlay text to CoreText/libass fallback faces for glyphs missing from the configured subtitle font, keeping special-character cues interactive instead of rejecting their entire hit layer.
+- Scaled fallback glyph runs with their own native font metrics so oversized symbols retain the same advance width as the rendered subtitle.
 
 ## 2.1.6 - 2026-08-20
 

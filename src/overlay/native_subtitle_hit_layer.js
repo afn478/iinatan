@@ -119,8 +119,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       !calculatedMetricScale ||
       Math.abs(calculatedMetricScale - reportedMetricScale) > 0.000001 ||
       !String(options.resolvedPostScriptName || "").trim() ||
-      String(options.fontMetricSource || "") !== "coretext-libass-os2-win-v3" ||
-      Number(options.fontMetricResolverVersion) !== 3 ||
+      String(options.fontMetricSource || "") !== "coretext-libass-os2-win-v4" ||
+      Number(options.fontMetricResolverVersion) !== 4 ||
       options.libassProviderVerified !== true ||
       !Number.isInteger(Number(options.resolvedFontFormat)) ||
       Number(options.resolvedFontFormat) < 1 ||

@@ -6723,6 +6723,7 @@ function normalizeNativeSubtitleFallbackRuns(coverage) {
     const startUtf16 = Number(run.startUtf16);
     const endUtf16 = Number(run.endUtf16);
     const postScriptName = String(run.postScriptName || "").trim();
+    const fontMetricScale = Number(run.fontMetricScale);
     if (
       !Number.isInteger(startUtf16) ||
       !Number.isInteger(endUtf16) ||
@@ -6730,10 +6731,13 @@ function normalizeNativeSubtitleFallbackRuns(coverage) {
       endUtf16 <= startUtf16 ||
       endUtf16 > utf16Units ||
       !postScriptName ||
+      !Number.isFinite(fontMetricScale) ||
+      fontMetricScale <= 0.1 ||
+      fontMetricScale > 2 ||
       /[\u0000-\u001f;{}]/.test(postScriptName)
     )
       throw new Error("font-metrics-invalid-result");
-    runs.push({ startUtf16, endUtf16, postScriptName });
+    runs.push({ startUtf16, endUtf16, postScriptName, fontMetricScale });
     previousEnd = endUtf16;
   });
   return runs;
@@ -6753,8 +6757,8 @@ function normalizeNativeSubtitleFontMetricResult(result) {
   const fallbackRuns = normalizeNativeSubtitleFallbackRuns(value.cueCoverage);
   if (
     value.ok !== true ||
-    Number(value.metricResolverVersion) !== 3 ||
-    String(value.metricSource || "") !== "coretext-libass-os2-win-v3" ||
+    Number(value.metricResolverVersion) !== 4 ||
+    String(value.metricSource || "") !== "coretext-libass-os2-win-v4" ||
     value.libassProviderVerified !== true ||
     !calculatedScale ||
     !Number.isFinite(reportedScale) ||
@@ -6782,8 +6786,8 @@ function normalizeNativeSubtitleFontMetricResult(result) {
     usWinAscent: Number(value.usWinAscent),
     usWinDescent: Number(value.usWinDescent),
     fontMetricScale: calculatedScale,
-    fontMetricSource: "coretext-libass-os2-win-v3",
-    fontMetricResolverVersion: 3,
+    fontMetricSource: "coretext-libass-os2-win-v4",
+    fontMetricResolverVersion: 4,
     libassProviderVerified: true,
     resolvedFontFormat,
     resolvedBold: value.resolvedBold === true,
