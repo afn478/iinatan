@@ -25,7 +25,7 @@ const {
   standaloneWindow,
 } = iina;
 
-const VERSION = "2.1.6";
+const VERSION = "2.1.7";
 const RECOMMENDED_JITENDEX_URL =
   "https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip";
 const RECOMMENDED_JAPANESE_DICTIONARIES = [

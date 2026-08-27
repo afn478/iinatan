@@ -1,15 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.1.7 - 2026-08-28
 
 ### Added
 
-- Generalized controller input to macOS-recognized controllers and added independent No Popup, With Popup, and Audio List button mappings.
+- Added configurable controller support for macOS-recognized controllers, including subtitle lookup, popup navigation, playback, audio selection, and Anki actions.
 
 ### Fixed
 
-- Matched native-subtitle overlay text to CoreText/libass fallback faces for glyphs missing from the configured subtitle font, keeping special-character cues interactive instead of rejecting their entire hit layer.
-- Scaled fallback glyph runs with their own native font metrics so oversized symbols retain the same advance width as the rendered subtitle.
+- Improved subtitle lookup for characters rendered with fallback fonts.
 
 ## 2.1.6 - 2026-08-20
 
