@@ -40,8 +40,8 @@
 // This is the native command/protocol implementation version, not the plugin
 // release version. Plugin release metadata is owned by Info.json.
 static constexpr const char* WRAPPER_VERSION = "1.11.0";
-static constexpr int FONT_METRIC_RESOLVER_VERSION = 2;
-static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v2";
+static constexpr int FONT_METRIC_RESOLVER_VERSION = 3;
+static constexpr const char* FONT_METRIC_SOURCE = "coretext-libass-os2-win-v3";
 namespace fs = std::filesystem;
 
 static std::string json_escape(const std::string& s) {
@@ -401,13 +401,18 @@ static bool coverage_codepoint_ignored(uint32_t codepoint) {
       (codepoint >= 0xfe00 && codepoint <= 0xfe0f) ||
       (codepoint >= 0xe0100 && codepoint <= 0xe01ef);
 }
-static std::vector<UniChar> coverage_characters(CFStringRef cue) {
+static std::vector<UniChar> coverage_characters(
+    CFStringRef cue, CFRange range) {
   std::vector<UniChar> result;
   if (!cue) return result;
-  const CFIndex length = CFStringGetLength(cue);
+  const CFIndex cue_length = CFStringGetLength(cue);
+  if (range.location < 0 || range.length < 0 ||
+      range.location > cue_length || range.length > cue_length - range.location)
+    return result;
+  const CFIndex length = range.length;
   std::vector<UniChar> characters(static_cast<size_t>(length));
   if (length > 0)
-    CFStringGetCharacters(cue, CFRangeMake(0, length), characters.data());
+    CFStringGetCharacters(cue, range, characters.data());
   for (CFIndex index = 0; index < length; ++index) {
     const UniChar first = characters[static_cast<size_t>(index)];
     uint32_t codepoint = first;
@@ -427,6 +432,76 @@ static std::vector<UniChar> coverage_characters(CFStringRef cue) {
     if (surrogate_pair) ++index;
   }
   return result;
+}
+static std::vector<UniChar> coverage_characters(CFStringRef cue) {
+  return cue
+      ? coverage_characters(cue, CFRangeMake(0, CFStringGetLength(cue)))
+      : std::vector<UniChar>();
+}
+static bool coretext_font_covers_range(
+    CTFontRef font, CFStringRef cue, CFRange range) {
+  if (!font || !cue) return false;
+  const std::vector<UniChar> characters = coverage_characters(cue, range);
+  if (characters.empty()) return true;
+  std::vector<CGGlyph> glyphs(characters.size());
+  const bool mapped = CTFontGetGlyphsForCharacters(
+      font,
+      characters.data(),
+      glyphs.data(),
+      static_cast<CFIndex>(characters.size()));
+  const size_t glyph_count = static_cast<size_t>(
+      std::count_if(glyphs.begin(), glyphs.end(), [](CGGlyph glyph) {
+        return glyph != 0;
+      }));
+  return mapped && glyph_count == characters.size();
+}
+struct NativeFontFallbackRun {
+  CFIndex start_utf16;
+  CFIndex end_utf16;
+  std::string postscript;
+};
+static std::optional<NativeFontFallbackRun> coretext_font_fallback_run(
+    CTFontRef primary,
+    CFStringRef cue,
+    CFRange range,
+    const std::string& primary_postscript) {
+  if (!primary || !cue || range.location < 0 || range.length <= 0)
+    return std::nullopt;
+  CTFontRef fallback = CTFontCreateForString(primary, cue, range);
+  if (!fallback || !coretext_font_covers_range(fallback, cue, range)) {
+    if (fallback) CFRelease(fallback);
+    return std::nullopt;
+  }
+  CFStringRef postscript_ref = CTFontCopyPostScriptName(fallback);
+  CFStringRef family_ref = CTFontCopyFamilyName(fallback);
+  const std::string postscript = cf_string_utf8(postscript_ref);
+  const std::string family = cf_string_utf8(family_ref);
+  if (postscript_ref) CFRelease(postscript_ref);
+  if (family_ref) CFRelease(family_ref);
+  if (postscript.empty() ||
+      libass_font_name_matches(primary_postscript, postscript)) {
+    CFRelease(fallback);
+    return std::nullopt;
+  }
+  const CTFontFormat format = coretext_font_format(fallback);
+  const std::string provider_path =
+      libass_coretext_discovered_path(family, postscript);
+  std::vector<std::string> legacy_families = legacy_family_names(fallback);
+  if (legacy_families.empty() && !family.empty())
+    legacy_families.push_back(family);
+  const std::vector<std::string> fallback_legacy_full_names =
+      legacy_full_names(fallback);
+  const bool selectable =
+      !provider_path.empty() &&
+      libass_name_can_select_face(
+          family, postscript, legacy_families, fallback_legacy_full_names, format);
+  CFRelease(fallback);
+  if (!selectable) return std::nullopt;
+  return NativeFontFallbackRun{
+      range.location,
+      range.location + range.length,
+      postscript,
+  };
 }
 static bool process_exists(int pid) {
   if (pid <= 0) return true;
@@ -1316,24 +1391,37 @@ static void cmd_font_metrics(int argc, char** argv) {
     CFRelease(base_font);
     throw std::runtime_error("font-metrics-invalid-cue");
   }
+  const CFIndex cue_length = CFStringGetLength(cue_ref);
   const std::vector<UniChar> characters = coverage_characters(cue_ref);
-  CFRelease(cue_ref);
-  std::vector<CGGlyph> glyphs(characters.size());
-  const bool covered = characters.empty() ||
-      CTFontGetGlyphsForCharacters(
-          resolved_font,
-          characters.data(),
-          glyphs.data(),
-          static_cast<CFIndex>(characters.size()));
-  const size_t glyph_count = static_cast<size_t>(
-      std::count_if(glyphs.begin(), glyphs.end(), [](CGGlyph glyph) {
-        return glyph != 0;
-      }));
-  if (!covered || glyph_count != characters.size()) {
-    if (resolved_font != base_font) CFRelease(resolved_font);
-    CFRelease(base_font);
-    throw std::runtime_error("font-metrics-cue-not-covered");
+  std::vector<NativeFontFallbackRun> fallback_runs;
+  // Resolve each composed character range through the same CoreText cascade
+  // that libass uses, then pass the exact UTF-16 ranges to WebKit.
+  for (CFIndex index = 0; index < cue_length;) {
+    CFRange range = CFStringGetRangeOfComposedCharactersAtIndex(cue_ref, index);
+    if (range.location != index || range.length <= 0 ||
+        range.location + range.length > cue_length)
+      range = CFRangeMake(index, 1);
+    if (!coretext_font_covers_range(resolved_font, cue_ref, range)) {
+      const auto fallback = coretext_font_fallback_run(
+          resolved_font, cue_ref, range, postscript);
+      if (!fallback) {
+        CFRelease(cue_ref);
+        if (resolved_font != base_font) CFRelease(resolved_font);
+        CFRelease(base_font);
+        throw std::runtime_error("font-metrics-cue-not-covered");
+      }
+      if (!fallback_runs.empty() &&
+          fallback_runs.back().end_utf16 == fallback->start_utf16 &&
+          libass_font_name_matches(
+              fallback_runs.back().postscript, fallback->postscript))
+        fallback_runs.back().end_utf16 = fallback->end_utf16;
+      else
+        fallback_runs.push_back(*fallback);
+    }
+    index = range.location + range.length;
   }
+  CFRelease(cue_ref);
+  const size_t glyph_count = characters.size();
 
   CFDictionaryRef traits_dictionary = CTFontCopyTraits(resolved_font);
   double weight_trait = 0.0;
@@ -1370,7 +1458,16 @@ static void cmd_font_metrics(int argc, char** argv) {
       << ((requested_italic && !(traits & kCTFontItalicTrait)) ? "true" : "false")
       << ",\"weightTrait\":" << weight_trait
       << ",\"cueCoverage\":{\"ok\":true,\"utf16Units\":"
-      << characters.size() << ",\"glyphCount\":" << glyph_count << "}}\n";
+      << cue_length << ",\"glyphCount\":" << glyph_count
+      << ",\"fallbackRuns\":[";
+  for (size_t index = 0; index < fallback_runs.size(); ++index) {
+    if (index) output << ",";
+    const NativeFontFallbackRun& run = fallback_runs[index];
+    output << "{\"startUtf16\":" << run.start_utf16
+           << ",\"endUtf16\":" << run.end_utf16
+           << ",\"postScriptName\":" << json_quote(run.postscript) << "}";
+  }
+  output << "]}}\n";
   std::cout << output.str();
   if (resolved_font != base_font) CFRelease(resolved_font);
   CFRelease(base_font);

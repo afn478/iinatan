@@ -1052,8 +1052,8 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       !calculatedMetricScale ||
       Math.abs(calculatedMetricScale - reportedMetricScale) > 0.000001 ||
       !String(options.resolvedPostScriptName || "").trim() ||
-      String(options.fontMetricSource || "") !== "coretext-libass-os2-win-v2" ||
-      Number(options.fontMetricResolverVersion) !== 2 ||
+      String(options.fontMetricSource || "") !== "coretext-libass-os2-win-v3" ||
+      Number(options.fontMetricResolverVersion) !== 3 ||
       options.libassProviderVerified !== true ||
       !Number.isInteger(Number(options.resolvedFontFormat)) ||
       Number(options.resolvedFontFormat) < 1 ||
@@ -3392,6 +3392,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       value.resolvedItalic === true,
       value.syntheticBold === true,
       value.syntheticItalic === true,
+      Array.isArray(value.fallbackRuns) ? value.fallbackRuns : [],
     ]);
     if (!nativeSubtitleFontFingerprint) {
       nativeSubtitleFontFingerprint = fingerprint;
@@ -3776,59 +3777,93 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     return true;
   }
 
-  function nativeRangeRects(lookupSpans, start, end, copyElement) {
-    const target = copyElement || nativeSubtitleCopyEl;
-    if (!document.createRange) return [];
-    const node = target.firstChild;
-    const displayStart = lookupSpans[start];
-    const displayEnd = lookupSpans[Math.max(start, end - 1)];
-    if (
-      !node ||
-      !displayStart ||
-      !displayEnd ||
-      displayEnd.endUtf16 < displayStart.startUtf16
-    )
+  function nativeTextNodesWithOffsets(root) {
+    const nodes = [];
+    const visit = (node, offset) => {
+      if (!node) return offset;
+      const children = node.childNodes;
+      if (!children || !children.length) {
+        if (node.nodeType !== 3 && node.tagName !== "#text") return offset;
+        const text = String(node.textContent || "");
+        if (!text.length) return offset;
+        nodes.push({ node, start: offset, end: offset + text.length });
+        return offset + text.length;
+      }
+      let nextOffset = offset;
+      for (let index = 0; index < children.length; index++)
+        nextOffset = visit(children[index], nextOffset);
+      return nextOffset;
+    };
+    visit(root, 0);
+    return nodes;
+  }
+
+  function nativeTextBoundary(nodes, offset, preferNext) {
+    for (let index = 0; index < nodes.length; index++) {
+      const item = nodes[index];
+      if (offset < item.end || (preferNext && offset === item.start))
+        return {
+          node: item.node,
+          offset: offset - item.start,
+        };
+    }
+    const last = nodes[nodes.length - 1];
+    return { node: last.node, offset: last.end - last.start };
+  }
+
+  function nativeTextRangeRects(copyElement, start, end) {
+    if (!document.createRange || !copyElement) return [];
+    const nodes = nativeTextNodesWithOffsets(copyElement);
+    if (!nodes.length || !Number.isInteger(start) || !Number.isInteger(end))
       return [];
+    const total = nodes[nodes.length - 1].end;
+    if (start < 0 || end < start || end > total) return [];
+    const startPoint = nativeTextBoundary(nodes, start, true);
+    const endPoint = nativeTextBoundary(nodes, end, false);
     try {
       const range = document.createRange();
-      range.setStart(node, displayStart.startUtf16);
-      range.setEnd(node, displayEnd.endUtf16);
+      range.setStart(startPoint.node, startPoint.offset);
+      range.setEnd(endPoint.node, endPoint.offset);
       return Array.prototype.slice.call(range.getClientRects());
     } catch (_) {
       return [];
     }
+  }
+
+  function nativeRangeRects(lookupSpans, start, end, copyElement) {
+    const target = copyElement || nativeSubtitleCopyEl;
+    const displayStart = lookupSpans[start];
+    const displayEnd = lookupSpans[Math.max(start, end - 1)];
+    if (!displayStart || !displayEnd) return [];
+    const startUtf16 = Number(displayStart.startUtf16);
+    const endUtf16 = Number(displayEnd.endUtf16);
+    if (!Number.isInteger(startUtf16) || !Number.isInteger(endUtf16)) return [];
+    return nativeTextRangeRects(target, startUtf16, endUtf16);
   }
 
   function nativeCopyLineRects(copyElement) {
-    if (!document.createRange || !copyElement || !copyElement.firstChild)
-      return [];
-    try {
-      const range = document.createRange();
-      range.setStart(copyElement.firstChild, 0);
-      range.setEnd(
-        copyElement.firstChild,
-        String(copyElement.textContent || "").length,
-      );
-      return Array.prototype.slice.call(range.getClientRects());
-    } catch (_) {
-      return [];
-    }
+    if (!copyElement) return [];
+    return nativeTextRangeRects(
+      copyElement,
+      0,
+      String(copyElement.textContent || "").length,
+    );
   }
 
   function nativeCopyRequiresAutomaticWrap(displayText) {
-    if (!document.createRange || !nativeSubtitleCopyEl.firstChild) return true;
+    if (!document.createRange || !nativeSubtitleCopyEl.textContent) return true;
     const lines = String(displayText || "").split("\n");
-    const node = nativeSubtitleCopyEl.firstChild;
     let offset = 0;
     try {
       for (const line of lines) {
         if (line.length) {
-          const range = document.createRange();
-          range.setStart(node, offset);
-          range.setEnd(node, offset + line.length);
           if (
             IINATAN_NATIVE_SUBTITLE_HIT_LAYER.rectanglesSpanMultipleLines(
-              Array.prototype.slice.call(range.getClientRects()),
+              nativeTextRangeRects(
+                nativeSubtitleCopyEl,
+                offset,
+                offset + line.length,
+              ),
             )
           )
             return true;
@@ -3919,15 +3954,60 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
     const current = nativeSubtitleLocalFont;
     nativeSubtitleLocalFont = null;
     if (
-      current &&
-      current.added &&
-      document.fonts &&
-      typeof document.fonts.delete === "function"
-    ) {
+      !current ||
+      !document.fonts ||
+      typeof document.fonts.delete !== "function"
+    )
+      return;
+    const faceRecords = Array.isArray(current.faceRecords)
+      ? current.faceRecords
+      : current.face
+        ? [{ face: current.face, added: current.added }]
+        : [];
+    faceRecords.forEach((record) => {
+      if (!record || !record.added || !record.face) return;
       try {
-        document.fonts.delete(current.face);
+        document.fonts.delete(record.face);
       } catch (_) {}
-    }
+    });
+  }
+
+  function nativeSubtitleFallbackFaceNames(resolvedFace) {
+    const runs =
+      resolvedFace && Array.isArray(resolvedFace.fallbackRuns)
+        ? resolvedFace.fallbackRuns
+        : [];
+    const names = [];
+    const seen = Object.create(null);
+    runs.forEach((run) => {
+      const name = String(
+        run && run.postScriptName ? run.postScriptName : "",
+      ).trim();
+      if (!name || /[\u0000-\u001f;{}]/.test(name) || seen[name]) return;
+      seen[name] = true;
+      names.push(name);
+    });
+    return names;
+  }
+
+  function nativeSubtitleFontResolution(
+    record,
+    target,
+    isCurrentCueGeneration,
+  ) {
+    return record.ready.then((loadedRecord) => {
+      if (!loadedRecord || !isCurrentCueGeneration()) return null;
+      setImportantStyle(target, "font-family", '"' + loadedRecord.alias + '"');
+      return {
+        cssFamily: '"' + loadedRecord.alias + '"',
+        localFontVerified: loadedRecord.localFontVerified === true,
+        fallbackRequired: loadedRecord.fallbackRequired === true,
+        fallbackAliases: Object.assign(
+          Object.create(null),
+          loadedRecord.fallbackAliases,
+        ),
+      };
+    });
   }
 
   function nativeSubtitleFontFamilyForMeasurement(
@@ -3938,14 +4018,23 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
   ) {
     const target = copyElement || nativeSubtitleCopyEl;
     const family = nativePrimaryFontFamily(requestedFamily);
-    if (
+    const fallbackNames = nativeSubtitleFallbackFaceNames(resolvedFace);
+    const fallbackRequired = !!(
+      resolvedFace &&
+      Array.isArray(resolvedFace.fallbackRuns) &&
+      resolvedFace.fallbackRuns.length
+    );
+    const fallbackFingerprint = JSON.stringify(fallbackNames);
+    const genericFamily =
       /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|-apple-system)$/i.test(
         family,
-      )
-    )
+      );
+    if (genericFamily && !fallbackRequired)
       return Promise.resolve({
         cssFamily: requestedFamily,
         localFontVerified: true,
+        fallbackRequired: false,
+        fallbackAliases: Object.create(null),
       });
     const FontFaceConstructor = window.FontFace;
     const fontSet = document.fonts;
@@ -3959,58 +4048,138 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
       return Promise.resolve({
         cssFamily: requestedFamily,
         localFontVerified: false,
+        fallbackRequired,
+        fallbackAliases: Object.create(null),
       });
     if (
       nativeSubtitleLocalFont &&
-      nativeSubtitleLocalFont.requestedFamily === family
+      nativeSubtitleLocalFont.requestedFamily === family &&
+      nativeSubtitleLocalFont.fallbackFingerprint === fallbackFingerprint
     ) {
-      return nativeSubtitleLocalFont.ready.then((record) => {
-        if (!record || !isCurrentCueGeneration()) return null;
-        setImportantStyle(target, "font-family", '"' + record.alias + '"');
-        return {
-          cssFamily: '"' + record.alias + '"',
-          localFontVerified: true,
-        };
-      });
+      return nativeSubtitleFontResolution(
+        nativeSubtitleLocalFont,
+        target,
+        isCurrentCueGeneration,
+      );
     }
     releaseNativeSubtitleLocalFont();
-    const alias =
-      "iinatan-native-subtitle-font-" + ++nativeSubtitleLocalFontGeneration;
-    const source =
-      'local("' + family.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '")';
-    let face;
+    const generation = ++nativeSubtitleLocalFontGeneration;
+    const alias = "iinatan-native-subtitle-font-" + generation;
+    const faceRequests = [
+      {
+        name: family,
+        alias,
+      },
+    ];
+    fallbackNames.forEach((name, index) => {
+      faceRequests.push({
+        name,
+        alias:
+          "iinatan-native-subtitle-fallback-font-" + generation + "-" + index,
+      });
+    });
+    const faceRecords = [];
+    const fallbackAliases = Object.create(null);
     try {
-      face = new FontFaceConstructor(alias, source, {
-        weight: resolvedFace && resolvedFace.resolvedBold ? "700" : "400",
-        style:
-          resolvedFace && resolvedFace.resolvedItalic ? "italic" : "normal",
+      faceRequests.forEach((request, index) => {
+        const source =
+          'local("' +
+          request.name.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+          '")';
+        const face = new FontFaceConstructor(request.alias, source, {
+          weight: resolvedFace && resolvedFace.resolvedBold ? "700" : "400",
+          style:
+            resolvedFace && resolvedFace.resolvedItalic ? "italic" : "normal",
+        });
+        faceRecords.push({ face, added: false });
+        if (index > 0)
+          fallbackAliases[request.name] = '"' + request.alias + '"';
       });
     } catch (_) {
       return Promise.reject(new Error("font-unavailable"));
     }
     const record = {
       requestedFamily: family,
+      fallbackFingerprint,
       alias,
-      face,
-      added: false,
+      faceRecords,
+      fallbackAliases,
+      fallbackRequired,
+      localFontVerified: false,
       ready: null,
     };
     nativeSubtitleLocalFont = record;
-    record.ready = Promise.resolve(face.load()).then((loadedFace) => {
+    record.ready = Promise.all(
+      faceRecords.map((faceRecord) => Promise.resolve(faceRecord.face.load())),
+    ).then((loadedFaces) => {
       if (nativeSubtitleLocalFont !== record) return null;
-      record.face = loadedFace || face;
-      fontSet.add(record.face);
-      record.added = true;
+      loadedFaces.forEach((loadedFace, index) => {
+        const faceRecord = faceRecords[index];
+        faceRecord.face = loadedFace || faceRecord.face;
+        fontSet.add(faceRecord.face);
+        faceRecord.added = true;
+      });
+      record.localFontVerified = true;
       return record;
     });
-    return record.ready.then((loadedRecord) => {
-      if (!loadedRecord || !isCurrentCueGeneration()) return null;
-      setImportantStyle(target, "font-family", '"' + loadedRecord.alias + '"');
-      return {
-        cssFamily: '"' + loadedRecord.alias + '"',
-        localFontVerified: true,
-      };
-    });
+    return nativeSubtitleFontResolution(record, target, isCurrentCueGeneration);
+  }
+
+  function renderNativeSubtitleFallbackRuns(
+    target,
+    text,
+    options,
+    fontResolution,
+    displayOffset,
+  ) {
+    const displayText = String(text || "");
+    const value = options && typeof options === "object" ? options : {};
+    const runs = Array.isArray(value.fallbackRuns) ? value.fallbackRuns : [];
+    if (!runs.length) {
+      target.textContent = displayText;
+      return true;
+    }
+    // Inline spans keep the fallback face local to the missing glyph while
+    // leaving the containing text in one UTF-16 coordinate space for Range.
+    const aliases =
+      fontResolution && fontResolution.fallbackAliases
+        ? fontResolution.fallbackAliases
+        : {};
+    const baseOffset = Number.isInteger(Number(displayOffset))
+      ? Number(displayOffset)
+      : 0;
+    let cursor = 0;
+    target.textContent = "";
+    const appendText = (valueToAppend) => {
+      if (valueToAppend)
+        target.appendChild(document.createTextNode(valueToAppend));
+    };
+    for (let index = 0; index < runs.length; index++) {
+      const run = runs[index] || {};
+      const absoluteStart = Number(run.startUtf16);
+      const absoluteEnd = Number(run.endUtf16);
+      if (
+        !Number.isInteger(absoluteStart) ||
+        !Number.isInteger(absoluteEnd) ||
+        absoluteEnd <= absoluteStart
+      )
+        return false;
+      const start = Math.max(0, absoluteStart - baseOffset);
+      const end = Math.min(displayText.length, absoluteEnd - baseOffset);
+      if (end <= 0 || start >= displayText.length) continue;
+      if (start < cursor || end <= start) return false;
+      const postScriptName = String(run.postScriptName || "");
+      const fallbackFamily = aliases[postScriptName];
+      if (!fallbackFamily) return false;
+      appendText(displayText.slice(cursor, start));
+      const fallbackRun = document.createElement("span");
+      setImportantStyle(fallbackRun, "font-family", fallbackFamily);
+      fallbackRun.textContent = displayText.slice(start, end);
+      target.appendChild(fallbackRun);
+      cursor = end;
+    }
+    appendText(displayText.slice(cursor));
+    return true;
   }
 
   function applyNativeLayout(layout, balanceWrapSupported) {
@@ -4360,7 +4529,7 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         ) {
           fontReadiness.push(
             nativeSubtitleFontFamilyForMeasurement(
-              layout.options.effectiveFont || layout.options.font,
+              calculated.fontFamily,
               isCurrent,
               layout.options,
               copy,
@@ -4380,23 +4549,44 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
               })
               .then((fontLoad) => {
                 if (!fontLoad) return;
-                record.fontReady =
-                  isCurrent() &&
+                const localFontsVerified =
+                  fontLoad.fontResolution.localFontVerified === true;
+                const fontSetAccepted =
+                  localFontsVerified ||
                   fontSet.check(
                     fontLoad.fontSpec,
                     String(block.displayText || ""),
-                  ) &&
-                  (fontLoad.fontResolution.localFontVerified ||
+                  );
+                const fontFamilyAvailable =
+                  localFontsVerified ||
+                  (fontLoad.fontResolution.fallbackRequired !== true &&
                     nativeFontFamilyAvailable(
                       calculated.fontFamily,
                       String(block.displayText || ""),
                     ));
+                const fallbackRunsRendered = renderNativeSubtitleFallbackRuns(
+                  copy,
+                  String(block.displayText || ""),
+                  layout.options,
+                  fontLoad.fontResolution,
+                  Number(block.displayStartUtf16) || 0,
+                );
+                record.fontReady =
+                  isCurrent() &&
+                  fontSetAccepted &&
+                  fontFamilyAvailable &&
+                  fallbackRunsRendered;
               })
               .catch(() => {
                 record.fontReady = false;
               }),
           );
-        }
+        } else if (
+          layout.options &&
+          Array.isArray(layout.options.fallbackRuns) &&
+          layout.options.fallbackRuns.length
+        )
+          record.fontReady = false;
       });
     });
     const stackEventBlocks = () => {
@@ -4901,13 +5091,28 @@ const IINATAN_NATIVE_SUBTITLE_HIT_LAYER = (() => {
         })
         .then((fontLoad) => {
           if (!fontLoad || !isCurrentCueGeneration()) return;
-          const fontSetAccepted = fontSet.check(fontLoad.fontSpec, displayText);
+          const localFontsVerified =
+            fontLoad.fontResolution.localFontVerified === true;
+          const fontSetAccepted =
+            localFontsVerified || fontSet.check(fontLoad.fontSpec, displayText);
           const cueIsCurrent = isCurrentCueGeneration();
           const fontFamilyAvailable =
-            fontLoad.fontResolution.localFontVerified ||
-            nativeFontFamilyAvailable(layout.fontFamily, displayText);
+            localFontsVerified ||
+            (fontLoad.fontResolution.fallbackRequired !== true &&
+              nativeFontFamilyAvailable(layout.fontFamily, displayText));
           if (!cueIsCurrent) return;
-          if (!fontSetAccepted || !fontFamilyAvailable) {
+          const fallbackRunsRendered = renderNativeSubtitleFallbackRuns(
+            nativeSubtitleCopyEl,
+            displayText,
+            nativeLayout.options,
+            fontLoad.fontResolution,
+            0,
+          );
+          if (
+            !fontSetAccepted ||
+            !fontFamilyAvailable ||
+            !fallbackRunsRendered
+          ) {
             if (isCurrentCueGeneration()) {
               releaseNativeSubtitleLocalFont();
               invalidateNativeSubtitleHitLayer("font-unavailable");

@@ -17,8 +17,8 @@ const TEST_FONT_METRICS = {
   usWinAscent: 1015,
   usWinDescent: 242,
   fontMetricScale: 1000 / 1257,
-  fontMetricSource: "coretext-libass-os2-win-v2",
-  fontMetricResolverVersion: 2,
+  fontMetricSource: "coretext-libass-os2-win-v3",
+  fontMetricResolverVersion: 3,
   libassProviderVerified: true,
   resolvedFontFormat: 1,
   resolvedBold: false,
@@ -39,8 +39,8 @@ function backendFontMetricResult(
 ) {
   return {
     ok: true,
-    metricResolverVersion: 2,
-    metricSource: "coretext-libass-os2-win-v2",
+    metricResolverVersion: 3,
+    metricSource: "coretext-libass-os2-win-v3",
     libassProviderVerified: true,
     resolvedFontFormat: 1,
     resolvedPostScriptName,
@@ -3012,6 +3012,45 @@ function waitForLayout() {
     invalidMetricRejected = true;
   }
   assert(invalidMetricRejected, "zero native Win metrics fail closed");
+  const normalizedFallbackMetrics =
+    helpers.normalizeNativeSubtitleFontMetricResult(
+      Object.assign(backendFontMetricResult("YuMin-Medium", 1295, 367), {
+        cueCoverage: {
+          ok: true,
+          utf16Units: 3,
+          glyphCount: 3,
+          fallbackRuns: [
+            {
+              startUtf16: 2,
+              endUtf16: 3,
+              postScriptName: "ZapfDingbatsITC",
+            },
+          ],
+        },
+      }),
+    );
+  assertEqual(
+    normalizedFallbackMetrics.fallbackRuns,
+    [
+      {
+        startUtf16: 2,
+        endUtf16: 3,
+        postScriptName: "ZapfDingbatsITC",
+      },
+    ],
+    "native metric normalization preserves explicit fallback face runs",
+  );
+  assert(
+    helpers.nativeSubtitleFontMetricCacheKey(
+      { font: "Helvetica", bold: false, italic: false },
+      "日本➨",
+    ) !==
+      helpers.nativeSubtitleFontMetricCacheKey(
+        { font: "Helvetica", bold: false, italic: false },
+        "➨日本",
+      ),
+    "native metric cache keys retain fallback run positions",
+  );
 
   assertEqual(
     helpers.nativeSubtitleVisibilityTarget({
@@ -5145,6 +5184,74 @@ function waitForLayout() {
     "experimental mode does not mutate unrelated root styles",
   );
 
+  const fallbackOverlay = loadOverlayForTest(["state"], {
+    localFonts: ["Helvetica", "ZapfDingbatsITC"],
+  });
+  fallbackOverlay.context.__handlers.enabled({ enabled: true });
+  const fallbackText = "hi➨";
+  fallbackOverlay.context.__handlers.subtitle({
+    text: fallbackText,
+    displayText: fallbackText,
+    lineId: 71,
+    nativeLookupSpans: Array.from(fallbackText, (_character, index) => ({
+      startUtf16: index,
+      endUtf16: index + 1,
+    })),
+    nativeLayout: {
+      osd: { w: 1280, h: 720, ml: 0, mr: 0, mt: 0, mb: 0, par: 1 },
+      options: Object.assign({}, nativeLayerPayload.nativeLayout.options, {
+        ...TEST_FONT_METRICS,
+        font: "Helvetica",
+        effectiveFont: "Helvetica",
+        runtimeFont: "Helvetica",
+        optionFont: "Helvetica",
+        fallbackRuns: [
+          {
+            startUtf16: 2,
+            endUtf16: 3,
+            postScriptName: "ZapfDingbatsITC",
+          },
+        ],
+      }),
+    },
+    config: Object.assign({}, nativeLayerPayload.config, {
+      language: {
+        id: "en",
+        lookupUnit: "word",
+        wordMode: "latin-word",
+        lookupCharacterPolicy: LATIN_LOOKUP_CHARACTER_POLICY,
+      },
+    }),
+  });
+  await waitForLayout();
+  const fallbackHost = fallbackOverlay.context.document.getElementById(
+    "native-subtitle-layer-host",
+  );
+  const fallbackCopy = fallbackHost.shadowRoot.getElementById(
+    "native-subtitle-copy",
+  );
+  assertEqual(
+    fallbackCopy.textContent,
+    fallbackText,
+    "fallback font runs preserve the complete subtitle text",
+  );
+  assertEqual(
+    fallbackCopy.children.length,
+    2,
+    "fallback rendering isolates only the unsupported run",
+  );
+  assert(
+    /^"iinatan-native-subtitle-fallback-font-\d+-0"$/.test(
+      fallbackCopy.children[1].style["font-family"],
+    ),
+    "fallback rendering directly references the resolved fallback face",
+  );
+  assert(
+    fallbackOverlay.context.document.getElementById("native-subtitle-hit-boxes")
+      .children.length > 0,
+    "a cue with an explicit fallback run still produces lookup hit boxes",
+  );
+
   const stalledAnimationFrames = loadOverlayForTest(["state"], {
     requestAnimationFrame() {
       return 1;
@@ -5475,8 +5582,8 @@ function waitForLayout() {
       resolvedFullName: "Helvetica",
       fontVersion: "test",
       fontMetricScale: TEST_FONT_METRICS.fontMetricScale,
-      fontMetricSource: "coretext-libass-os2-win-v2",
-      fontMetricResolverVersion: 2,
+      fontMetricSource: "coretext-libass-os2-win-v3",
+      fontMetricResolverVersion: 3,
       libassProviderVerified: true,
       resolvedFontFormat: 1,
       resolvedBold: false,
@@ -5968,8 +6075,8 @@ function waitForLayout() {
       resolvedFullName: "Helvetica",
       fontVersion: "test",
       fontMetricScale: TEST_FONT_METRICS.fontMetricScale,
-      fontMetricSource: "coretext-libass-os2-win-v2",
-      fontMetricResolverVersion: 2,
+      fontMetricSource: "coretext-libass-os2-win-v3",
+      fontMetricResolverVersion: 3,
       libassProviderVerified: true,
       resolvedFontFormat: 1,
       resolvedBold: false,

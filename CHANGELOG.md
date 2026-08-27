@@ -11,6 +11,7 @@
 - Detected controllers connected after IINA startup by servicing the native HID manager's run loop while polling.
 - Kept native backend controller capability validation aligned with the generalized gamepad support.
 - Preferred physical HID descriptors over macOS synthetic gamepad descriptors so face, trigger, and d-pad buttons retain their intended mappings.
+- Matched native-subtitle overlay text to CoreText/libass fallback faces for glyphs missing from the configured subtitle font, keeping special-character cues interactive instead of rejecting their entire hit layer.
 
 ## 2.1.6 - 2026-08-20
 

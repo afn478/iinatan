@@ -201,10 +201,11 @@ assert(
 assert(
   /font-metrics-font-not-found/.test(nativeSource) &&
     /font-metrics-cue-not-covered/.test(nativeSource) &&
+    /fallbackRuns/.test(nativeSource) &&
     /font-metrics-provider-unverified/.test(nativeSource) &&
     /libass_name_can_select_face/.test(nativeSource) &&
     /libass_coretext_font_substitution/.test(nativeSource),
-  "CoreText fallback, libass selector mismatches, and uncovered glyphs should fail closed",
+  "CoreText fallback, libass selector mismatches, and uncovered glyphs should be explicit",
 );
 assert(
   /--cue-file/.test(nativeSource) &&
@@ -403,6 +404,23 @@ if (
       requested + " should resolve the exact face and table formula",
     );
   });
+  const fallbackMetrics = runFontMetrics("YuMin-Medium", false, false, "日本➨");
+  assert(
+    fallbackMetrics.status === 0,
+    "A cue with a primary-face miss should resolve through CoreText fallback",
+  );
+  const fallbackResult = JSON.parse(fallbackMetrics.stdout);
+  assert(
+    Array.isArray(fallbackResult.cueCoverage.fallbackRuns) &&
+      fallbackResult.cueCoverage.fallbackRuns.some(
+        (run) =>
+          run.startUtf16 === 2 &&
+          run.endUtf16 === 3 &&
+          typeof run.postScriptName === "string" &&
+          run.postScriptName.length > 0,
+      ),
+    "Fallback coverage should identify the exact uncovered UTF-16 run and face",
+  );
   [
     ["sans-serif", false, false, "Helvetica"],
     ["Arial", true, false, "Arial-BoldMT"],

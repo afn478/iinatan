@@ -6704,8 +6704,39 @@ function nativeSubtitleFontMetricCacheKey(options, text) {
     String(value.effectiveFont || value.font || ""),
     value.bold !== false,
     value.italic === true,
+    String(text || ""),
     nativeSubtitleFontCoverageSignature(text),
   ]);
+}
+
+function normalizeNativeSubtitleFallbackRuns(coverage) {
+  const value = coverage && typeof coverage === "object" ? coverage : {};
+  const rawRuns = Array.isArray(value.fallbackRuns) ? value.fallbackRuns : [];
+  if (!rawRuns.length) return [];
+  const utf16Units = Number(value.utf16Units);
+  if (!Number.isInteger(utf16Units) || utf16Units < 0)
+    throw new Error("font-metrics-invalid-result");
+  const runs = [];
+  let previousEnd = 0;
+  rawRuns.forEach((raw) => {
+    const run = raw && typeof raw === "object" ? raw : {};
+    const startUtf16 = Number(run.startUtf16);
+    const endUtf16 = Number(run.endUtf16);
+    const postScriptName = String(run.postScriptName || "").trim();
+    if (
+      !Number.isInteger(startUtf16) ||
+      !Number.isInteger(endUtf16) ||
+      startUtf16 < previousEnd ||
+      endUtf16 <= startUtf16 ||
+      endUtf16 > utf16Units ||
+      !postScriptName ||
+      /[\u0000-\u001f;{}]/.test(postScriptName)
+    )
+      throw new Error("font-metrics-invalid-result");
+    runs.push({ startUtf16, endUtf16, postScriptName });
+    previousEnd = endUtf16;
+  });
+  return runs;
 }
 
 function normalizeNativeSubtitleFontMetricResult(result) {
@@ -6719,10 +6750,11 @@ function normalizeNativeSubtitleFontMetricResult(result) {
   const resolvedFullName = String(value.resolvedFullName || "").trim();
   const fontVersion = String(value.fontVersion || "").trim();
   const resolvedFontFormat = Number(value.resolvedFontFormat);
+  const fallbackRuns = normalizeNativeSubtitleFallbackRuns(value.cueCoverage);
   if (
     value.ok !== true ||
-    Number(value.metricResolverVersion) !== 2 ||
-    String(value.metricSource || "") !== "coretext-libass-os2-win-v2" ||
+    Number(value.metricResolverVersion) !== 3 ||
+    String(value.metricSource || "") !== "coretext-libass-os2-win-v3" ||
     value.libassProviderVerified !== true ||
     !calculatedScale ||
     !Number.isFinite(reportedScale) ||
@@ -6750,8 +6782,8 @@ function normalizeNativeSubtitleFontMetricResult(result) {
     usWinAscent: Number(value.usWinAscent),
     usWinDescent: Number(value.usWinDescent),
     fontMetricScale: calculatedScale,
-    fontMetricSource: "coretext-libass-os2-win-v2",
-    fontMetricResolverVersion: 2,
+    fontMetricSource: "coretext-libass-os2-win-v3",
+    fontMetricResolverVersion: 3,
     libassProviderVerified: true,
     resolvedFontFormat,
     resolvedBold: value.resolvedBold === true,
@@ -6761,6 +6793,7 @@ function normalizeNativeSubtitleFontMetricResult(result) {
     weightTrait: Number.isFinite(Number(value.weightTrait))
       ? Number(value.weightTrait)
       : 0,
+    fallbackRuns,
   };
 }
 
@@ -8423,6 +8456,7 @@ function nativeSrtEventBlocksFromCues(
     return { reason: "text-index-map-failed" };
   const eventBlocks = [];
   let position = Number(lookupStart) || 0;
+  let displayPosition = 0;
   for (let index = 0; index < active.length; index++) {
     const mapping = nativeLookupMapping(displays[index], lookups[index], {
       flattenLineBreaks: prefBool("flattenSubtitleLineBreaks", false),
@@ -8435,12 +8469,14 @@ function nativeSrtEventBlocksFromCues(
       lookupStart: position,
       lookupLength: Array.from(lookups[index]).length,
       lookupSpans: mapping.lookupSpans,
+      displayStartUtf16: displayPosition,
       stackIndex: index,
       startMs: active[index].startMs,
       endMs: active[index].endMs,
     });
     position +=
       Array.from(lookups[index]).length + Array.from(lookupSeparator).length;
+    displayPosition += displays[index].length + 1;
   }
   return { eventBlocks };
 }
