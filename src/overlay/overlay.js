@@ -4270,8 +4270,15 @@
     );
   }
 
-  function scheduleHidePopup() {
+  // Like Yomitan's modifier scanning, a Shift-hover popup outlives the hover
+  // that opened it once Shift is released, and stays until the viewer clicks
+  // away, presses Escape, or moves over empty space while holding Shift.
+  function popupPersistsAfterHover() {
+    return state.config.subtitleLookupMode === "shift-hover";
+  }
+  function scheduleHidePopup(ev) {
     if (window.__IINATAN_POPUP_PREVIEW__) return;
+    if (popupPersistsAfterHover() && !(ev && ev.shiftKey)) return;
     if (state.hideTimer) clearTimeout(state.hideTimer);
     state.hideTimer = setTimeout(() => {
       state.hideTimer = null;
@@ -4329,8 +4336,8 @@
   }
   if (popupDismissGuardEl) {
     popupDismissGuardEl.addEventListener("mouseenter", scheduleHidePopup);
-    popupDismissGuardEl.addEventListener("mousemove", () => {
-      if (!state.hideTimer) scheduleHidePopup();
+    popupDismissGuardEl.addEventListener("mousemove", (ev) => {
+      if (!state.hideTimer) scheduleHidePopup(ev);
     });
     // Clicks and scrolls over the video should reach IINA, so drop the guard
     // immediately instead of holding it for the hover grace period.
@@ -4339,6 +4346,23 @@
       passive: true,
     });
   }
+  document.addEventListener(
+    "mousedown",
+    (event) => {
+      if (window.__IINATAN_POPUP_PREVIEW__ || !popupPersistsAfterHover())
+        return;
+      if (!state.lookupPopupVisible) return;
+      const target = event && event.target;
+      if (popupContainsNode(target)) return;
+      if (state.audioSourceMenu && nodeContains(state.audioSourceMenu, target))
+        return;
+      // A Shift-click on a subtitle word is a lookup, not a dismissal.
+      if (event.shiftKey && target && target.dataset && target.dataset.pos)
+        return;
+      hidePopup();
+    },
+    true,
+  );
   function trapPopupWheel(ev, explicitPopup) {
     const popup =
       explicitPopup ||
@@ -9669,11 +9693,17 @@
   });
   document.addEventListener("keydown", (event) => {
     if (!event || event.key !== "Escape") return;
+    const menuWasOpen = !!state.audioSourceMenu;
     hideAudioSourceMenu();
     if (state.nestedPopups.length) {
       const deepest = state.nestedPopups[state.nestedPopups.length - 1];
       clearNestedPopups(Math.max(0, deepest.depth - 1));
-    }
+    } else if (
+      !menuWasOpen &&
+      popupPersistsAfterHover() &&
+      !window.__IINATAN_POPUP_PREVIEW__
+    )
+      hidePopup();
   });
   window.addEventListener("resize", () => {
     hideAudioSourceMenu();

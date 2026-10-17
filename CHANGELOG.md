@@ -6,6 +6,10 @@
 
 - Fixed the first lookup popup not closing on hover-away on macOS 27, where the overlay no longer received the pointer leaving the popup for bare video.
 
+### Changed
+
+- Kept Shift-hover subtitle popups open when Shift is released before the pointer moves away, matching Yomitan; they close on a click outside the popup, Escape, or moving over empty space while holding Shift, and playback stays paused until then.
+
 ## 2.1.8 - 2026-09-10
 
 ### Fixed

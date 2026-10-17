@@ -20,6 +20,7 @@ const TESTS = [
   ["overlay", "tests/popup_preview.test.js"],
   ["overlay", "tests/overlay_nested_popups.test.js"],
   ["overlay", "tests/overlay_popup_dismiss_guard.test.js"],
+  ["overlay", "tests/overlay_shift_hover_persist.test.js"],
   ["audio", "tests/overlay_audio.test.js"],
   ["anki", "tests/overlay_anki.test.js"],
   ["audio", "tests/audio_bridge.test.js"],

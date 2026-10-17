@@ -479,7 +479,9 @@ function makeOverlayContext(options) {
               return true;
             },
           },
-      addEventListener() {},
+      addEventListener(type, handler) {
+        handlers["document:" + type] = handler;
+      },
       getElementById(id) {
         if (/^native-subtitle-/.test(id)) {
           let found = null;

@@ -38,7 +38,7 @@ assert(
   "Production renderer should expose an explicitly gated preview entry point",
 );
 assert(
-  /function scheduleHidePopup\(\) \{\s*if \(window\.__IINATAN_POPUP_PREVIEW__\) return;/.test(
+  /function scheduleHidePopup\(ev\) \{\s*if \(window\.__IINATAN_POPUP_PREVIEW__\) return;/.test(
     overlayJs,
   ),
   "Popup preview should remain visible when the pointer moves to its controls",
