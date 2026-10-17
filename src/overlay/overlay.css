@@ -271,6 +271,14 @@
     }
     #popup-safety-zone.hidden,
     #popup-row-safety-zone.hidden { display: none; }
+    #popup-dismiss-guard {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background: transparent;
+      pointer-events: auto;
+    }
+    #popup-dismiss-guard.hidden { display: none; }
     .lookup-popup::-webkit-scrollbar { width: 14px; }
     .lookup-popup::-webkit-scrollbar-track { margin: 10px 0; background: var(--popup-scroll-track); border-radius: 999px; }
     .lookup-popup::-webkit-scrollbar-thumb { min-height: 24px; background-color: var(--popup-scroll-thumb); background-clip: content-box; border: 3px solid var(--popup-scroll-thumb-border); border-radius: 999px; }

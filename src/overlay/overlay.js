@@ -12,6 +12,7 @@
   const nestedPopupLayerEl = document.getElementById("nested-popup-layer");
   const popupSafetyZoneEl = document.getElementById("popup-safety-zone");
   const popupRowSafetyZoneEl = document.getElementById("popup-row-safety-zone");
+  const popupDismissGuardEl = document.getElementById("popup-dismiss-guard");
   const statusEl = document.getElementById("status");
   const bitmapOcrStatusEl = document.getElementById("bitmap-ocr-status");
   const taskEl = document.getElementById("task");
@@ -4272,7 +4273,10 @@
   function scheduleHidePopup() {
     if (window.__IINATAN_POPUP_PREVIEW__) return;
     if (state.hideTimer) clearTimeout(state.hideTimer);
-    state.hideTimer = setTimeout(() => hidePopup(), 240);
+    state.hideTimer = setTimeout(() => {
+      state.hideTimer = null;
+      hidePopup();
+    }, 240);
   }
   function closestExternalLink(target) {
     let el = target;
@@ -4312,6 +4316,29 @@
   popupSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
   popupRowSafetyZoneEl.addEventListener("mouseenter", cancelHidePopupTimer);
   popupRowSafetyZoneEl.addEventListener("mouseleave", scheduleHidePopup);
+  // IINA routes pointer events to the overlay only where elementFromPoint hits
+  // a data-clickable element. Since macOS 27 the move that leaves the popup for
+  // bare video is not delivered until the web view becomes first responder, so
+  // the first popup never saw mouseleave. This transparent clickable layer sits
+  // beneath every lookup target and keeps that leave visible to WebKit.
+  function setPopupDismissGuardVisible(visible) {
+    if (!popupDismissGuardEl) return;
+    if (visible && !window.__IINATAN_POPUP_PREVIEW__)
+      popupDismissGuardEl.classList.remove("hidden");
+    else popupDismissGuardEl.classList.add("hidden");
+  }
+  if (popupDismissGuardEl) {
+    popupDismissGuardEl.addEventListener("mouseenter", scheduleHidePopup);
+    popupDismissGuardEl.addEventListener("mousemove", () => {
+      if (!state.hideTimer) scheduleHidePopup();
+    });
+    // Clicks and scrolls over the video should reach IINA, so drop the guard
+    // immediately instead of holding it for the hover grace period.
+    popupDismissGuardEl.addEventListener("mousedown", () => hidePopup());
+    popupDismissGuardEl.addEventListener("wheel", () => hidePopup(), {
+      passive: true,
+    });
+  }
   function trapPopupWheel(ev, explicitPopup) {
     const popup =
       explicitPopup ||
@@ -4685,6 +4712,7 @@
     if (state.lookupPopupVisible === visible) return;
     state.lookupPopupVisible = visible;
     state.popupVisibilitySeq++;
+    setPopupDismissGuardVisible(visible);
     postLookupPopupVisibility(visible);
     if (state.lookupPopupNotifyTimer) {
       clearInterval(state.lookupPopupNotifyTimer);
@@ -4695,6 +4723,7 @@
   }
 
   function hidePopup() {
+    cancelHidePopupTimer();
     hideAudioSourceMenu();
     clearNestedPopups(0);
     setLookupPopupVisibility(false);

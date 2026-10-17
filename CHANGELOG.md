@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Fixed the first lookup popup not closing on hover-away on macOS 27, where the overlay no longer received the pointer leaving the popup for bare video.
+
 ## 2.1.8 - 2026-09-10
 
 ### Fixed

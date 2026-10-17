@@ -297,6 +297,10 @@ function makeOverlayContext(options) {
   elements["popup-row-safety-zone"].classList.add("hidden");
   elements["popup-row-safety-zone"].setAttribute("data-clickable", "true");
   elements["controller-hold-progress"].classList.add("hidden");
+  const popupDismissGuard = new FakeElement("popup-dismiss-guard");
+  popupDismissGuard.id = "popup-dismiss-guard";
+  popupDismissGuard.classList.add("hidden");
+  popupDismissGuard.setAttribute("data-clickable", "true");
   const overlayRoot = new FakeElement("root");
   overlayRoot.id = "root";
   elements.root = overlayRoot;
@@ -305,7 +309,9 @@ function makeOverlayContext(options) {
   });
   const head = new FakeElement("head");
   const body = new FakeElement("body");
+  body.appendChild(popupDismissGuard);
   body.appendChild(overlayRoot);
+  elements["popup-dismiss-guard"] = popupDismissGuard;
   const rootStyle = {
     setProperty(name, value) {
       this[name] = String(value);
