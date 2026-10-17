@@ -1,4 +1,7 @@
-const { assert, loadOverlayForTest } = require("./helpers/overlay_test_context");
+const {
+  assert,
+  loadOverlayForTest,
+} = require("./helpers/overlay_test_context");
 
 const { context, overlay } = loadOverlayForTest([
   "state",
