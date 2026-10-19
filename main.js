@@ -18806,19 +18806,38 @@ function postDictionaryManagerStatus(message, kind, busy) {
     updatedAt: Date.now(),
   });
 }
+// WebKit renders AccentColor as stock blue inside IINA's standalone window,
+// so ask AppKit for the resolved control accent and push it to the page.
+const SYSTEM_ACCENT_SCRIPT =
+  'ObjC.import("AppKit");' +
+  "var c = $.NSColor.controlAccentColor.colorUsingColorSpace($.NSColorSpace.sRGBColorSpace);" +
+  '"#" + [c.redComponent, c.greenComponent, c.blueComponent].map(function (v) {' +
+  'var h = Math.round(v * 255).toString(16); return h.length < 2 ? "0" + h : h; }).join("")';
+// Fallback when osascript is unavailable: macOS control accent colors keyed by
+// AppleAccentColor. Multicolor leaves the key unset and keeps the CSS default.
+const SYSTEM_ACCENT_COLORS = {
+  "-1": "#8c8c8c",
+  0: "#ff5257",
+  1: "#f7821b",
+  2: "#ffc600",
+  3: "#62ba46",
+  4: "#007aff",
+  5: "#a550a7",
+  6: "#f74f9e",
+};
 async function dictionaryManagerSystemAccentColor() {
-  const colors = {
-    "-2": "#8e8e93",
-    "-1": "#007aff",
-    0: "#ff3b30",
-    1: "#ff9500",
-    2: "#ffcc00",
-    3: "#34c759",
-    4: "#007aff",
-    5: "#af52de",
-    6: "#ff2d55",
-  };
   if (!utils || typeof utils.exec !== "function") return "";
+  try {
+    const result = await execExternalProcess(
+      "/usr/bin/osascript",
+      ["-l", "JavaScript", "-e", SYSTEM_ACCENT_SCRIPT],
+      dataRoot(),
+    );
+    const color = String((result && result.stdout) || "").trim();
+    if (/^#[0-9a-f]{6}$/i.test(color)) return color.toLowerCase();
+  } catch (error) {
+    debugVerbose("could not resolve macOS accent color: " + compactError(error));
+  }
   try {
     const result = await execExternalProcess(
       "/usr/bin/defaults",
@@ -18826,7 +18845,9 @@ async function dictionaryManagerSystemAccentColor() {
       dataRoot(),
     );
     const key = String((result && result.stdout) || "").trim();
-    return Object.prototype.hasOwnProperty.call(colors, key) ? colors[key] : "";
+    return Object.prototype.hasOwnProperty.call(SYSTEM_ACCENT_COLORS, key)
+      ? SYSTEM_ACCENT_COLORS[key]
+      : "";
   } catch (error) {
     debugVerbose("could not read macOS accent color: " + compactError(error));
     return "";
@@ -19195,6 +19216,33 @@ function registerDictionaryManagerHandlers() {
     }
   });
 }
+// IINA opens standalone windows at 600x400, which squeezes the sidebar layout.
+// Size the window once per session so later user resizes are kept.
+let dictionaryManagerFrameApplied = false;
+function applyDictionaryManagerInitialFrame() {
+  if (dictionaryManagerFrameApplied) return;
+  if (typeof standaloneWindow.setFrame !== "function") return;
+  dictionaryManagerFrameApplied = true;
+  let width = 920;
+  let height = 680;
+  let x;
+  let y;
+  try {
+    const screens = core.window.screens || [];
+    const screen =
+      screens.find((item) => item && item.current) ||
+      screens.find((item) => item && item.main) ||
+      screens[0];
+    const frame = screen && screen.frame;
+    if (frame && frame.width > 0 && frame.height > 0) {
+      width = Math.min(width, Math.round(frame.width - 80));
+      height = Math.min(height, Math.round(frame.height - 120));
+      x = Math.round(frame.x + (frame.width - width) / 2);
+      y = Math.round(frame.y + (frame.height - height) / 2);
+    }
+  } catch (_) {}
+  standaloneWindow.setFrame(width, height, x, y);
+}
 function openDictionaryManager() {
   if (!dictionaryManagerAvailable()) {
     alert(
@@ -19212,6 +19260,11 @@ function openDictionaryManager() {
           resizable: true,
         });
     } catch (_) {}
+    try {
+      applyDictionaryManagerInitialFrame();
+    } catch (error) {
+      debugWarn("could not size iinatan Settings: " + compactError(error));
+    }
     if (typeof standaloneWindow.open === "function") standaloneWindow.open();
     else if (typeof standaloneWindow.show === "function")
       standaloneWindow.show();

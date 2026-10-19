@@ -33,6 +33,10 @@ const context = {
     },
     exec(command, args, cwd) {
       accentCommands.push({ command, args, cwd });
+      if (command === "/usr/bin/osascript" && context.osascriptAccent)
+        return Promise.resolve({ status: 0, stdout: context.osascriptAccent });
+      if (command === "/usr/bin/osascript")
+        return Promise.reject(new Error("osascript unavailable"));
       return Promise.resolve({ status: 0, stdout: "6\n" });
     },
   },
@@ -172,15 +176,25 @@ assert(
 );
 
 (async () => {
+  context.osascriptAccent = "#F74F9E\n";
+  const resolvedAccent = await context.dictionaryManagerSystemAccentColor();
+  assert(
+    resolvedAccent === "#f74f9e" &&
+      accentCommands.length === 1 &&
+      accentCommands[0].command === "/usr/bin/osascript",
+    "System accent lookup should prefer the resolved AppKit control accent",
+  );
+  context.osascriptAccent = "";
+  accentCommands.length = 0;
   const accent = await context.dictionaryManagerSystemAccentColor();
   assert(
-    accent === "#ff2d55",
-    "macOS pink accent should map to the custom switch accent color",
+    accent === "#f74f9e",
+    "macOS pink accent should map to the system pink control accent",
   );
   assert(
-    accentCommands[0].command === "/usr/bin/defaults" &&
-      accentCommands[0].args.join(" ") === "read -g AppleAccentColor",
-    "System accent lookup should read AppleAccentColor through defaults",
+    accentCommands[1].command === "/usr/bin/defaults" &&
+      accentCommands[1].args.join(" ") === "read -g AppleAccentColor",
+    "System accent lookup should fall back to AppleAccentColor through defaults",
   );
   console.log("dictionary manager bridge tests passed");
 })().catch((error) => {

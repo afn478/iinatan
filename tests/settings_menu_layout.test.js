@@ -104,7 +104,7 @@ assert(
   "Settings manager should expose per-profile playback settings",
 );
 assert(
-  /--bg:\s*#ececec/.test(managerHtml) &&
+  /--bg:\s*#ffffff/.test(managerHtml) &&
     /accent-color:\s*auto/.test(managerHtml) &&
     /@supports \(color: AccentColor\)/.test(managerHtml) &&
     /--accent:\s*AccentColor/.test(managerHtml) &&
@@ -121,9 +121,12 @@ assert(
   "Boolean settings should use switches while preserving every setting control",
 );
 assert(
-  /\.tabs\s*\{[\s\S]*border-bottom:\s*none/.test(managerHtml) &&
-    /\.tab\.active\s*\{[\s\S]*box-shadow/.test(managerHtml),
-  "Settings sections should use a segmented control",
+  /<aside class="sidebar">[\s\S]*<nav class="tabs"/.test(managerHtml) &&
+    /\.sidebar\s*\{[^}]*position:\s*fixed/s.test(managerHtml) &&
+    /\.tabs\s*\{[^}]*flex-direction:\s*column/s.test(managerHtml) &&
+    /\.tab\.active[^{]*\{[^}]*background:\s*var\(--accent\)/s.test(managerHtml) &&
+    (managerHtml.match(/class="tab-icon"/g) || []).length === 6,
+  "Settings sections should use a sidebar with an accent-tinted selection",
 );
 assert(
   /id="legacySubtitleMode"[^>]*data-profile-pref="experimentalNativeSubtitleHitLayer"[^>]*data-profile-pref-invert="true"/.test(
@@ -132,18 +135,19 @@ assert(
   "Settings should present the older subtitle renderer as an inverted legacy-mode option",
 );
 assert(
-  /<h3>Native Subtitle Lookup<\/h3>/.test(managerHtml) &&
+  /<h3>Native subtitle lookup<\/h3>/.test(managerHtml) &&
     /aria-label="More about native subtitle lookup"><svg/.test(managerHtml),
   "Native subtitle settings should use plain language with expandable help",
 );
 assert(
-  /\.setting-heading\s*\{[^}]*margin:\s*18px 0 8px/s.test(managerHtml) &&
+  /\.setting-heading\s*\{[^}]*margin:\s*22px 0 7px/s.test(managerHtml) &&
     /\.setting-heading h3\s*\{[^}]*margin:\s*0/s.test(managerHtml),
   "Section help controls should center against headings without including heading margins",
 );
 assert(
-  /\.field \.setting-row\s*\{[^}]*margin-bottom:\s*5px/s.test(managerHtml),
-  "Labeled fields with help controls should keep space above their input",
+  /\.field \.setting-row\s*\{[^}]*margin-bottom:\s*0/s.test(managerHtml) &&
+    /\.field:not\(:has\(> small\)\) > input/.test(managerHtml),
+  "Labeled fields should sit beside their control in grouped rows",
 );
 assert(
   /function positionHelpPopover\(details\)/.test(managerHtml) &&
