@@ -16,6 +16,7 @@ const TESTS = [
   ["lookup", "tests/lookup_candidate_selection.test.js"],
   ["overlay", "tests/overlay_word_units.test.js"],
   ["overlay", "tests/overlay_controller.test.js"],
+  ["overlay", "tests/overlay_option_arrow_entry_nav.test.js"],
   ["overlay", "tests/overlay_dictionary_formatting.test.js"],
   ["overlay", "tests/popup_preview.test.js"],
   ["overlay", "tests/overlay_nested_popups.test.js"],

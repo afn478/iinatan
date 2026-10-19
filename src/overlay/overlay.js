@@ -4976,6 +4976,10 @@
   function moveControllerEntry(direction) {
     const entries = controllerEntryElements();
     if (!entries.length) return false;
+    // Without a selection, step from the entry the reader is looking at
+    // rather than the top, so a scrolled popup moves to its neighbor.
+    if (state.controller.selectedEntryIndex < 0)
+      selectLargestVisibleControllerEntry();
     const current = Math.max(0, state.controller.selectedEntryIndex);
     return selectControllerEntry(current + (direction < 0 ? -1 : 1), true);
   }
@@ -9763,6 +9767,21 @@
     hideAudioSourceMenu();
   });
   document.addEventListener("keydown", (event) => {
+    if (
+      event &&
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      (event.key === "ArrowDown" || event.key === "ArrowUp") &&
+      !state.audioSourceMenu &&
+      controllerPopupVisible()
+    ) {
+      // Match Yomitan: Option+Up/Down jumps between entries instead of
+      // WebKit's native page scroll.
+      if (moveControllerEntry(event.key === "ArrowUp" ? -1 : 1))
+        event.preventDefault();
+      return;
+    }
     if (!event || event.key !== "Escape") return;
     const menuWasOpen = !!state.audioSourceMenu;
     hideAudioSourceMenu();
