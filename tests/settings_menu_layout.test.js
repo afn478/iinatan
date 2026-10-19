@@ -1062,3 +1062,21 @@ assert(
     /\.field > \.number-field \{[^}]*grid-column: 2;/s.test(managerHtml),
   "Number fields should use an outside stepper like IINA's settings instead of inline spin arrows",
 );
+assert(
+  /html, body \{ height: 100%; overflow: hidden; overscroll-behavior: none; \}/.test(
+    managerHtml,
+  ) && /main \{[^}]*position: fixed;[^}]*overflow-y: auto;/s.test(managerHtml),
+  "Only the content column should scroll and bounce, never the whole window",
+);
+assert(
+  /main > \.panel\.active \{ min-height: calc\(100% \+ 1px\); \}/.test(managerHtml) &&
+    /\.sidebar::after \{[^}]*position: absolute;[^}]*height: calc\(100% \+ 1px\);/s.test(
+      managerHtml,
+    ),
+  "Short settings pages and the sidebar should still be elastically scrollable",
+);
+assert(
+  /\* \{ scrollbar-width: none; \}/.test(managerHtml) &&
+    /::-webkit-scrollbar \{ display: none;/.test(managerHtml),
+  "Settings should hide scroll bars while keeping scrolling",
+);
