@@ -1,168 +1,132 @@
+<div align="center">
+
 # iinatan
 
-iinatan adds dictionary popups to subtitles in IINA on macOS. Pause a video, hover a word, and look it up without leaving the player.
+**Hover a subtitle. Get the definition. Mine the card.**
 
-The plugin is still experimental, but the core workflow is usable today: install a dictionary, choose a lookup language, toggle iinatan on, and use it while watching subtitled video.
+Yomitan-style dictionary popups for [IINA](https://iina.io) on macOS.
 
-Anki export is available through AnkiConnect when Anki is running in the background.
+[![Latest release](https://img.shields.io/github/v/release/afn478/iinatan?style=flat-square&color=e85d9f&label=release)](https://github.com/afn478/iinatan/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/afn478/iinatan/total?style=flat-square&color=e85d9f)](https://github.com/afn478/iinatan/releases)
+![macOS](https://img.shields.io/badge/macOS-IINA-555?style=flat-square&logo=apple)
+[![License](https://img.shields.io/github/license/afn478/iinatan?style=flat-square&color=555)](LICENSE)
 
-## Screenshots
+[**Download**](https://github.com/afn478/iinatan/releases/latest) · [Quick start](#quick-start) · [Features](#features) · [Anki](#anki-mining) · [Customize](docs/custom-popup-css.md)
 
-![Japanese popup with Anki add confirmation](docs/screenshots/japanese-popup.png)
+<img src="docs/screenshots/hero-japanese.jpg" alt="Japanese lookup popup for 集まる over a paused anime scene, with an 'Added Anki card' confirmation" width="860">
 
-| German lookup | Anki setup |
+</div>
+
+## Why iinatan?
+
+Watching shows in your target language works best when looking a word up takes no effort. iinatan lets you do it inside IINA: hover a word, the video pauses, a popup shows the definition, and one click turns that line into an Anki card with the sentence, a screenshot and the audio. When you move away, playback resumes.
+
+## Features
+
+|     |     |
 | --- | --- |
-| ![German popup over paused subtitles](docs/screenshots/german-popup.png) | ![Anki settings with popup add button enabled](docs/screenshots/anki-settings.png) |
-| Dictionary selection | Recommended dictionary downloads |
-| ![Dictionary settings with enabled Chinese dictionaries](docs/screenshots/dictionary-settings.png) | ![Recommended dictionaries dialog](docs/screenshots/recommended-dictionaries.png) |
+| 🔍 **Instant lookups** | Hover or Shift-hover subtitle text. Playback pauses and then resumes on its own. |
+| 🌏 **Six languages** | Japanese, English, French, German, Chinese, and Korean (experimental). |
+| 📚 **Yomitan dictionaries** | Import any Yomitan-compatible ZIP, or install the recommended ones with one click. |
+| 🎌 **Built for Japanese** | Deinflection, pitch accent, furigana, and frequency ranks (JPDB, BCCWJ, Jiten). |
+| 🃏 **One-click Anki cards** | Sentence, screenshot, sentence audio, and word audio, with duplicate detection. |
+| 🎞️ **Any subtitle** | SRT, ASS/SSA, and on-device OCR for bitmap subtitles such as Blu-ray PGS. |
+| 🎨 **Native look** | Liquid Glass popups that follow light/dark mode, plus custom CSS for everything. |
+| 🎮 **Controller support** | Look up words, browse popups, and add cards from the couch. [Mapping →](docs/dualsense-controls.md) |
+| 👤 **Profiles** | Separate dictionaries, popup, and Anki settings for each language. |
 
-## What You Get
+## A closer look
 
-- Dictionary lookups directly on IINA subtitles.
-- Automatic pause on dictionary lookup and resume afterwards
-- Japanese, English, French, German, Chinese, and Korean lookup modes.
-- Built-in downloader for recommended dictionaries and frequency data.
-- Import support for local Yomitan-compatible dictionary ZIP files.
-- Frequency and pitch-accent dictionary support for Japanese
-- Compact popups with structured entries, tags, source links, collapsed long sections, and custom CSS.
-- One-click Anki card creation with duplicate detection, subtitle sentences, screenshots, and subtitle audio.
-- DualSense controller support for lookup navigation and playback controls (requests macOS Input Monitoring permission when enabled); see the [current input mapping](docs/dualsense-controls.md).
-- Profiles for keeping separate language, dictionary, popup, and anki export settings.
+<table>
+<tr>
+<td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/popup-english-dark.jpg">
+  <img src="docs/screenshots/popup-english-light.jpg" alt="English Wiktionary popup for 'participate' over a subtitle">
+</picture>
+<p align="center"><b>Rich entries:</b> tags, examples, and collapsible etymology</p>
+</td>
+<td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/recommended-dark.png">
+  <img src="docs/screenshots/recommended-light.png" alt="Recommended dictionaries dialog with Jitendex, JMnedict, BCCWJ, JPDB, and Jiten">
+</picture>
+<p align="center"><b>One-click dictionaries:</b> download and update in the app</p>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/anki-dark.png">
+  <img src="docs/screenshots/anki-light.png" alt="Anki settings with note type, deck, AnkiConnect status, and field markers">
+</picture>
+<p align="center"><b>Anki mining:</b> map fields with Yomitan-style markers</p>
+</td>
+<td width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dictionaries-dark.png">
+  <img src="docs/screenshots/dictionaries-light.png" alt="Installed dictionaries list with term, frequency, and pitch accent dictionaries">
+</picture>
+<p align="center"><b>Your stack, your order:</b> enable and reorder dictionaries per profile</p>
+</td>
+</tr>
+</table>
 
-## Installation
+## Quick start
 
-For most users, the recommended option is the release package. Installing directly from GitHub follows the latest repository contents, so it can break temporarily when new commits are pushed.
+1. **Install:** download [`iinatan.iinaplgz`](https://github.com/afn478/iinatan/releases/latest) and open it with IINA.
+2. **Set up:** open **Plugins → iinatan → Settings…**, pick a language in the profile menu, and go to **Dictionaries**.
+3. **Get dictionaries:** click **Get recommended dictionaries…**, or **Import ZIP…** your own Yomitan dictionaries.
+4. **Watch:** play a subtitled video and hover a word.
 
-### Install a Release Package (Recommended)
+> [!TIP]
+> No popup? Press **Shift+H** to turn iinatan on or off.
 
-Download `iinatan.iinaplgz` from the [latest version on GitHub](https://github.com/afn478/iinatan/releases/latest) and install it through IINA's plugin manager.
+<details>
+<summary><b>Install from GitHub (bleeding edge)</b></summary>
 
-### Install From GitHub
-Use this only if you want the newest in-progress changes and are comfortable with occasional breakage.
+<br>
 
-1. Open IINA's plugin manager.
-2. Choose **Install from GitHub**.
-3. Enter `afn478/iinatan`.
-4. Enable the plugin.
-5. Open **Plugins -> iinatan -> Settings...**.
-6. Install the recommended dictionary, or import a Yomitan-compatible dictionary ZIP.
-7. Toggle iinatan with **Shift+H**.
+In IINA's plugin manager choose **Install from GitHub** and enter `afn478/iinatan`. This tracks the latest commits, so it may sometimes break. Most users should use the release package.
 
-## Customize the Popup
+</details>
 
-Use the [custom popup CSS guide](docs/custom-popup-css.md) for ready-to-paste recipes that change fonts, text sizes, spacing, colors, dictionary sections, Jitendex content, buttons, and other popup details. It also explains how to test changes in the repository's browser preview before adding them to IINA.
+## Anki mining
 
-## Quick Start
+1. Install [AnkiConnect](https://ankiweb.net/shared/info/2055492159) and keep Anki open.
+2. In the **Anki** tab, check that AnkiConnect shows **✓ Reachable**, then choose a deck and note type.
+3. Map each field with markers such as `{expression}`, `{reading}`, `{furigana-plain}`, or `{audio}`.
+4. Turn on **Show Anki add button in popups**, then press **+** in any popup.
 
-1. Open **Plugins -> iinatan -> Settings...**.
-2. Choose the lookup language you want to use.
-3. Go to the dictionaries section
-3. Click `Get recommended Dictionaries...` and download the available dictionaries. Alternatively, import compatible dictionary ZIP files.
-4. Enable and move dictionaries into the order you prefer.
-5. Toggle iinatan with **Shift+H**.
-6. Pause playback and hover subtitle text.
+Each profile keeps its own Anki settings: the deck, the note type, the duplicate behavior, the screenshot quality, and the sentence audio format.
 
-If the popup does not appear, press **Shift+H** to toggle iinatan on.
+## Subtitle support
 
-## Dictionaries
+- **Text subtitles** such as SRT work as-is.
+- **ASS/SSA** keeps mpv's own rendering. iinatan places invisible hit boxes over the styled text. Very complex sign cues may be skipped.
+- **Bitmap subtitles** (PGS and similar) go through Apple Vision OCR on your Mac. OCR can misread stylized or low-resolution text, and you can turn it off in Settings.
 
-The dictionary panel lets you:
+## Make it yours
 
-- Install Jitendex for Japanese.
-- Import local Yomitan-compatible dictionary ZIP files.
-- Enable or disable installed dictionaries.
-- Reorder dictionaries to choose which results appear first.
-
-Language support depends on the dictionaries you install. iinatan currently has lookup modes for:
-
-- Japanese
-- English
-- French
-- German
-- Chinese
-- Korean (Experimental)
-
-Some dictionary ZIP files do not label their language clearly. When that happens, iinatan may still let you import the file, but you may need to choose the right lookup language yourself.
-
-## Settings
-
-Open **Plugins -> iinatan -> Settings...** to manage the plugin.
-
-Common settings include:
-
-- Lookup language
-- Installed dictionaries and result priority
-- Subtitle and popup appearance
-- Playback behavior
-- AnkiConnect export fields, duplicate behavior, screenshots, and sentence audio
-- Advanced import and lookup options
-- Profiles for separate setups
-
-Bitmap subtitles such as Blu-ray PGS can be recognized for lookup with the
-Apple Vision framework built into macOS. The code ships in the existing native
-helper, recognition stays on-device, and the setting is enabled by default only
-when Vision supports the active profile language. Direct subtitle decoding
-preserves authored placement; streamed or protected sources can use the pixels
-already rendered by mpv through a separately warned, default-off screenshot
-fallback. By default, pausing or briefly moving the mouse anywhere over the
-player recognizes the current bitmap cue; successful results remain cached for
-the usual hover-to-pause lookup flow. Continuously recognizing every cue during
-playback is available as a separately warned, default-off profile option, while
-consecutive streamed cues reuse the active native media session instead of
-reopening the movie. OCR can still misrecognize stylized or low-resolution text,
-so Settings shows a permanent accuracy warning and an explicit opt-out.
-
-The experimental native-subtitle layer supports ordinary ASS/SSA dialogue in
-Japanese, English, French, German, Chinese, and Korean without replacing mpv's
-visible subtitle rendering. Its invisible hit boxes come from the packaged
-native helper. Complex override-tagged or ambiguous text cues are intentionally
-skipped; SubRip and the existing force/strip ASS compatibility modes keep their
-previous behavior. Full original-versus-instrumented ASS alpha validation is
-available as an expensive Advanced diagnostic and is disabled during normal
-playback.
-
-## Anki Export
-
-Install the AnkiConnect add-on, open Anki, then configure export from the **Anki** tab in **Plugins -> iinatan -> Settings...**. Anki settings are stored per profile, including the AnkiConnect URL, deck, note type, field templates, duplicate behavior, JPEG screenshot quality, and sentence audio format/bitrate.
-
-To add cards from the popup:
-
-1. Keep Anki open and make sure AnkiConnect shows as reachable in the **Anki** tab.
-2. Choose the deck, note type, and field mappings for the active profile.
-3. Enable **Show Anki add button in popups**. Without this checkbox, the popup will not show the add-card button even when AnkiConnect is configured.
-4. Press **Shift+H** to turn iinatan on, pause playback, hover subtitle text, then click the add-card button in the popup.
-
-The IINA plugin menu also includes **Settings...** and quick profile switching.
+The popup is plain HTML and CSS. The [custom popup CSS guide](docs/custom-popup-css.md) has ready-to-paste recipes for fonts, sizes, spacing, colors, Jitendex sections, and buttons.
 
 ## Troubleshooting
 
-- If no popup appears, press **Shift+H** and try again while playback is paused.
-- If a dictionary does not return results, check that it is enabled and that the current lookup language matches it.
-- If the plugin stalls, restart IINA.
+- **No popup:** press **Shift+H** to turn iinatan on, then hover again.
+- **No results:** make sure the dictionary is enabled and that the profile language matches it.
+- **Plugin stalls:** restart IINA.
 
-## Development / Contributing
+## Contributing
 
-### Browser popup preview
-
-Open [`dev/popup-preview.html`](dev/popup-preview.html) directly in a browser to render real dictionary entries without starting IINA. The preview imports `src/overlay/overlay.css` and `src/overlay/overlay.js` directly, so changes to the production popup UI appear after refreshing the page. Its sidebar switches between representative words, dark and light themes, popup dimensions, result limits, and persistent temporary CSS overrides.
-
-The bundled lookup payloads are hardcoded in `dev/popup-preview-data.js`. To refresh them from the locally installed dictionaries with `iina-hoshi-dicts`, run:
-
-```sh
-npm run preview:data
-```
-
-Set `IINATAN_DATA_ROOT` first if the plugin data lives outside IINA's standard application-support directory.
-
-Development notes, build commands, test commands, packaging details, and release steps live in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
-
-iinatan is licensed under the GNU General Public License v3.0 only (`GPL-3.0-only`). See `LICENSE` for the full license text.
+Build, test, packaging, and release steps are in [CONTRIBUTING.md](CONTRIBUTING.md). To change the popup UI without starting IINA, open [`dev/popup-preview.html`](dev/popup-preview.html) in a browser. It renders real dictionary entries from the production overlay code (`npm run preview:data` refreshes them).
 
 ## Thanks
 
-- [Yomipv](https://github.com/BrenoAqua/Yomipv) for the original idea of bringing Yomitan-style lookup into mpv.
-- [Yomitan](https://github.com/yomidevs/yomitan) for the inspiration behind the popup dictionary experience.
-- [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the dictionary engine used by iinatan.
-- [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for examples of compact, reader-friendly lookup design.
+- [Yomipv](https://github.com/BrenoAqua/Yomipv) for the original idea of Yomitan-style lookup in mpv.
+- [Yomitan](https://github.com/yomidevs/yomitan) for the popup dictionary experience that inspired iinatan.
+- [HoshiDicts](https://github.com/Manhhao/hoshidicts/) for the dictionary engine behind iinatan.
+- [Chimahon](https://github.com/sohilsayed/chimahon) and [Hoshi Reader Android](https://github.com/HuangAntimony/Hoshi-Reader-Android) for compact, reader-friendly lookup design.
+
+## License
+
+[GPL-3.0-only](LICENSE)
