@@ -1449,23 +1449,27 @@ assert(
   "Add-anyway actions should be smaller, ordered in the Anki group, and reserve entry space",
 );
 assert(
-  /\.audio-button, \.anki-button \{[^}]*width: 28px;[^}]*height: 28px;[^}]*transition:[^}]*filter 100ms ease-out;[^}]*\}/.test(
+  /\.audio-button, \.anki-button \{[^}]*width: 28px;[^}]*height: 28px;[^}]*transition:[^}]*filter 100ms ease-out[^}]*scale 180ms[^}]*\}/.test(
     css,
   ) &&
-    /\.audio-button:active, \.anki-button:active \{[^}]*filter: brightness\(0\.85\);[^}]*\}/.test(
+    /\.audio-button:active, \.anki-button:active \{[^}]*scale: 0\.92;[^}]*filter: brightness\(0\.94\);[^}]*\}/.test(
       css,
     ),
-  "Popup icon controls should use larger targets and a dimmed press state",
+  "Popup icon controls should use larger targets and a glass press state",
 );
 assert(
   /--popup-focus-ring: rgba\(10, 132, 255, 0\.5\);/.test(css) &&
     /:root\.theme-light \{[^}]*--popup-focus-ring: rgba\(0, 102, 204, 0\.5\);/s.test(
       css,
     ) &&
-    /\.audio-button:focus-visible, \.anki-button:focus-visible \{[^}]*outline: none;[^}]*box-shadow: 0 0 0 3px var\(--popup-focus-ring\);[^}]*\}/.test(
+    /\.audio-button:focus-visible, \.anki-button:focus-visible \{[^}]*outline: none;[^}]*box-shadow:[^};]*0 0 0 3px var\(--popup-focus-ring\);[^}]*\}/.test(
       css,
     ),
   "Popup icon controls should use a theme-aware focus halo",
+);
+assert(
+  /\.head-actions \{[^}]*align-self: flex-start;[^}]*\}/.test(css),
+  "Popup head buttons should stay at the top whether or not the headword has furigana",
 );
 assert(
   /\.dict-term-actions \{[^}]*position: absolute;[^}]*top: 1px;[^}]*right: 0;[^}]*display: inline-flex;[^}]*\}/.test(

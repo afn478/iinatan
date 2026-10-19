@@ -31,7 +31,7 @@
       --popup-border: rgba(255, 255, 255, 0.16);
       --popup-divider: rgba(84, 84, 88, 0.62);
       --popup-section-divider: rgba(84, 84, 88, 0.42);
-      --popup-shadow: 0 18px 48px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.1) inset;
+      --popup-shadow: 0 18px 48px rgba(0, 0, 0, 0.38), 0 3px 10px rgba(0, 0, 0, 0.22), 0 0.5px 0 rgba(255, 255, 255, 0.12) inset;
       --popup-scroll-track: transparent;
       --popup-scroll-thumb: rgba(235, 235, 245, 0.28);
       --popup-scroll-thumb-hover: rgba(235, 235, 245, 0.46);
@@ -45,6 +45,11 @@
       --popup-error-border: rgba(255, 105, 97, 0.46);
       --popup-chip-bg: rgba(255, 255, 255, 0.1);
       --popup-subtle-chip-bg: rgba(255, 255, 255, 0.07);
+      --popup-glass-button-bg: rgba(255, 255, 255, 0.09);
+      --popup-glass-button-bg-hover: rgba(255, 255, 255, 0.16);
+      --popup-glass-button-highlight: rgba(255, 255, 255, 0.2);
+      --popup-glass-button-edge: rgba(0, 0, 0, 0.45);
+      --popup-glass-button-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
       --popup-chip-text: rgba(245, 245, 247, 0.86);
       --popup-inverted: #ffffff;
       --popup-card-bg: rgba(255, 255, 255, 0.055);
@@ -89,7 +94,7 @@
       --popup-border: rgba(0, 0, 0, 0.13);
       --popup-divider: rgba(60, 60, 67, 0.26);
       --popup-section-divider: rgba(60, 60, 67, 0.16);
-      --popup-shadow: 0 18px 48px rgba(0, 0, 0, 0.18), 0 3px 10px rgba(0, 0, 0, 0.1), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+      --popup-shadow: 0 18px 48px rgba(0, 0, 0, 0.18), 0 3px 10px rgba(0, 0, 0, 0.1), 0 0.5px 0 rgba(255, 255, 255, 0.95) inset;
       --popup-scroll-track: transparent;
       --popup-scroll-thumb: rgba(60, 60, 67, 0.26);
       --popup-scroll-thumb-hover: rgba(60, 60, 67, 0.42);
@@ -103,6 +108,11 @@
       --popup-error-border: rgba(215, 0, 21, 0.34);
       --popup-chip-bg: rgba(118, 118, 128, 0.12);
       --popup-subtle-chip-bg: rgba(118, 118, 128, 0.08);
+      --popup-glass-button-bg: rgba(255, 255, 255, 0.62);
+      --popup-glass-button-bg-hover: rgba(255, 255, 255, 0.9);
+      --popup-glass-button-highlight: rgba(255, 255, 255, 0.95);
+      --popup-glass-button-edge: rgba(0, 0, 0, 0.1);
+      --popup-glass-button-shadow: 0 1px 2.5px rgba(0, 0, 0, 0.1);
       --popup-chip-text: rgba(29, 29, 31, 0.82);
       --popup-inverted: #ffffff;
       --popup-card-bg: rgba(118, 118, 128, 0.055);
@@ -235,7 +245,7 @@
       transform-origin: top left;
       background: var(--popup-bg);
       color: var(--popup-text);
-      border: 1px solid var(--popup-border);
+      border: 0.5px solid var(--popup-border);
       box-shadow: var(--popup-shadow);
       border-radius: 14px;
       -webkit-backdrop-filter: saturate(145%) blur(28px);
@@ -318,8 +328,11 @@
     .dict-reading { display: block; max-width: 100%; color: var(--popup-reading); font-weight: 600; margin: 0 0 2px; text-align: center; font-size: 16px; line-height: 1.15; }
     .dict-headword { display: block; min-width: 0; max-width: 100%; text-align: center; }
     .dict-headword rt { color: var(--popup-reading); font-size: 0.53em; font-weight: 600; line-height: 1.1; -webkit-user-select: none; }
+    /* Pin to the top of the head so furigana, extra pitch rows or a wrapped
+       headword never move the buttons; matches .dict-term-actions below. */
     .head-actions {
       display: inline-flex;
+      align-self: flex-start;
       align-items: center;
       gap: 5px;
       flex: 0 0 auto;
@@ -340,19 +353,30 @@
       width: 28px;
       height: 28px;
       margin: 0;
-      border: 1px solid transparent;
+      border: 0;
       border-radius: 999px;
       padding: 0;
       color: var(--popup-muted);
-      background: var(--popup-subtle-chip-bg);
+      /* Liquid Glass control: translucent fill over the popup, specular top edge, darker rim.
+         --glass-tint lets states color the glass without losing the material. */
+      background: color-mix(in srgb, var(--glass-tint, transparent) 18%, var(--popup-glass-button-bg));
+      -webkit-backdrop-filter: blur(10px) saturate(180%);
+      backdrop-filter: blur(10px) saturate(180%);
+      box-shadow:
+        inset 0 1px 0 var(--popup-glass-button-highlight),
+        0 0 0 0.5px var(--glass-rim, var(--popup-glass-button-edge)),
+        var(--popup-glass-button-shadow);
       font: inherit;
       cursor: pointer;
       pointer-events: auto;
-      transition: color 100ms ease-out, background-color 100ms ease-out, border-color 100ms ease-out, filter 100ms ease-out;
+      transition: color 100ms ease-out, background-color 100ms ease-out, filter 100ms ease-out, scale 180ms cubic-bezier(0.3, 1.6, 0.5, 1);
     }
-    .audio-button:hover, .anki-button:hover { color: var(--popup-heading); border-color: var(--popup-border); background: var(--popup-chip-bg); }
-    .audio-button:active, .anki-button:active { filter: brightness(0.85); }
-    .audio-button:focus-visible, .anki-button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--popup-focus-ring); }
+    .audio-button:hover, .anki-button:hover {
+      color: var(--popup-heading);
+      background: color-mix(in srgb, var(--glass-tint, transparent) 22%, var(--popup-glass-button-bg-hover));
+    }
+    .audio-button:active, .anki-button:active { scale: 0.92; filter: brightness(0.94); }
+    .audio-button:focus-visible, .anki-button:focus-visible { outline: none; box-shadow: inset 0 1px 0 var(--popup-glass-button-highlight), 0 0 0 3px var(--popup-focus-ring); }
     .dict-term-actions { position: absolute; top: 1px; right: 0; display: inline-flex; align-items: center; gap: 5px; }
     .anki-add-anyway-button {
       width: 20px;
@@ -365,7 +389,7 @@
     }
     .audio-button[data-audio-state="loading"] { opacity: 0.72; }
     .audio-button[data-audio-state="loading"] .audio-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
-    .audio-button[data-audio-state="missing"] { color: var(--popup-error); border-color: var(--popup-error-border); }
+    .audio-button[data-audio-state="missing"] { --glass-tint: var(--popup-error); --glass-rim: var(--popup-error-border); color: var(--popup-error); }
     .audio-button[data-audio-state="missing"]::after {
       content: "x";
       position: absolute;
@@ -400,17 +424,18 @@
     .anki-button[data-anki-state="adding"] .anki-icon,
     .anki-button[data-anki-state="opening"] .anki-icon { animation: audio-pulse 0.82s ease-in-out infinite alternate; }
     .anki-button[data-anki-state="duplicate"] {
+      --glass-tint: var(--popup-heading);
       color: var(--popup-heading);
-      border-color: var(--popup-border);
-      background: var(--popup-chip-bg);
     }
     .anki-button[data-anki-state="added"] {
+      --glass-tint: var(--popup-green);
+      --glass-rim: rgba(48, 209, 88, 0.42);
       color: var(--popup-green);
-      border-color: rgba(48, 209, 88, 0.42);
     }
     .anki-button[data-anki-state="error"] {
+      --glass-tint: var(--popup-error);
+      --glass-rim: var(--popup-error-border);
       color: var(--popup-error);
-      border-color: var(--popup-error-border);
     }
     .audio-icon {
       display: block;
@@ -436,7 +461,7 @@
       max-height: 48vh;
       overflow: auto;
       padding: 8px;
-      border: 1px solid var(--popup-border);
+      border: 0.5px solid var(--popup-border);
       border-radius: 12px;
       background: var(--popup-bg);
       color: var(--popup-heading);
