@@ -81,7 +81,7 @@ function loadContext({ prefs, defaults }) {
   vm.createContext(context);
   vm.runInContext(
     source +
-      "\nglobalThis.__glass = { popupGlassTintConfig, readSystemGlassTint, getSystem: () => systemGlassTint };",
+      "\nglobalThis.__glass = { popupGlassTintConfig, readSystemGlassTint, getSystem: () => systemGlassTint, appearanceHintFromThemeMaterial, normalizeAppearanceHint };",
     context,
   );
   return { glass: context.__glass, commands, pushes, timers, defaults };
@@ -166,6 +166,17 @@ function loadContext({ prefs, defaults }) {
     assert(
       (await glass.readSystemGlassTint(true)) === 0.5,
       "An unset macOS glass slider should resolve to its middle position",
+    );
+  }
+  {
+    const { glass } = loadContext({ prefs: {}, defaults: {} });
+    assert(
+      glass.appearanceHintFromThemeMaterial("0\n") === "dark" &&
+        glass.appearanceHintFromThemeMaterial("2") === "light" &&
+        glass.appearanceHintFromThemeMaterial("4") === "system" &&
+        glass.appearanceHintFromThemeMaterial("") === "system" &&
+        glass.normalizeAppearanceHint("system") === "",
+      "IINA's follow-system theme should reach the popup as no hint so it tracks macOS live",
     );
   }
   console.log("popup glass tint tests passed");

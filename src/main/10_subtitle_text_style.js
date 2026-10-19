@@ -180,27 +180,17 @@ function normalizeAppearanceHint(value) {
   if (theme === "dark" || theme === "light") return theme;
   return "";
 }
-function appearanceHintFromThemeMaterial(value, systemHint) {
-  const themeMaterial = Number(String(value || "").trim());
+// IINA's themeMaterial: 0 dark, 2 light, anything else follows the system.
+// "system" is passed through as no hint so the overlay uses its live
+// prefers-color-scheme, which flips the moment macOS switches appearance;
+// resolving it here would go stale until the next config push.
+function appearanceHintFromThemeMaterial(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "system";
+  const themeMaterial = Number(raw);
   if (themeMaterial === 0) return "dark";
   if (themeMaterial === 2) return "light";
-  if (themeMaterial === 4) return normalizeAppearanceHint(systemHint);
-  return "";
-}
-async function readMacOSAppearanceHint() {
-  try {
-    const result = await execExternalProcess(
-      "/usr/bin/defaults",
-      ["read", "-g", "AppleInterfaceStyle"],
-      dataRoot(),
-    );
-    const text = String((result && result.stdout) || "")
-      .trim()
-      .toLowerCase();
-    return text === "dark" ? "dark" : "light";
-  } catch (_) {
-    return "";
-  }
+  return "system";
 }
 async function readIINAAppearanceHint() {
   try {
@@ -209,12 +199,10 @@ async function readIINAAppearanceHint() {
       ["read", "com.colliderli.iina", "themeMaterial"],
       dataRoot(),
     );
-    const raw = String((result && result.stdout) || "").trim();
-    if (!raw) return "";
-    const systemHint = Number(raw) === 4 ? await readMacOSAppearanceHint() : "";
-    return appearanceHintFromThemeMaterial(raw, systemHint);
+    return appearanceHintFromThemeMaterial((result && result.stdout) || "");
   } catch (_) {
-    return "";
+    // Unset means IINA's default, which follows the system.
+    return "system";
   }
 }
 function scheduleIINAAppearanceHintRefresh(force) {
@@ -225,7 +213,7 @@ function scheduleIINAAppearanceHintRefresh(force) {
   iinaAppearanceHintLastRefreshAt = now;
   readIINAAppearanceHint()
     .then((hint) => {
-      const next = normalizeAppearanceHint(hint);
+      const next = hint === "system" ? "system" : normalizeAppearanceHint(hint);
       if (next && next !== iinaAppearanceHint) {
         iinaAppearanceHint = next;
         if (typeof pushOverlayConfigForProfileChange === "function")
