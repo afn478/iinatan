@@ -298,10 +298,25 @@
       pointer-events: auto;
     }
     #popup-dismiss-guard.hidden { display: none; }
-    .lookup-popup::-webkit-scrollbar { width: 14px; }
+    /* A slim, always-visible thumb like a native overlay scroll bar, kept 3px off
+       the edge and 10px clear of the rounded corners; it widens on hover. */
+    .lookup-popup::-webkit-scrollbar { width: 11px; }
     .lookup-popup::-webkit-scrollbar-track { margin: 10px 0; background: var(--popup-scroll-track); border-radius: 999px; }
-    .lookup-popup::-webkit-scrollbar-thumb { min-height: 24px; background-color: var(--popup-scroll-thumb); background-clip: content-box; border: 3px solid var(--popup-scroll-thumb-border); border-radius: 999px; }
-    .lookup-popup::-webkit-scrollbar-thumb:hover { background-color: var(--popup-scroll-thumb-hover); }
+    .lookup-popup::-webkit-scrollbar-thumb { min-height: 18px; background-color: var(--popup-scroll-thumb); background-clip: content-box; border: 3px solid var(--popup-scroll-thumb-border); border-radius: 999px; }
+    .lookup-popup::-webkit-scrollbar-thumb:hover { background-color: var(--popup-scroll-thumb-hover); border-width: 2px; }
+    /* WebKit only rubber-bands areas that can scroll, so keep every popup 1px
+       taller than its viewport; short entries then bounce like a native scroll
+       view. Their thumb would span the whole track, so it stays hidden. */
+    .lookup-popup::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1px;
+      height: calc(100% + 1px);
+      pointer-events: none;
+    }
+    .lookup-popup.popup-fits::-webkit-scrollbar-thumb { background-color: transparent; }
     .lookup-popup .head { padding: 14px 18px 4px; }
     .lookup-popup .head-main { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
     .lookup-popup .head-title { display: flex; align-items: flex-end; gap: 8px; flex: 1 1 auto; min-width: 0; }

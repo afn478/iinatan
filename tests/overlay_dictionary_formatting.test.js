@@ -1346,17 +1346,26 @@ assert(
   "Popup text selection should use a theme-aware system-blue tint",
 );
 assert(
-  /\.lookup-popup::\-webkit-scrollbar \{[^}]*width: 14px;[^}]*\}/.test(css) &&
+  /\.lookup-popup::\-webkit-scrollbar \{[^}]*width: 11px;[^}]*\}/.test(css) &&
     /\.lookup-popup::\-webkit-scrollbar-track \{[^}]*margin: 10px 0;[^}]*\}/.test(
       css,
     ) &&
-    /\.lookup-popup::\-webkit-scrollbar-thumb \{[^}]*min-height: 24px;[^}]*background-color: var\(--popup-scroll-thumb\);[^}]*background-clip: content-box;[^}]*border: 3px solid var\(--popup-scroll-thumb-border\);[^}]*border-radius: 999px;[^}]*\}/.test(
+    /\.lookup-popup::\-webkit-scrollbar-thumb \{[^}]*min-height: 18px;[^}]*background-color: var\(--popup-scroll-thumb\);[^}]*background-clip: content-box;[^}]*border: 3px solid var\(--popup-scroll-thumb-border\);[^}]*border-radius: 999px;[^}]*\}/.test(
       css,
     ) &&
     /\.lookup-popup::\-webkit-scrollbar-thumb:hover \{[^}]*background-color: var\(--popup-scroll-thumb-hover\);[^}]*\}/.test(
       css,
     ),
   "Popup scrollbar should stay inside the straight edge and away from rounded corners",
+);
+assert(
+  /\.lookup-popup::after \{[^}]*position: absolute;[^}]*height: calc\(100% \+ 1px\);[^}]*pointer-events: none;/s.test(
+    css,
+  ) &&
+    /\.lookup-popup\.popup-fits::-webkit-scrollbar-thumb \{ background-color: transparent; \}/.test(
+      css,
+    ),
+  "Short popups should stay elastically scrollable without showing a full-length thumb",
 );
 assert(
   /\.lookup-popup:not\(\.hidden\) \{[^}]*animation: lookup-popup-appear 160ms cubic-bezier\(0\.16, 1, 0\.3, 1\) both;[^}]*\}/.test(

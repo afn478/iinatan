@@ -4412,61 +4412,31 @@
     },
     true,
   );
-  function trapPopupWheel(ev, explicitPopup) {
-    const popup =
-      explicitPopup ||
-      popupContainerForNode(ev && ev.currentTarget) ||
-      popupContainerForNode(ev && ev.target);
-    if (!popup || popup.classList.contains("hidden")) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    if (typeof ev.stopImmediatePropagation === "function")
-      ev.stopImmediatePropagation();
-    const dx = Number(ev.deltaX || 0);
-    const dy = Number(ev.deltaY || 0);
-    // Manually scroll so the gesture is consumed by the overlay instead of being
-    // interpreted by IINA as seek/fast-forward.
-    if (Math.abs(dy) >= Math.abs(dx)) popup.scrollTop += dy;
-    else
-      (horizontalScrollerFor(ev.target, popup, dx) || popup).scrollLeft += dx;
+  // Popups always overflow by the 1px bounce spacer, so only a popup with real
+  // overflow shows its scroll thumb.
+  const popupScrollFitObserver =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver((entries) => {
+          entries.forEach((entry) => syncPopupScrollFit(entry.target));
+        })
+      : null;
+  function syncPopupScrollFit(popup) {
+    if (!popup || !popup.classList) return;
+    const fits = popup.scrollHeight - popup.clientHeight <= 1;
+    if (popup.classList.contains("popup-fits") === fits) return;
+    popup.classList.toggle("popup-fits", fits);
+    // WebKit keeps a scroll bar's ::-webkit-scrollbar styles until the bar is
+    // rebuilt, so recreate it for the new thumb style to show.
+    const scrollTop = popup.scrollTop;
+    popup.style.overflowY = "hidden";
+    void popup.offsetHeight;
+    popup.style.overflowY = "";
+    popup.scrollTop = scrollTop;
   }
-  // Sideways gestures go to the nearest box under the pointer that can still
-  // scroll that way (wide tables, tag rows), since the popup itself cannot.
-  function horizontalScrollerFor(target, popup, dx) {
-    let node =
-      target && target.nodeType === 1 ? target : target && target.parentElement;
-    while (node && node !== popup) {
-      if (node.scrollWidth > node.clientWidth + 1) {
-        let overflowX = "";
-        try {
-          overflowX = window.getComputedStyle(node).overflowX;
-        } catch (_) {}
-        const canScroll =
-          dx < 0
-            ? node.scrollLeft > 0
-            : node.scrollLeft + node.clientWidth < node.scrollWidth - 1;
-        if ((overflowX === "auto" || overflowX === "scroll") && canScroll)
-          return node;
-      }
-      node = node.parentElement;
-    }
-    return null;
-  }
+  // Scrolling is left entirely to WebKit: any non-passive wheel listener over
+  // a popup makes a gesture that starts at a scroll edge hit a wall instead of
+  // bouncing. Gestures WebKit doesn't use are not passed on to IINA.
   bindPopupContainerEvents(popupEl);
-  document.addEventListener(
-    "wheel",
-    (ev) => {
-      const path = ev.composedPath ? ev.composedPath() : [];
-      const popup = path.find(
-        (node) =>
-          node === popupEl ||
-          (node && node.classList && node.classList.contains("nested-popup")),
-      );
-      if (popup && !popup.classList.contains("hidden"))
-        trapPopupWheel(ev, popup);
-    },
-    { passive: false, capture: true },
-  );
   function decodeBridgeUtf8(bytes) {
     const view =
       bytes instanceof Uint8Array
@@ -7685,18 +7655,7 @@
     popup.addEventListener("mouseleave", scheduleHidePopup);
     popup.addEventListener("click", onPopupContainerClick, true);
     popup.addEventListener("mousemove", onNestedPopupMouseMove);
-    popup.addEventListener("wheel", trapPopupWheel, {
-      passive: false,
-      capture: true,
-    });
-    popup.addEventListener("mousewheel", trapPopupWheel, {
-      passive: false,
-      capture: true,
-    });
-    popup.addEventListener("DOMMouseScroll", trapPopupWheel, {
-      passive: false,
-      capture: true,
-    });
+    if (popupScrollFitObserver) popupScrollFitObserver.observe(popup);
   }
 
   function toArray(v) {
