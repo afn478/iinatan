@@ -8,23 +8,30 @@ overlay.applyConfig({ popupScale: 1, overlayBridgePort: 19743 });
 overlay.state.enabled = true;
 
 const popup = context.__elements.popup;
-// The popup viewport spans 0-120px; the reader has scrolled past entry 0.
-const rects = [
-  [-220, -20],
-  [0, 100],
-  [110, 400],
+popup.scrollTop = 0;
+// Content offsets inside the popup; the popup head occupies 0-76px. Entry
+// rects follow scrollTop so the test sees the layout a real scroll produces.
+const layout = [
+  [76, 290],
+  [300, 800],
+  [810, 1400],
 ];
-const entries = rects.map(([top, bottom]) => {
+const entries = layout.map(([top, bottom]) => {
   const entry = context.document.createElement("div");
   entry.classList.add("entry");
-  entry._rect = {
-    left: 0,
-    right: 260,
-    top,
-    bottom,
-    width: 260,
-    height: bottom - top,
-  };
+  Object.defineProperty(entry, "_rect", {
+    get() {
+      const offset = Number(popup.scrollTop || 0);
+      return {
+        left: 0,
+        right: 260,
+        top: top - offset,
+        bottom: bottom - offset,
+        width: 260,
+        height: bottom - top,
+      };
+    },
+  });
   popup.appendChild(entry);
   return entry;
 });
@@ -59,38 +66,52 @@ function selected() {
   );
   return overlay.state.selectedEntryIndex;
 }
+const down = () => press("ArrowDown", { altKey: true });
+const up = () => press("ArrowUp", { altKey: true });
 
 assert(
   !press("ArrowDown") && selected() === -1,
   "A plain arrow key should keep native scrolling",
 );
 assert(
-  press("ArrowDown", { altKey: true }) && selected() === 2,
-  "Option+Down should jump from the most visible entry to the next one",
+  down() && selected() === 1 && popup.scrollTop === 300,
+  "Option+Down should pin the next entry's headword to the popup top",
 );
 assert(
-  popup.scrollTop === 110 && !entries[2].scrolledIntoView,
-  "Option+Down should pin the next entry's top to the popup top",
+  down() && selected() === 2 && popup.scrollTop === 810,
+  "Option+Down should keep stepping entry by entry",
 );
 assert(
-  press("ArrowUp", { altKey: true }) && selected() === 1,
-  "Option+Up should return to the previous entry",
+  up() && selected() === 1 && popup.scrollTop === 300,
+  "Option+Up should return to the previous entry's headword",
 );
 assert(
-  press("ArrowUp", { altKey: true }) && selected() === 0,
-  "Option+Up should reach the first entry",
+  up() && selected() === 0 && popup.scrollTop === 0,
+  "Option+Up to the first entry should reveal its headword at the very top",
 );
 assert(
-  popup.scrollTop === 0,
-  "Returning to the first entry should scroll back to its headword at the very top",
-);
-assert(
-  press("ArrowUp", { altKey: true }) && selected() === 0,
+  up() && selected() === 0 && popup.scrollTop === 0,
   "Option+Up should stop at the first entry",
+);
+
+popup.scrollTop = 550;
+assert(
+  up() && selected() === 1 && popup.scrollTop === 300,
+  "Option+Up from inside an entry should return to that entry's headword",
+);
+popup.scrollTop = 0;
+assert(
+  down() && selected() === 1 && popup.scrollTop === 300,
+  "After a manual scroll back up, Option+Down should step from the view",
+);
+popup.scrollTop = 1000;
+assert(
+  down() && selected() === 2 && popup.scrollTop === 1000,
+  "Option+Down inside the last entry should not scroll back to its headword",
 );
 
 overlay.state.lookupPopupVisible = false;
 assert(
-  !press("ArrowDown", { altKey: true }),
+  !down(),
   "Option+Down should not be captured while the popup is closed",
 );

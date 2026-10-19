@@ -147,6 +147,8 @@
   const CONTROLLER_REPEAT_INTERVAL_MS = 120;
   // Gamepad entry navigation outlines the selection that its buttons act on.
   const CONTROLLER_ENTRY_SELECTION = Object.freeze({ showOutline: true });
+  // Absorbs subpixel rounding when deciding whether a headword sits at the top.
+  const POPUP_ENTRY_TOP_TOLERANCE_PX = 2;
   const CONTROLLER_CONTEXT_DEFAULTS = {
     noPopup: {
       faceSouth: "lookup",
@@ -4941,11 +4943,8 @@
       popupEl.scrollTop = 0;
       return;
     }
-    const offset =
-      entries[index].getBoundingClientRect().top -
-      popupEl.getBoundingClientRect().top -
-      Number(popupEl.clientTop || 0);
-    popupEl.scrollTop = Number(popupEl.scrollTop || 0) + offset;
+    popupEl.scrollTop =
+      Number(popupEl.scrollTop || 0) + popupEntryViewOffset(entries[index]);
   }
 
   function resetPopupEntrySelection() {
@@ -4966,21 +4965,42 @@
     return applyPopupEntrySelection(options);
   }
 
+  // Steps from the scroll position rather than the stored selection, which
+  // goes stale once the popup is scrolled by trackpad, stick or notch.
+  // Moving up from inside an entry first returns to that entry's headword.
   function movePopupEntry(direction, options) {
     const entries = popupEntryElements();
     if (!entries.length) return false;
-    const current = Math.max(0, state.selectedEntryIndex);
+    let current = 0;
+    entries.forEach((entry, index) => {
+      if (popupEntryViewOffset(entry) <= POPUP_ENTRY_TOP_TOLERANCE_PX)
+        current = index;
+    });
+    // There is nothing below the last entry, so stay put rather than
+    // scrolling back up to its headword.
+    if (direction > 0 && current === entries.length - 1)
+      return selectPopupEntry(
+        current,
+        Object.assign({}, options, { scroll: false }),
+      );
+    let target = current + 1;
+    if (direction < 0)
+      target =
+        popupEntryViewOffset(entries[current]) < -POPUP_ENTRY_TOP_TOLERANCE_PX
+          ? current
+          : current - 1;
     return selectPopupEntry(
-      current + (direction < 0 ? -1 : 1),
+      target,
       Object.assign({}, options, { scroll: true }),
     );
   }
 
-  function movePopupEntryFromView(direction, options) {
-    // Without a selection, step from the entry the reader is looking at
-    // rather than the top, so a scrolled popup moves to its neighbor.
-    if (state.selectedEntryIndex < 0) selectLargestVisiblePopupEntry(options);
-    return movePopupEntry(direction, options);
+  function popupEntryViewOffset(entry) {
+    return (
+      entry.getBoundingClientRect().top -
+      popupEl.getBoundingClientRect().top -
+      Number(popupEl.clientTop || 0)
+    );
   }
 
   function selectLargestVisiblePopupEntry(options) {
@@ -9773,7 +9793,7 @@
     ) {
       // Match Yomitan: Option+Up/Down jumps between entries instead of
       // WebKit's native page scroll.
-      if (movePopupEntryFromView(event.key === "ArrowUp" ? -1 : 1))
+      if (movePopupEntry(event.key === "ArrowUp" ? -1 : 1))
         event.preventDefault();
       return;
     }
