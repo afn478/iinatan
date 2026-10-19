@@ -165,6 +165,8 @@ const PROFILE_PREFERENCE_DEFAULTS = {
   nestedPopupMaxDepth: 3,
   flattenSubtitleLineBreaks: false,
   popupTheme: "inherit",
+  popupGlassFollowSystem: false,
+  popupGlassTint: 0.5,
   subtitlePollMs: 120,
   etymologyCollapseDefault: "collapsed",
   wiktionaryEtymologyCollapseOverride: "collapsed",
@@ -329,6 +331,11 @@ function normalizeAnkiDuplicateScope(value) {
     .toLowerCase();
   return scope === "collection" ? "collection" : "deck";
 }
+function normalizePopupGlassTintValue(value) {
+  const tint = Number(value);
+  if (!Number.isFinite(tint)) return 0.5;
+  return Math.round(Math.min(1, Math.max(0, tint)) * 1000) / 1000;
+}
 function normalizeProfilePreferenceBoolValue(value, fallback) {
   if (typeof preferenceValueToBool === "function")
     return preferenceValueToBool(value, fallback);
@@ -395,6 +402,11 @@ function normalizeProfilePreferences(prefs) {
     out.audioAutoPlay,
     PROFILE_PREFERENCE_DEFAULTS.audioAutoPlay,
   );
+  out.popupGlassFollowSystem = normalizeProfilePreferenceBoolValue(
+    out.popupGlassFollowSystem,
+    PROFILE_PREFERENCE_DEFAULTS.popupGlassFollowSystem,
+  );
+  out.popupGlassTint = normalizePopupGlassTintValue(out.popupGlassTint);
   out.flattenSubtitleLineBreaks = normalizeProfilePreferenceBoolValue(
     out.flattenSubtitleLineBreaks,
     PROFILE_PREFERENCE_DEFAULTS.flattenSubtitleLineBreaks,

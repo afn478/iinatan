@@ -317,6 +317,13 @@ let dataDirsReadyPromise = null;
 let iinaAppearanceHint = "";
 let iinaAppearanceHintRefreshInFlight = false;
 let iinaAppearanceHintLastRefreshAt = 0;
+// macOS Liquid Glass slider (NSGlassTintAmount, 0 clear to 1 tinted); null until read.
+let systemGlassTint = null;
+let systemGlassTintRefreshInFlight = false;
+let systemGlassTintLastRefreshAt = 0;
+let systemGlassTintPollTimer = null;
+let systemGlassTintPollCount = 0;
+let systemReduceTransparency = false;
 let externalProcessQueue = [];
 let externalProcessActive = false;
 let externalProcessSequence = 0;

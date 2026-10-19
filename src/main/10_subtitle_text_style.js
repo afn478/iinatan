@@ -241,6 +241,77 @@ function scheduleIINAAppearanceHintRefresh(force) {
       iinaAppearanceHintRefreshInFlight = false;
     });
 }
+async function readSystemReduceTransparency() {
+  try {
+    const result = await execExternalProcess(
+      "/usr/bin/defaults",
+      ["read", "com.apple.universalaccess", "reduceTransparency"],
+      dataRoot(),
+    );
+    return String((result && result.stdout) || "").trim() === "1";
+  } catch (_) {
+    return false;
+  }
+}
+async function readSystemGlassTint(includeAccessibility) {
+  // Reduce Transparency makes system glass fully tinted. The overlay also sees it
+  // live through prefers-reduced-transparency; this read covers older WebKit.
+  if (includeAccessibility)
+    systemReduceTransparency = await readSystemReduceTransparency();
+  if (systemReduceTransparency) return 1;
+  try {
+    const result = await execExternalProcess(
+      "/usr/bin/defaults",
+      ["read", "-g", "NSGlassTintAmount"],
+      dataRoot(),
+    );
+    const raw = String((result && result.stdout) || "").trim();
+    return raw ? normalizePopupGlassTintValue(raw) : 0.5;
+  } catch (_) {
+    // The key is absent until the slider is first moved; macOS then uses the middle.
+    return 0.5;
+  }
+}
+function refreshSystemGlassTint() {
+  if (systemGlassTintRefreshInFlight) return;
+  systemGlassTintRefreshInFlight = true;
+  systemGlassTintLastRefreshAt = Date.now();
+  const includeAccessibility = systemGlassTintPollCount++ % 5 === 0;
+  readSystemGlassTint(includeAccessibility)
+    .then((tint) => {
+      if (tint !== systemGlassTint) {
+        systemGlassTint = tint;
+        if (typeof pushOverlayConfigForProfileChange === "function")
+          pushOverlayConfigForProfileChange({});
+      }
+    })
+    .catch((error) => {
+      debugVerbose("Could not read macOS glass tint: " + compactError(error));
+    })
+    .finally(() => {
+      systemGlassTintRefreshInFlight = false;
+    });
+}
+// macOS posts no change notification a plugin can observe, so poll the slider
+// while the popup follows it; one short defaults read per tick.
+function syncSystemGlassTintPolling(active) {
+  if (active && !systemGlassTintPollTimer) {
+    systemGlassTintPollCount = 0;
+    refreshSystemGlassTint();
+    systemGlassTintPollTimer = scheduleRepeating(refreshSystemGlassTint, 1500);
+  } else if (!active && systemGlassTintPollTimer) {
+    cancelRepeating(systemGlassTintPollTimer);
+    systemGlassTintPollTimer = null;
+    systemGlassTint = null;
+  }
+}
+function popupGlassTintConfig() {
+  const follow = prefBool("popupGlassFollowSystem", false);
+  syncSystemGlassTintPolling(follow);
+  if (!follow)
+    return normalizePopupGlassTintValue(prefNumber("popupGlassTint", 0.5));
+  return systemGlassTint === null ? 0.5 : systemGlassTint;
+}
 function overlayConfig() {
   const language = selectedLanguageModule();
   const popupMaxWidth = Math.max(260, prefNumber("popupMaxWidth", 440));
@@ -284,6 +355,8 @@ function overlayConfig() {
       : 0,
     popupTheme: normalizePopupThemePreference(pref("popupTheme", "inherit")),
     popupThemeHint: normalizeAppearanceHint(iinaAppearanceHint),
+    popupGlassTint: popupGlassTintConfig(),
+    popupGlassFollowSystem: prefBool("popupGlassFollowSystem", false),
     ...readSubtitleStyleConfig(),
     maxEntries: Math.max(1, prefNumber("maxEntries", 3)),
     maxGlossesPerEntry: Math.max(1, prefNumber("maxGlossesPerEntry", 4)),

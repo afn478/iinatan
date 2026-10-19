@@ -46,6 +46,8 @@
     "popupMinWidth": 250,
     "popupMaxWidth": 440,
     "popupTheme": "inherit",
+    "popupGlassFollowSystem": false,
+    "popupGlassTint": 0.5,
     "maxEntries": 3,
     "maxGlossesPerEntry": 4,
     "scanLength": 24,

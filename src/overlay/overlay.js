@@ -44,6 +44,8 @@
       experimentalNativeSubtitleHitBoxes: false,
       experimentalNativeSubtitleTextOpacity: 0,
       popupTheme: "inherit",
+      popupGlassTint: 0.5,
+      popupGlassFollowSystem: false,
       maxEntries: 3,
       maxGlossesPerEntry: 4,
       scanLength: 24,
@@ -229,6 +231,7 @@
   let customPopupStyleEl = null;
   let lastCustomPopupCss = null;
   let popupThemeHintQuery = null;
+  let popupGlassTransparencyQuery = null;
   let popupThemeHintListenerRegistered = false;
 
   function normalizeControllerAction(action) {
@@ -1624,6 +1627,46 @@
     } catch (_) {}
     return "dark";
   }
+  // Reduce Transparency flips instantly in WebKit, while the main process only
+  // polls the Liquid Glass slider, so honor it here when following the system.
+  function systemReducesTransparency() {
+    try {
+      if (
+        !popupGlassTransparencyQuery &&
+        typeof window.matchMedia === "function"
+      ) {
+        popupGlassTransparencyQuery = window.matchMedia(
+          "(prefers-reduced-transparency: reduce)",
+        );
+        const handler = () => applyPopupGlassTint();
+        if (typeof popupGlassTransparencyQuery.addEventListener === "function")
+          popupGlassTransparencyQuery.addEventListener("change", handler);
+        else if (typeof popupGlassTransparencyQuery.addListener === "function")
+          popupGlassTransparencyQuery.addListener(handler);
+      }
+      return !!(
+        popupGlassTransparencyQuery && popupGlassTransparencyQuery.matches
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+  function applyPopupGlassTint() {
+    const config = state.config || {};
+    const tint =
+      config.popupGlassFollowSystem && systemReducesTransparency()
+        ? 1
+        : normalizePopupGlassTint(config.popupGlassTint);
+    document.documentElement.style.setProperty(
+      "--popup-glass-tint-setting",
+      String(tint),
+    );
+  }
+  function normalizePopupGlassTint(value) {
+    const tint = Number(value);
+    if (!Number.isFinite(tint)) return 0.5;
+    return Math.round(Math.min(1, Math.max(0, tint)) * 1000) / 1000;
+  }
   function resolvePopupTheme(value) {
     const theme = normalizePopupTheme(value);
     return theme === "inherit" ? inheritedPopupThemeHint() : theme;
@@ -1791,6 +1834,9 @@
       state.config.controllerBindings,
     );
     state.config.popupTheme = normalizePopupTheme(state.config.popupTheme);
+    state.config.popupGlassTint = normalizePopupGlassTint(
+      state.config.popupGlassTint,
+    );
     state.config.popupMaxWidth = Math.max(
       260,
       Number(state.config.popupMaxWidth) || 440,
@@ -1857,6 +1903,7 @@
     }
     ensurePopupThemeHintListener();
     applyPopupTheme(state.config.popupTheme);
+    applyPopupGlassTint();
     document.documentElement.style.setProperty(
       "--subtitle-scale",
       String(state.config.fontScale || 1),

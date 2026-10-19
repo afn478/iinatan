@@ -129,6 +129,23 @@ assert(
   /\btheme-dark\b/.test(context.document.documentElement.className),
   "Inherited dark hint should resolve to the concrete dark theme",
 );
+assert(
+  context.document.documentElement.style["--popup-glass-tint-setting"] ===
+    "0.5",
+  "Popup glass should default to the built-in 0.5 material",
+);
+overlay.applyConfig({ popupGlassTint: 0.8 });
+assert(
+  context.document.documentElement.style["--popup-glass-tint-setting"] ===
+    "0.8",
+  "Popup glass tint should reach the popup material",
+);
+overlay.applyConfig({ popupGlassTint: 7 });
+assert(
+  context.document.documentElement.style["--popup-glass-tint-setting"] === "1",
+  "Popup glass tint should clamp to the macOS slider range",
+);
+overlay.applyConfig({ popupGlassTint: 0.5 });
 overlay.applyConfig({ popupMinWidth: 360, popupMaxWidth: 520 });
 assert(
   context.document.documentElement.style["--popup-min-width"] === "360px" &&
@@ -1289,14 +1306,18 @@ assert(
   "Popup CSS should not define a separate inherit theme",
 );
 assert(
-  /--popup-bg: rgba\(28, 28, 30, 0\.9\);/.test(css) &&
-    /:root\.theme-light \{[^}]*--popup-bg: rgba\(246, 246, 248, 0\.9\);/s.test(
+  /--popup-bg: rgb\(28 28 30 \/ var\(--popup-bg-alpha\)\);/.test(css) &&
+    /:root\.theme-light \{[^}]*--popup-bg: rgb\(246 246 248 \/ var\(--popup-bg-alpha\)\);/s.test(
+      css,
+    ) &&
+    /--popup-glass-tint: var\(--popup-glass-tint-setting, 0\.5\);/.test(css) &&
+    /--popup-bg-alpha: calc\(0\.3 \+ 1\.2 \* min\(var\(--popup-glass-tint\), 0\.5\)/.test(
       css,
     ),
-  "Popup themes should use macOS-style translucent neutral materials",
+  "Popup themes should derive their translucency from the glass tint, defaulting to 0.9 opacity",
 );
 assert(
-  /\.lookup-popup \{[^}]*border-radius: 14px;[^}]*-webkit-backdrop-filter: saturate\(145%\) blur\(28px\);[^}]*backdrop-filter: saturate\(145%\) blur\(28px\);/s.test(
+  /\.lookup-popup \{[^}]*border-radius: 14px;[^}]*-webkit-backdrop-filter: saturate\(145%\) blur\(var\(--popup-glass-blur\)\) brightness\(var\(--popup-glass-brightness\)\);[^}]*backdrop-filter: saturate\(145%\) blur\(var\(--popup-glass-blur\)\) brightness\(var\(--popup-glass-brightness\)\);/s.test(
     css,
   ),
   "Popup shell should use a compact macOS material treatment",

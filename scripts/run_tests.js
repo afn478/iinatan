@@ -34,6 +34,7 @@ const TESTS = [
   ["bridge", "tests/overlay_bridge_latency.test.js"],
   ["bridge", "tests/worker_queue_publication.test.js"],
   ["overlay", "tests/popup_pause_preference.test.js"],
+  ["overlay", "tests/popup_glass_tint.test.js"],
   ["settings", "tests/dictionary_manager_bridge.test.js"],
   ["settings", "tests/settings_menu_layout.test.js"],
   ["native-static", "tests/native_backend_schema.test.js"],

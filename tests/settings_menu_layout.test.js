@@ -116,8 +116,8 @@ assert(
   "Settings manager should use opaque surfaces and the system accent color",
 );
 assert(
-  (managerHtml.match(/class="check-field"/g) || []).length === 20 &&
-    (managerHtml.match(/class="switch"/g) || []).length === 20,
+  (managerHtml.match(/class="check-field"/g) || []).length === 21 &&
+    (managerHtml.match(/class="switch"/g) || []).length === 21,
   "Boolean settings should use switches while preserving every setting control",
 );
 assert(
@@ -1019,3 +1019,15 @@ assert(
 );
 
 console.log("settings and menu layout tests passed");
+assert(
+  info.preferenceDefaults.popupGlassFollowSystem === false &&
+    info.preferenceDefaults.popupGlassTint === 0.5 &&
+    /id="popupGlassFollowSystem" data-profile-pref="popupGlassFollowSystem" type="checkbox"/.test(
+      managerHtml,
+    ) &&
+    /id="popupGlassTint" data-profile-pref="popupGlassTint" type="range" min="0" max="1"/.test(
+      managerHtml,
+    ) &&
+    /glassTint\.disabled = state\.busy \|\| following;/.test(managerHtml),
+  "Popup glass should default to the built-in material, with an opt-in system follow that disables the custom slider",
+);

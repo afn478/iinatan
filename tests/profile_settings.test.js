@@ -334,4 +334,23 @@ assertDeepEqual(
   "Audio source normalization should preserve unique HTTP(S) sources only",
 );
 
+{
+  const defaults = context.__profileSettings.normalizeProfilePreferences({});
+  const clamped = context.__profileSettings.normalizeProfilePreferences({
+    popupGlassFollowSystem: "true",
+    popupGlassTint: 3,
+  });
+  const invalid = context.__profileSettings.normalizeProfilePreferences({
+    popupGlassTint: "glass",
+  });
+  assert(
+    defaults.popupGlassFollowSystem === false &&
+      defaults.popupGlassTint === 0.5 &&
+      clamped.popupGlassFollowSystem === true &&
+      clamped.popupGlassTint === 1 &&
+      invalid.popupGlassTint === 0.5,
+    "Popup glass preferences should default to the built-in material and clamp custom tints",
+  );
+}
+
 console.log("profile settings tests passed");

@@ -15,7 +15,15 @@
 	      --subtitle-shadow-offset: 2px;
 	      --subtitle-shadow-blur: 4px;
       color-scheme: dark;
-      --popup-bg: rgba(28, 28, 30, 0.9);
+      /* Popup glass: 0 is clearest, 0.5 is the default material, 1 is fully tinted,
+         matching the macOS Liquid Glass slider. Settings set --popup-glass-tint-setting;
+         custom CSS can override --popup-glass-tint, --popup-bg or the blur directly. */
+      --popup-glass-tint: var(--popup-glass-tint-setting, 0.5);
+      --popup-bg-alpha: calc(0.3 + 1.2 * min(var(--popup-glass-tint), 0.5) + 0.14 * max(var(--popup-glass-tint) - 0.5, 0));
+      --popup-glass-blur: calc(5px + 46px * min(var(--popup-glass-tint), 0.5) + 24px * max(var(--popup-glass-tint) - 0.5, 0));
+      /* Below the default, dim (dark) or lift (light) what shows through so text keeps its contrast. */
+      --popup-glass-brightness: calc(1 - 0.64 * max(0.5 - var(--popup-glass-tint), 0));
+      --popup-bg: rgb(28 28 30 / var(--popup-bg-alpha));
       --popup-text: rgba(245, 245, 247, 0.9);
       --popup-heading: rgba(255, 255, 255, 0.97);
       --popup-strong: rgba(255, 255, 255, 0.94);
@@ -39,8 +47,8 @@
       --popup-error-border: rgba(255, 105, 97, 0.46);
       --popup-chip-bg: rgba(255, 255, 255, 0.1);
       --popup-subtle-chip-bg: rgba(255, 255, 255, 0.07);
-      --popup-glass-button-bg: rgba(255, 255, 255, 0.09);
-      --popup-glass-button-bg-hover: rgba(255, 255, 255, 0.16);
+      --popup-glass-button-bg: rgb(255 255 255 / calc(0.05 + 0.08 * var(--popup-glass-tint)));
+      --popup-glass-button-bg-hover: rgb(255 255 255 / calc(0.11 + 0.1 * var(--popup-glass-tint)));
       --popup-glass-button-highlight: rgba(255, 255, 255, 0.2);
       --popup-glass-button-edge: rgba(0, 0, 0, 0.45);
       --popup-glass-button-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
@@ -78,7 +86,7 @@
     }
     :root.theme-light {
       color-scheme: light;
-      --popup-bg: rgba(246, 246, 248, 0.9);
+      --popup-bg: rgb(246 246 248 / var(--popup-bg-alpha));
       --popup-text: rgba(29, 29, 31, 0.9);
       --popup-heading: rgba(0, 0, 0, 0.92);
       --popup-strong: rgba(0, 0, 0, 0.86);
@@ -102,8 +110,9 @@
       --popup-error-border: rgba(215, 0, 21, 0.34);
       --popup-chip-bg: rgba(118, 118, 128, 0.12);
       --popup-subtle-chip-bg: rgba(118, 118, 128, 0.08);
-      --popup-glass-button-bg: rgba(255, 255, 255, 0.62);
-      --popup-glass-button-bg-hover: rgba(255, 255, 255, 0.9);
+      --popup-glass-button-bg: rgb(255 255 255 / calc(0.26 + 0.72 * min(var(--popup-glass-tint), 0.5) + 0.3 * max(var(--popup-glass-tint) - 0.5, 0)));
+      --popup-glass-button-bg-hover: rgb(255 255 255 / min(1, calc(0.6 + 0.6 * var(--popup-glass-tint))));
+      --popup-glass-brightness: calc(1 + 0.4 * max(0.5 - var(--popup-glass-tint), 0));
       --popup-glass-button-highlight: rgba(255, 255, 255, 0.95);
       --popup-glass-button-edge: rgba(0, 0, 0, 0.1);
       --popup-glass-button-shadow: 0 1px 2.5px rgba(0, 0, 0, 0.1);
@@ -242,8 +251,8 @@
       border: 0.5px solid var(--popup-border);
       box-shadow: var(--popup-shadow);
       border-radius: 14px;
-      -webkit-backdrop-filter: saturate(145%) blur(28px);
-      backdrop-filter: saturate(145%) blur(28px);
+      -webkit-backdrop-filter: saturate(145%) blur(var(--popup-glass-blur)) brightness(var(--popup-glass-brightness));
+      backdrop-filter: saturate(145%) blur(var(--popup-glass-blur)) brightness(var(--popup-glass-brightness));
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
@@ -354,8 +363,8 @@
       /* Liquid Glass control: translucent fill over the popup, specular top edge, darker rim.
          --glass-tint lets states color the glass without losing the material. */
       background: color-mix(in srgb, var(--glass-tint, transparent) 18%, var(--popup-glass-button-bg));
-      -webkit-backdrop-filter: blur(10px) saturate(180%);
-      backdrop-filter: blur(10px) saturate(180%);
+      -webkit-backdrop-filter: blur(calc(3px + 14px * var(--popup-glass-tint))) saturate(180%);
+      backdrop-filter: blur(calc(3px + 14px * var(--popup-glass-tint))) saturate(180%);
       box-shadow:
         inset 0 1px 0 var(--popup-glass-button-highlight),
         0 0 0 0.5px var(--glass-rim, var(--popup-glass-button-edge)),
@@ -460,8 +469,8 @@
       background: var(--popup-bg);
       color: var(--popup-heading);
       box-shadow: var(--popup-shadow);
-      -webkit-backdrop-filter: saturate(145%) blur(28px);
-      backdrop-filter: saturate(145%) blur(28px);
+      -webkit-backdrop-filter: saturate(145%) blur(var(--popup-glass-blur)) brightness(var(--popup-glass-brightness));
+      backdrop-filter: saturate(145%) blur(var(--popup-glass-blur)) brightness(var(--popup-glass-brightness));
       pointer-events: auto;
       user-select: none;
     }
