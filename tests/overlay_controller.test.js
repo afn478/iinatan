@@ -14,7 +14,7 @@ const { context, overlay } = loadOverlayForTest([
   "controllerDirectionFromAxes",
   "processControllerSnapshot",
   "resetControllerInput",
-  "resetControllerEntrySelection",
+  "resetPopupEntrySelection",
   "startControllerHold",
   "updateControllerHold",
   "finishControllerHold",
@@ -196,11 +196,11 @@ entry0.className = "entry";
 entry1.className = "entry";
 context.__elements.popup.appendChild(entry0);
 context.__elements.popup.appendChild(entry1);
-overlay.resetControllerEntrySelection();
+overlay.resetPopupEntrySelection();
 overlay.processControllerSnapshot(snapshot(), 340, 20);
 overlay.processControllerSnapshot(snapshot({ dpadRight: true }), 360, 20);
 assert(
-  overlay.state.controller.selectedEntryIndex === 1 &&
+  overlay.state.selectedEntryIndex === 1 &&
     entry1.classList.contains("controller-selected-entry"),
   "D-pad right should select the next entry without depending on scroll",
 );
@@ -209,7 +209,7 @@ overlay.processControllerSnapshot(snapshot(), 380, 20);
 overlay.processControllerSnapshot(snapshot({ dpadDown: true }), 400, 20);
 assert(
   context.__elements.popup.scrollTop === beforeScroll + 52 &&
-    overlay.state.controller.selectedEntryIndex === 1,
+    overlay.state.selectedEntryIndex === 1,
   "D-pad down should scroll one notch without changing the selected entry",
 );
 
@@ -221,7 +221,7 @@ audioButton.dataset.audioReading = "";
 let shortAudioPresses = 0;
 audioButton.addEventListener("click", () => shortAudioPresses++);
 head.appendChild(audioButton);
-overlay.state.controller.selectedEntryIndex = 0;
+overlay.state.selectedEntryIndex = 0;
 assert(
   overlay.startControllerHold("audio-menu", 1000),
   "Triangle should start a hold when selected-entry audio exists",

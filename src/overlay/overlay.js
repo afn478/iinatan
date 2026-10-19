@@ -118,6 +118,7 @@
     bitmapOcrStatus: null,
     nativeDiagnosticKey: "",
     nativeAcceptedDiagnosticKey: "",
+    selectedEntryIndex: -1,
     controller: {
       connected: false,
       buttons: Object.create(null),
@@ -125,7 +126,6 @@
       repeats: Object.create(null),
       rightStickDirection: "",
       hold: null,
-      selectedEntryIndex: -1,
       audioRowIndex: 0,
       audioColumnIndex: 0,
       lastFrameAt: 0,
@@ -290,7 +290,7 @@
 
   function controllerContext() {
     if (state.audioSourceMenu) return "audioList";
-    return controllerPopupVisible() ? "withPopup" : "noPopup";
+    return mainPopupVisible() ? "withPopup" : "noPopup";
   }
 
   function controllerBindings() {
@@ -4837,12 +4837,12 @@
     state.pendingLookupRequests = Object.create(null);
     state.ankiCardContexts = Object.create(null);
     state.audioAnkiSelections = Object.create(null);
-    resetControllerEntrySelection();
+    resetPopupEntrySelection();
     cancelControllerHold();
     clearActiveMatch();
   }
 
-  function controllerPopupVisible() {
+  function mainPopupVisible() {
     return state.lookupPopupVisible && !popupEl.classList.contains("hidden");
   }
 
@@ -4930,7 +4930,9 @@
     if (!sendBridgeMessage(payload)) postPluginMessage(payload);
   }
 
-  function controllerEntryElements() {
+  // Popup entry navigation is input-agnostic: the controller and keyboard
+  // shortcuts both drive the same selection.
+  function popupEntryElements() {
     try {
       return Array.from(popupEl.querySelectorAll(".entry"));
     } catch (_) {
@@ -4938,14 +4940,14 @@
     }
   }
 
-  function applyControllerEntrySelection(scrollIntoView) {
-    const entries = controllerEntryElements();
+  function applyPopupEntrySelection(scrollIntoView) {
+    const entries = popupEntryElements();
     const head = popupEl.querySelector(".head");
     entries.forEach((entry) =>
       entry.classList.remove("controller-selected-entry"),
     );
     if (head) head.classList.remove("controller-selected-entry-header");
-    const index = state.controller.selectedEntryIndex;
+    const index = state.selectedEntryIndex;
     if (index < 0 || index >= entries.length) return false;
     entries[index].classList.add("controller-selected-entry");
     if (index === 0 && head)
@@ -4955,37 +4957,40 @@
     return true;
   }
 
-  function resetControllerEntrySelection() {
-    state.controller.selectedEntryIndex = -1;
-    applyControllerEntrySelection(false);
+  function resetPopupEntrySelection() {
+    state.selectedEntryIndex = -1;
+    applyPopupEntrySelection(false);
   }
 
-  function selectControllerEntry(index, scrollIntoView) {
-    const entries = controllerEntryElements();
+  function selectPopupEntry(index, scrollIntoView) {
+    const entries = popupEntryElements();
     if (!entries.length) {
-      state.controller.selectedEntryIndex = -1;
+      state.selectedEntryIndex = -1;
       return false;
     }
-    state.controller.selectedEntryIndex = Math.max(
+    state.selectedEntryIndex = Math.max(
       0,
       Math.min(entries.length - 1, Number(index) || 0),
     );
-    return applyControllerEntrySelection(scrollIntoView !== false);
+    return applyPopupEntrySelection(scrollIntoView !== false);
   }
 
-  function moveControllerEntry(direction) {
-    const entries = controllerEntryElements();
+  function movePopupEntry(direction) {
+    const entries = popupEntryElements();
     if (!entries.length) return false;
+    const current = Math.max(0, state.selectedEntryIndex);
+    return selectPopupEntry(current + (direction < 0 ? -1 : 1), true);
+  }
+
+  function movePopupEntryFromView(direction) {
     // Without a selection, step from the entry the reader is looking at
     // rather than the top, so a scrolled popup moves to its neighbor.
-    if (state.controller.selectedEntryIndex < 0)
-      selectLargestVisibleControllerEntry();
-    const current = Math.max(0, state.controller.selectedEntryIndex);
-    return selectControllerEntry(current + (direction < 0 ? -1 : 1), true);
+    if (state.selectedEntryIndex < 0) selectLargestVisiblePopupEntry();
+    return movePopupEntry(direction);
   }
 
-  function selectLargestVisibleControllerEntry() {
-    const entries = controllerEntryElements();
+  function selectLargestVisiblePopupEntry() {
+    const entries = popupEntryElements();
     if (!entries.length) return false;
     const viewport = popupEl.getBoundingClientRect();
     let bestIndex = 0;
@@ -5008,23 +5013,23 @@
         bestIndex = index;
       }
     });
-    return selectControllerEntry(bestIndex, false);
+    return selectPopupEntry(bestIndex, false);
   }
 
-  function controllerSelectedActionContainer() {
-    const entries = controllerEntryElements();
+  function selectedPopupEntryContainer() {
+    const entries = popupEntryElements();
     if (!entries.length) return popupEl.querySelector(".head") || null;
     const index =
-      state.controller.selectedEntryIndex >= 0
-        ? state.controller.selectedEntryIndex
+      state.selectedEntryIndex >= 0
+        ? state.selectedEntryIndex
         : 0;
     if (index >= entries.length) return null;
     if (index === 0) return popupEl.querySelector(".head") || entries[0];
     return entries[index];
   }
 
-  function controllerSelectedControl(selector) {
-    const container = controllerSelectedActionContainer();
+  function selectedPopupEntryControl(selector) {
+    const container = selectedPopupEntryContainer();
     return container && typeof container.querySelector === "function"
       ? container.querySelector(selector)
       : null;
@@ -5052,12 +5057,12 @@
 
   function controllerPlaySelectedAudio() {
     return activateControllerControl(
-      controllerSelectedControl(".audio-button"),
+      selectedPopupEntryControl(".audio-button"),
     );
   }
 
   function controllerOpenSelectedAudioMenu() {
-    const button = controllerSelectedControl(".audio-button");
+    const button = selectedPopupEntryControl(".audio-button");
     if (!controllerControlAvailable(button)) return false;
     const rect = button.getBoundingClientRect();
     const shown = showAudioSourceMenu(button, {
@@ -5073,7 +5078,7 @@
   function controllerActivateAnki(role) {
     const selector =
       role === "force-add" ? ".anki-add-anyway-button" : ".anki-primary-button";
-    return activateControllerControl(controllerSelectedControl(selector));
+    return activateControllerControl(selectedPopupEntryControl(selector));
   }
 
   function controllerAudioRows() {
@@ -5207,7 +5212,7 @@
   function navigateControllerSubtitle(direction) {
     const targets = controllerLookupTargets();
     if (!targets.length) return false;
-    if (!controllerPopupVisible() || state.currentPos === null)
+    if (!mainPopupVisible() || state.currentPos === null)
       return openFirstControllerLookup();
     const rows = controllerTargetRows(targets);
     let current = targets.find((target) => target.pos === state.currentPos);
@@ -5247,7 +5252,7 @@
   }
 
   function sendControllerSubtitleSeek(direction) {
-    if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
+    if (state.audioSourceMenu || mainPopupVisible()) hidePopup();
     const payload = {
       type: "controller-subtitle-seek",
       direction: direction < 0 ? -1 : 1,
@@ -5318,7 +5323,7 @@
   }
 
   function controllerScrollTarget() {
-    return state.audioSourceMenu || (controllerPopupVisible() ? popupEl : null);
+    return state.audioSourceMenu || (mainPopupVisible() ? popupEl : null);
   }
 
   function scrollControllerPopupNotch(direction) {
@@ -5363,18 +5368,18 @@
   }
 
   function controllerHoldActionAvailable(action) {
-    if (!controllerPopupVisible()) return false;
+    if (!mainPopupVisible()) return false;
     if (action === "audio-menu")
       return controllerControlAvailable(
-        controllerSelectedControl(".audio-button"),
+        selectedPopupEntryControl(".audio-button"),
       );
     if (action === "anki-primary")
       return controllerControlAvailable(
-        controllerSelectedControl(".anki-primary-button"),
+        selectedPopupEntryControl(".anki-primary-button"),
       );
     if (action === "anki-force-add")
       return controllerControlAvailable(
-        controllerSelectedControl(".anki-add-anyway-button"),
+        selectedPopupEntryControl(".anki-add-anyway-button"),
       );
     return false;
   }
@@ -5529,7 +5534,7 @@
     }
     if (direction === "up") return scrollControllerPopupNotch(-1);
     if (direction === "down") return scrollControllerPopupNotch(1);
-    return moveControllerEntry(direction === "left" ? -1 : 1);
+    return movePopupEntry(direction === "left" ? -1 : 1);
   }
 
   function runControllerAction(action, now) {
@@ -5537,7 +5542,7 @@
       case "lookup":
         return openFirstControllerLookup();
       case "selectEntry":
-        return selectLargestVisibleControllerEntry();
+        return selectLargestVisiblePopupEntry();
       case "closePopup":
         hidePopup();
         return true;
@@ -5591,9 +5596,9 @@
       case "scrollDown":
         return scrollControllerPopupNotch(1);
       case "entryPrevious":
-        return moveControllerEntry(-1);
+        return movePopupEntry(-1);
       case "entryNext":
-        return moveControllerEntry(1);
+        return movePopupEntry(1);
       case "ankiPrimary":
         return startControllerHold("anki-primary", now);
       case "ankiForceAdd":
@@ -5622,7 +5627,7 @@
 
   function controllerPrimaryAction() {
     if (state.audioSourceMenu) return activateControllerAudioFocus();
-    if (controllerPopupVisible()) return selectLargestVisibleControllerEntry();
+    if (mainPopupVisible()) return selectLargestVisiblePopupEntry();
     return openFirstControllerLookup();
   }
 
@@ -5637,7 +5642,7 @@
       hideAudioSourceMenu();
       return true;
     }
-    if (controllerPopupVisible()) {
+    if (mainPopupVisible()) {
       hidePopup();
       return true;
     }
@@ -6664,7 +6669,7 @@
       '</div><div class="body">' +
       bodyHtml +
       "</div>";
-    resetControllerEntrySelection();
+    resetPopupEntrySelection();
     markPopupClickable();
     if (options && options.pending) popupEl.classList.add("lookup-pending");
     else popupEl.classList.remove("lookup-pending");
@@ -6703,7 +6708,7 @@
     markElementClickable(popup);
     bindPopupAudioButtons(popup);
     bindPopupAnkiButtons(popup);
-    if (popup === popupEl) resetControllerEntrySelection();
+    if (popup === popupEl) resetPopupEntrySelection();
     updateNestedPopupScanningState();
     const revealPendingPopup = popup.classList.contains("lookup-pending");
     if (
@@ -9586,7 +9591,7 @@
     if (state.config.controllerEnabled === true) startControllerPolling();
   });
   iina.onMessage("controller-dismiss", () => {
-    if (state.audioSourceMenu || controllerPopupVisible()) hidePopup();
+    if (state.audioSourceMenu || mainPopupVisible()) hidePopup();
   });
   iina.onMessage("controller-active", (payload) => {
     state.config.controllerWindowActive = !!(payload && payload.active);
@@ -9774,11 +9779,11 @@
       !event.ctrlKey &&
       (event.key === "ArrowDown" || event.key === "ArrowUp") &&
       !state.audioSourceMenu &&
-      controllerPopupVisible()
+      mainPopupVisible()
     ) {
       // Match Yomitan: Option+Up/Down jumps between entries instead of
       // WebKit's native page scroll.
-      if (moveControllerEntry(event.key === "ArrowUp" ? -1 : 1))
+      if (movePopupEntryFromView(event.key === "ArrowUp" ? -1 : 1))
         event.preventDefault();
       return;
     }
