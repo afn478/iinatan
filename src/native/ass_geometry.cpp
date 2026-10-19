@@ -74,23 +74,29 @@ bool split_ass_packet(
   return true;
 }
 
-size_t inline_italic_override_length(
+// Length of a `{...}` block that libass renders as zero-width text: a comment
+// or any override block. Drawing mode (\p1+) emits shapes instead, so those
+// blocks are not skippable and keep the event out of native geometry.
+size_t inline_override_block_length(
     const std::string& text, size_t offset) {
-  if (offset + 5 > text.size() || text[offset] != '{' ||
-      text[offset + 1] != '\\' ||
-      (text[offset + 2] != 'i' && text[offset + 2] != 'I') ||
-      (text[offset + 3] != '0' && text[offset + 3] != '1') ||
-      text[offset + 4] != '}')
-    return 0;
-  return 5;
+  if (offset >= text.size() || text[offset] != '{') return 0;
+  for (size_t index = offset + 1; index < text.size(); ++index) {
+    if (text[index] == '{') return 0;
+    if (text[index] == '}') return index - offset + 1;
+    if (text[index] == '\\' && index + 2 < text.size() &&
+        text[index + 1] == 'p' && text[index + 2] >= '1' &&
+        text[index + 2] <= '9')
+      return 0;
+  }
+  return 0;
 }
 
 bool simple_dialogue_text(const std::string& text) {
   if (text.empty() || text.size() > 64 * 1024) return false;
   for (size_t i = 0; i < text.size(); ++i) {
-    const size_t italic_length = inline_italic_override_length(text, i);
-    if (italic_length) {
-      i += italic_length - 1;
+    const size_t block_length = inline_override_block_length(text, i);
+    if (block_length) {
+      i += block_length - 1;
       continue;
     }
     if (text[i] == '{' || text[i] == '}' || text[i] == '\r' ||
@@ -166,10 +172,10 @@ std::string dialogue_plain_text(const std::string& text) {
   std::string plain;
   plain.reserve(text.size());
   for (size_t index = 0; index < text.size(); ++index) {
-    const size_t italic_length =
-        inline_italic_override_length(text, index);
-    if (italic_length) {
-      index += italic_length - 1;
+    const size_t block_length =
+        inline_override_block_length(text, index);
+    if (block_length) {
+      index += block_length - 1;
     } else if (
         text[index] == '\\' && index + 1 < text.size() &&
         (text[index + 1] == 'N' || text[index + 1] == 'n')) {
@@ -225,10 +231,10 @@ bool build_text_index(const std::string& raw, TextIndex& result) {
   size_t offset = 0;
   int logical = 0;
   while (offset < raw.size()) {
-    const size_t italic_length =
-        inline_italic_override_length(raw, offset);
-    if (italic_length) {
-      offset += italic_length;
+    const size_t block_length =
+        inline_override_block_length(raw, offset);
+    if (block_length) {
+      offset += block_length;
       continue;
     }
     if (raw[offset] == '\\' && offset + 1 < raw.size() &&

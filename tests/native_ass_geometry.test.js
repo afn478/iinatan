@@ -678,7 +678,7 @@ const complex = request({
   id: "complex",
   start: 19000,
   end: 21000,
-  text: "{\\pos(100,100)}Rejected",
+  text: "{\\p1}m 0 0 l 10 10{\\p0}Rejected",
   units: [[0, 0, 8]],
 });
 const rejected = invoke(complex);
@@ -831,7 +831,7 @@ const complexPeer = invoke(
     id: "complex-peer",
     start: 48000,
     end: 51000,
-    text: "Simple peer\n{\\pos(100,100)}Complex peer",
+    text: "Simple peer\n{\\p1}m 0 0 l 10 10{\\p0}Complex peer",
     units: [[0, 0, 6]],
   }),
 );
@@ -948,6 +948,55 @@ const inlineItalic = invoke(
 assert.strictEqual(inlineItalic.ok, true, JSON.stringify(inlineItalic));
 assert.strictEqual(inlineItalic.units.length, 9);
 inlineItalic.units.forEach((unit) => assert.ok(unit.rects.length));
+
+function wordUnits(displayText) {
+  const units = [];
+  const pattern = /[^\s]+/g;
+  let match;
+  while ((match = pattern.exec(displayText))) {
+    units.push([match.index, match.index, match.index + match[0].length]);
+  }
+  return units;
+}
+
+function assertSkippedOverrideCue(id, start, end, observedAss) {
+  const display = observedAss
+    .split("\n")
+    .map((line) => line.replace(/\{[^{}]*\}/g, "").replace(/\\N/g, "\n"))
+    .join("\n");
+  const units = wordUnits(display);
+  const response = invoke(
+    request({ id, start, end, text: display, observedAss, units }),
+  );
+  assert.strictEqual(response.ok, true, id + ": " + JSON.stringify(response));
+  assert.strictEqual(response.units.length, units.length, id);
+  response.units.forEach((unit) => assert.ok(unit.rects.length, id));
+}
+
+assertSkippedOverrideCue(
+  "wrap-style-override",
+  61000,
+  64000,
+  "{\\q2}Wrap style cue \\Nsecond line",
+);
+assertSkippedOverrideCue(
+  "translator-comments",
+  65000,
+  68000,
+  "Spans a distance{Translator note, not rendered}{Another note} of miles",
+);
+// Signs layered over dialogue carry positioning, fades, and animations. The
+// helper renders the real events, so they only need to map zero-width blocks.
+assertSkippedOverrideCue(
+  "sign-peer-overrides",
+  69000,
+  72000,
+  [
+    "Welcome to the race!",
+    "{\\an5\\fad(0,477)\\bord4\\blur3\\fscx61\\fs100\\b0\\pos(960,120)\\c&H000000&\\t(3903,3948,\\1a&HFF&)}SIGN TEXT \\N SECOND LINE",
+    "{\\an5\\fad(0,477)\\bord0\\blur0.6\\fscx61\\fs100\\b0\\pos(960,120)\\4a&HFF&}SIGN TEXT \\N SECOND LINE",
+  ].join("\n"),
+);
 
 const rendererParity = invoke(
   request({

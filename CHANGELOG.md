@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Fixed ASS subtitle cues becoming unlookupable when they carry `{\q2}` wrap-style tags, translator comment blocks like `{note}`, or sign overlays with positioning, fade, and animation overrides layered over dialogue. The native geometry layer now skips these zero-width blocks while libass renders the real events; drawing-mode (`\p1`) blocks and unbalanced braces are still rejected. This relaxes the earlier fail-closed handling of other inline overrides such as `{\b1}`.
+
 ## 2.2.0 - 2026-10-19
 
 ### Added

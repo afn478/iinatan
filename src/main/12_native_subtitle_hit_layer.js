@@ -1763,7 +1763,9 @@ function nativeLookupMapping(displayText, lookupText, options) {
 function nativeAssDisplayText(raw) {
   const text = String(raw || "");
   if (!text) return { reason: "empty-subtitle" };
-  const displayText = text.replace(/\{\\i[01]\}/gi, "");
+  // libass renders the real event, so comment and override blocks are zero
+  // width here. Drawing-mode (\p1+) blocks emit shapes and stay rejected.
+  const displayText = text.replace(/\{(?![^{}]*\\p[1-9])[^{}]*\}/g, "");
   if (/[\r{}]/.test(displayText)) return { reason: "complex-ass-tags" };
   if (/\\(?![Nn])/i.test(displayText)) return { reason: "complex-ass-tags" };
   return {

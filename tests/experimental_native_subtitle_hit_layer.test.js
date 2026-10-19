@@ -1389,9 +1389,33 @@ function waitForLayout() {
     "native geometry maps text through bounded inline italic overrides",
   );
   assertEqual(
-    helpers.nativeAssDisplayText("{\\b1}bold{\\b0}").reason,
+    helpers.nativeAssDisplayText("{\\q2}Wrap \\Nstyle").displayText,
+    "Wrap \nstyle",
+    "native geometry maps text through wrap-style overrides",
+  );
+  assertEqual(
+    helpers.nativeAssDisplayText(
+      "a distance{Note, not shown}{Another} of miles",
+    ).displayText,
+    "a distance of miles",
+    "native geometry skips translator comment blocks",
+  );
+  assertEqual(
+    helpers.nativeAssDisplayText(
+      "{\\an5\\fad(0,477)\\fscx61\\pos(960,120)\\t(0,5,\\1a&HFF&)}SIGN \\N TEXT\nWelcome",
+    ).displayText,
+    "SIGN \n TEXT\nWelcome",
+    "native geometry skips positioned and animated sign overrides",
+  );
+  assertEqual(
+    helpers.nativeAssDisplayText("{\\p1}m 0 0 l 9 9{\\p0}drawn").reason,
     "complex-ass-tags",
-    "unhandled inline overrides remain fail-closed",
+    "drawing-mode overrides remain fail-closed",
+  );
+  assertEqual(
+    helpers.nativeAssDisplayText("{unterminated").reason,
+    "complex-ass-tags",
+    "unbalanced override blocks remain fail-closed",
   );
   const overlappingMapping = helpers.nativeLookupMapping(
     overlappingAss.displayText,
