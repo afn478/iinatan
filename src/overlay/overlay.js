@@ -145,6 +145,8 @@
   const CONTROLLER_DIRECTION_THRESHOLD = 0.62;
   const CONTROLLER_REPEAT_DELAY_MS = 340;
   const CONTROLLER_REPEAT_INTERVAL_MS = 120;
+  // Gamepad entry navigation outlines the selection that its buttons act on.
+  const CONTROLLER_ENTRY_SELECTION = Object.freeze({ showOutline: true });
   const CONTROLLER_CONTEXT_DEFAULTS = {
     noPopup: {
       faceSouth: "lookup",
@@ -4940,7 +4942,11 @@
     }
   }
 
-  function applyPopupEntrySelection(scrollIntoView) {
+  // Options: `scroll` pins the selected entry's headword to the top of the
+  // popup; `showOutline` draws the selection ring, which only gamepad input
+  // needs since keyboard navigation has no other actions on the selection.
+  function applyPopupEntrySelection(options) {
+    const opts = options || {};
     const entries = popupEntryElements();
     const head = popupEl.querySelector(".head");
     entries.forEach((entry) =>
@@ -4949,15 +4955,12 @@
     if (head) head.classList.remove("controller-selected-entry-header");
     const index = state.selectedEntryIndex;
     if (index < 0 || index >= entries.length) return false;
-    entries[index].classList.add("controller-selected-entry");
-    if (index === 0 && head)
-      head.classList.add("controller-selected-entry-header");
-    if (scrollIntoView === "top") scrollPopupEntryToTop(entries, index);
-    else if (
-      scrollIntoView &&
-      typeof entries[index].scrollIntoView === "function"
-    )
-      entries[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (opts.showOutline) {
+      entries[index].classList.add("controller-selected-entry");
+      if (index === 0 && head)
+        head.classList.add("controller-selected-entry-header");
+    }
+    if (opts.scroll) scrollPopupEntryToTop(entries, index);
     return true;
   }
 
@@ -4977,10 +4980,10 @@
 
   function resetPopupEntrySelection() {
     state.selectedEntryIndex = -1;
-    applyPopupEntrySelection(false);
+    applyPopupEntrySelection();
   }
 
-  function selectPopupEntry(index, scrollIntoView) {
+  function selectPopupEntry(index, options) {
     const entries = popupEntryElements();
     if (!entries.length) {
       state.selectedEntryIndex = -1;
@@ -4990,31 +4993,27 @@
       0,
       Math.min(entries.length - 1, Number(index) || 0),
     );
-    return applyPopupEntrySelection(
-      scrollIntoView === undefined ? true : scrollIntoView,
-    );
+    return applyPopupEntrySelection(options);
   }
 
-  // `scrollIntoView` is true for minimal "nearest" scrolling, or "top" to
-  // pin the entry's headword to the top of the popup.
-  function movePopupEntry(direction, scrollIntoView) {
+  function movePopupEntry(direction, options) {
     const entries = popupEntryElements();
     if (!entries.length) return false;
     const current = Math.max(0, state.selectedEntryIndex);
     return selectPopupEntry(
       current + (direction < 0 ? -1 : 1),
-      scrollIntoView === undefined ? true : scrollIntoView,
+      Object.assign({}, options, { scroll: true }),
     );
   }
 
-  function movePopupEntryFromView(direction) {
+  function movePopupEntryFromView(direction, options) {
     // Without a selection, step from the entry the reader is looking at
     // rather than the top, so a scrolled popup moves to its neighbor.
-    if (state.selectedEntryIndex < 0) selectLargestVisiblePopupEntry();
-    return movePopupEntry(direction, "top");
+    if (state.selectedEntryIndex < 0) selectLargestVisiblePopupEntry(options);
+    return movePopupEntry(direction, options);
   }
 
-  function selectLargestVisiblePopupEntry() {
+  function selectLargestVisiblePopupEntry(options) {
     const entries = popupEntryElements();
     if (!entries.length) return false;
     const viewport = popupEl.getBoundingClientRect();
@@ -5038,7 +5037,10 @@
         bestIndex = index;
       }
     });
-    return selectPopupEntry(bestIndex, false);
+    return selectPopupEntry(
+      bestIndex,
+      Object.assign({}, options, { scroll: false }),
+    );
   }
 
   function selectedPopupEntryContainer() {
@@ -5559,7 +5561,10 @@
     }
     if (direction === "up") return scrollControllerPopupNotch(-1);
     if (direction === "down") return scrollControllerPopupNotch(1);
-    return movePopupEntry(direction === "left" ? -1 : 1);
+    return movePopupEntry(
+      direction === "left" ? -1 : 1,
+      CONTROLLER_ENTRY_SELECTION,
+    );
   }
 
   function runControllerAction(action, now) {
@@ -5567,7 +5572,7 @@
       case "lookup":
         return openFirstControllerLookup();
       case "selectEntry":
-        return selectLargestVisiblePopupEntry();
+        return selectLargestVisiblePopupEntry(CONTROLLER_ENTRY_SELECTION);
       case "closePopup":
         hidePopup();
         return true;
@@ -5621,9 +5626,9 @@
       case "scrollDown":
         return scrollControllerPopupNotch(1);
       case "entryPrevious":
-        return movePopupEntry(-1);
+        return movePopupEntry(-1, CONTROLLER_ENTRY_SELECTION);
       case "entryNext":
-        return movePopupEntry(1);
+        return movePopupEntry(1, CONTROLLER_ENTRY_SELECTION);
       case "ankiPrimary":
         return startControllerHold("anki-primary", now);
       case "ankiForceAdd":
@@ -5652,7 +5657,8 @@
 
   function controllerPrimaryAction() {
     if (state.audioSourceMenu) return activateControllerAudioFocus();
-    if (mainPopupVisible()) return selectLargestVisiblePopupEntry();
+    if (mainPopupVisible())
+      return selectLargestVisiblePopupEntry(CONTROLLER_ENTRY_SELECTION);
     return openFirstControllerLookup();
   }
 

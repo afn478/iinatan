@@ -51,9 +51,13 @@ function press(key, modifiers) {
   return prevented;
 }
 function selected() {
-  return entries.findIndex((entry) =>
-    entry.classList.contains("controller-selected-entry"),
+  assert(
+    entries.every(
+      (entry) => !entry.classList.contains("controller-selected-entry"),
+    ),
+    "Keyboard entry navigation must not draw the gamepad selection outline",
   );
+  return overlay.state.selectedEntryIndex;
 }
 
 assert(

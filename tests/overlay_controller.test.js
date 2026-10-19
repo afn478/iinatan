@@ -204,6 +204,12 @@ assert(
     entry1.classList.contains("controller-selected-entry"),
   "D-pad right should select the next entry without depending on scroll",
 );
+assert(
+  context.__elements.popup.scrollTop ===
+    entry1.getBoundingClientRect().top -
+      context.__elements.popup.getBoundingClientRect().top,
+  "D-pad entry navigation should pin the entry's headword to the popup top",
+);
 const beforeScroll = Number(context.__elements.popup.scrollTop || 0);
 overlay.processControllerSnapshot(snapshot(), 380, 20);
 overlay.processControllerSnapshot(snapshot({ dpadDown: true }), 400, 20);
