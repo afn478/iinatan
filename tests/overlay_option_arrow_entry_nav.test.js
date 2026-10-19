@@ -65,14 +65,21 @@ assert(
   "Option+Down should jump from the most visible entry to the next one",
 );
 assert(
-  entries[2].scrolledIntoView,
-  "Option+Down should scroll the next entry into view",
+  popup.scrollTop === 110 && !entries[2].scrolledIntoView,
+  "Option+Down should pin the next entry's top to the popup top",
 );
 assert(
   press("ArrowUp", { altKey: true }) && selected() === 1,
   "Option+Up should return to the previous entry",
 );
-press("ArrowUp", { altKey: true });
+assert(
+  press("ArrowUp", { altKey: true }) && selected() === 0,
+  "Option+Up should reach the first entry",
+);
+assert(
+  popup.scrollTop === 0,
+  "Returning to the first entry should scroll back to its headword at the very top",
+);
 assert(
   press("ArrowUp", { altKey: true }) && selected() === 0,
   "Option+Up should stop at the first entry",

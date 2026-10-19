@@ -4952,9 +4952,27 @@
     entries[index].classList.add("controller-selected-entry");
     if (index === 0 && head)
       head.classList.add("controller-selected-entry-header");
-    if (scrollIntoView && typeof entries[index].scrollIntoView === "function")
+    if (scrollIntoView === "top") scrollPopupEntryToTop(entries, index);
+    else if (
+      scrollIntoView &&
+      typeof entries[index].scrollIntoView === "function"
+    )
       entries[index].scrollIntoView({ block: "nearest", inline: "nearest" });
     return true;
+  }
+
+  function scrollPopupEntryToTop(entries, index) {
+    // The first entry's headword lives in the popup head above it, so
+    // the first entry means the very top of the popup.
+    if (index === 0) {
+      popupEl.scrollTop = 0;
+      return;
+    }
+    const offset =
+      entries[index].getBoundingClientRect().top -
+      popupEl.getBoundingClientRect().top -
+      Number(popupEl.clientTop || 0);
+    popupEl.scrollTop = Number(popupEl.scrollTop || 0) + offset;
   }
 
   function resetPopupEntrySelection() {
@@ -4972,21 +4990,28 @@
       0,
       Math.min(entries.length - 1, Number(index) || 0),
     );
-    return applyPopupEntrySelection(scrollIntoView !== false);
+    return applyPopupEntrySelection(
+      scrollIntoView === undefined ? true : scrollIntoView,
+    );
   }
 
-  function movePopupEntry(direction) {
+  // `scrollIntoView` is true for minimal "nearest" scrolling, or "top" to
+  // pin the entry's headword to the top of the popup.
+  function movePopupEntry(direction, scrollIntoView) {
     const entries = popupEntryElements();
     if (!entries.length) return false;
     const current = Math.max(0, state.selectedEntryIndex);
-    return selectPopupEntry(current + (direction < 0 ? -1 : 1), true);
+    return selectPopupEntry(
+      current + (direction < 0 ? -1 : 1),
+      scrollIntoView === undefined ? true : scrollIntoView,
+    );
   }
 
   function movePopupEntryFromView(direction) {
     // Without a selection, step from the entry the reader is looking at
     // rather than the top, so a scrolled popup moves to its neighbor.
     if (state.selectedEntryIndex < 0) selectLargestVisiblePopupEntry();
-    return movePopupEntry(direction);
+    return movePopupEntry(direction, "top");
   }
 
   function selectLargestVisiblePopupEntry() {
