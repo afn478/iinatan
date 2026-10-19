@@ -1068,6 +1068,28 @@ assert(
   /class="forms-table"/.test(formsHtml),
   "Jitendex forms should render as a table",
 );
+{
+  const wideRow = {
+    tag: "tr",
+    content: Array.from({ length: 12 }, (_, index) => ({
+      tag: "td",
+      content: String(index + 1),
+    })),
+  };
+  const wideTableHtml = overlay.renderStructuredNode({
+    tag: "table",
+    content: [wideRow],
+  });
+  assert(
+    /^<div class="table-scroll"><table class="forms-table">/.test(
+      wideTableHtml,
+    ) &&
+      /\.table-scroll \{[^}]*max-width: 100%;[^}]*overflow-x: auto;/.test(
+        overlayCss,
+      ),
+    "Any dictionary table should scroll inside its own box instead of widening the popup",
+  );
+}
 assert(
   /class="form-marker form-pri"/.test(formsHtml) &&
     /high priority form/.test(formsHtml),

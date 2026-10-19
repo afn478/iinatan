@@ -4378,7 +4378,30 @@
     // Manually scroll so the gesture is consumed by the overlay instead of being
     // interpreted by IINA as seek/fast-forward.
     if (Math.abs(dy) >= Math.abs(dx)) popup.scrollTop += dy;
-    else popup.scrollLeft += dx;
+    else
+      (horizontalScrollerFor(ev.target, popup, dx) || popup).scrollLeft += dx;
+  }
+  // Sideways gestures go to the nearest box under the pointer that can still
+  // scroll that way (wide tables, tag rows), since the popup itself cannot.
+  function horizontalScrollerFor(target, popup, dx) {
+    let node =
+      target && target.nodeType === 1 ? target : target && target.parentElement;
+    while (node && node !== popup) {
+      if (node.scrollWidth > node.clientWidth + 1) {
+        let overflowX = "";
+        try {
+          overflowX = window.getComputedStyle(node).overflowX;
+        } catch (_) {}
+        const canScroll =
+          dx < 0
+            ? node.scrollLeft > 0
+            : node.scrollLeft + node.clientWidth < node.scrollWidth - 1;
+        if ((overflowX === "auto" || overflowX === "scroll") && canScroll)
+          return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
   }
   bindPopupContainerEvents(popupEl);
   document.addEventListener(
@@ -8531,12 +8554,13 @@
     return "<" + tag + classAttr + ">" + body + "</" + tag + ">";
   }
   function renderTableNode(node, ctx) {
+    // Wide dictionary tables scroll inside their own box instead of widening the popup.
     return (
-      '<table class="forms-table">' +
+      '<div class="table-scroll"><table class="forms-table">' +
       toArray(node.content)
         .map((row) => renderStructuredNode(row, ctx))
         .join("") +
-      "</table>"
+      "</table></div>"
     );
   }
   function renderFormsNode(node, ctx) {
