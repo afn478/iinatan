@@ -5045,10 +5045,7 @@
   function selectedPopupEntryContainer() {
     const entries = popupEntryElements();
     if (!entries.length) return popupEl.querySelector(".head") || null;
-    const index =
-      state.selectedEntryIndex >= 0
-        ? state.selectedEntryIndex
-        : 0;
+    const index = state.selectedEntryIndex >= 0 ? state.selectedEntryIndex : 0;
     if (index >= entries.length) return null;
     if (index === 0) return popupEl.querySelector(".head") || entries[0];
     return entries[index];

@@ -117,7 +117,4 @@ assert(
 );
 
 overlay.state.lookupPopupVisible = false;
-assert(
-  !down(),
-  "Option+Down should not be captured while the popup is closed",
-);
+assert(!down(), "Option+Down should not be captured while the popup is closed");

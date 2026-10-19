@@ -1069,7 +1069,9 @@ assert(
   "Only the content column should scroll and bounce, never the whole window",
 );
 assert(
-  /main > \.panel\.active \{ min-height: calc\(100% \+ 1px\); \}/.test(managerHtml) &&
+  /main > \.panel\.active \{ min-height: calc\(100% \+ 1px\); \}/.test(
+    managerHtml,
+  ) &&
     /\.sidebar::after \{[^}]*position: absolute;[^}]*height: calc\(100% \+ 1px\);/s.test(
       managerHtml,
     ),
