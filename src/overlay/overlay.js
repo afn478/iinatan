@@ -4995,10 +4995,19 @@
     );
   }
 
+  // Offset of an entry's top below the popup's visible top, in the popup's
+  // own scroll pixels. The popup is drawn with `transform: scale(...)`, so
+  // client rects are scaled while scrollTop is not; without converting, every
+  // jump falls short in proportion to its distance.
   function popupEntryViewOffset(entry) {
+    const popupRect = popupEl.getBoundingClientRect();
+    const layoutHeight = Number(popupEl.offsetHeight || 0);
+    const scale =
+      layoutHeight > 0 && popupRect.height > 0
+        ? popupRect.height / layoutHeight
+        : 1;
     return (
-      entry.getBoundingClientRect().top -
-      popupEl.getBoundingClientRect().top -
+      (entry.getBoundingClientRect().top - popupRect.top) / scale -
       Number(popupEl.clientTop || 0)
     );
   }
