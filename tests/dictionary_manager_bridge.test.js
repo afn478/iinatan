@@ -37,6 +37,8 @@ const context = {
         return Promise.resolve({ status: 0, stdout: context.osascriptAccent });
       if (command === "/usr/bin/osascript")
         return Promise.reject(new Error("osascript unavailable"));
+      if ((args || []).join(" ").includes("differentiateWithoutColor"))
+        return Promise.resolve({ status: 0, stdout: "1\n" });
       return Promise.resolve({ status: 0, stdout: "6\n" });
     },
   },
@@ -195,6 +197,10 @@ assert(
     accentCommands[1].command === "/usr/bin/defaults" &&
       accentCommands[1].args.join(" ") === "read -g AppleAccentColor",
     "System accent lookup should fall back to AppleAccentColor through defaults",
+  );
+  assert(
+    (await context.dictionaryManagerDifferentiateWithoutColor()) === true,
+    "Settings should read the Differentiate Without Color accessibility setting",
   );
   console.log("dictionary manager bridge tests passed");
 })().catch((error) => {

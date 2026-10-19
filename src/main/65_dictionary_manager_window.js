@@ -119,7 +119,9 @@ async function dictionaryManagerSystemAccentColor() {
     const color = String((result && result.stdout) || "").trim();
     if (/^#[0-9a-f]{6}$/i.test(color)) return color.toLowerCase();
   } catch (error) {
-    debugVerbose("could not resolve macOS accent color: " + compactError(error));
+    debugVerbose(
+      "could not resolve macOS accent color: " + compactError(error),
+    );
   }
   try {
     const result = await execExternalProcess(
@@ -135,6 +137,32 @@ async function dictionaryManagerSystemAccentColor() {
     debugVerbose("could not read macOS accent color: " + compactError(error));
     return "";
   }
+}
+async function dictionaryManagerDifferentiateWithoutColor() {
+  if (!utils || typeof utils.exec !== "function") return false;
+  try {
+    const result = await execExternalProcess(
+      "/usr/bin/defaults",
+      ["read", "com.apple.universalaccess", "differentiateWithoutColor"],
+      dataRoot(),
+    );
+    return String((result && result.stdout) || "").trim() === "1";
+  } catch (_) {
+    return false;
+  }
+}
+// Accent and Differentiate Without Color are not visible to WebKit, so read them
+// here; the page asks again whenever its window regains focus.
+function postDictionaryManagerAppearance() {
+  dictionaryManagerSystemAccentColor().then((color) => {
+    if (color)
+      postToDictionaryManager("dictionary-manager-system-accent", { color });
+  });
+  dictionaryManagerDifferentiateWithoutColor().then((enabled) => {
+    postToDictionaryManager("dictionary-manager-accessibility", {
+      differentiateWithoutColor: enabled,
+    });
+  });
 }
 function runDictionaryManagerAction(label, action) {
   (async () => {
@@ -271,12 +299,12 @@ function registerDictionaryManagerHandlers() {
   onMessage("dictionary-manager-ready", () => {
     postDictionaryManagerState();
     postDictionaryManagerStatus("", "info", false);
-    dictionaryManagerSystemAccentColor().then((color) => {
-      if (color)
-        postToDictionaryManager("dictionary-manager-system-accent", { color });
-    });
+    postDictionaryManagerAppearance();
     if (typeof refreshDictionaryManagerAnkiState === "function")
       refreshDictionaryManagerAnkiState();
+  });
+  onMessage("dictionary-manager-appearance-request", () => {
+    postDictionaryManagerAppearance();
   });
   onMessage("dictionary-manager-refresh", () => {
     postDictionaryManagerState();

@@ -124,7 +124,9 @@ assert(
   /<aside class="sidebar">[\s\S]*<nav class="tabs"/.test(managerHtml) &&
     /\.sidebar\s*\{[^}]*position:\s*fixed/s.test(managerHtml) &&
     /\.tabs\s*\{[^}]*flex-direction:\s*column/s.test(managerHtml) &&
-    /\.tab\.active[^{]*\{[^}]*background:\s*var\(--accent\)/s.test(managerHtml) &&
+    /\.tab\.active[^{]*\{[^}]*background:\s*var\(--accent\)/s.test(
+      managerHtml,
+    ) &&
     (managerHtml.match(/class="tab-icon"/g) || []).length === 6,
   "Settings sections should use a sidebar with an accent-tinted selection",
 );
@@ -1030,4 +1032,33 @@ assert(
     ) &&
     /glassTint\.disabled = state\.busy \|\| following;/.test(managerHtml),
   "Popup glass should default to the built-in material, with an opt-in system follow that disables the custom slider",
+);
+assert(
+  /\.switch \{[^}]*width: 50px;[^}]*height: 22px;/s.test(managerHtml) &&
+    /\.switch \.thumb \{[^}]*width: 29px;[^}]*height: 18px;/s.test(managerHtml),
+  "Switches should use the squeezed NSSwitch proportions",
+);
+assert(
+  /:root\[data-differentiate-without-color="true"\] \.switch input:checked ~ \.track::before \{ opacity: 1; \}/.test(
+    managerHtml,
+  ) &&
+    /bridge\.onMessage\('dictionary-manager-accessibility'/.test(managerHtml) &&
+    /send\('dictionary-manager-appearance-request'\)/.test(managerHtml),
+  "Settings should follow Differentiate Without Color with on/off marks and text cues",
+);
+assert(
+  /\.tab-icon \{[^}]*background-color: currentColor;[^}]*mask: var\(--tab-icon\)/s.test(
+    managerHtml,
+  ) &&
+    (managerHtml.match(/--tab-icon: url\("data:image\/png;base64,/g) || [])
+      .length === 6,
+  "Sidebar icons should be IINA-style template glyphs tinted with the label color",
+);
+assert(
+  /input\[type="number"\]::-webkit-inner-spin-button/.test(managerHtml) &&
+    /function enhanceNumberFields\(\)/.test(managerHtml) &&
+    /wrap\.className = 'number-field';/.test(managerHtml) &&
+    /stepper\.className = 'stepper';/.test(managerHtml) &&
+    /\.field > \.number-field \{[^}]*grid-column: 2;/s.test(managerHtml),
+  "Number fields should use an outside stepper like IINA's settings instead of inline spin arrows",
 );
