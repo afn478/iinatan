@@ -382,10 +382,10 @@
       padding: 0;
       color: var(--popup-muted);
       /* Liquid Glass control: translucent fill over the popup, specular top edge, darker rim.
-         --glass-tint lets states color the glass without losing the material. */
+         --glass-tint lets states color the glass without losing the material.
+         No backdrop-filter of its own: nested inside the popup's backdrop-filter, WebKit
+         re-composites it when a hover transition ends, flashing a deeper, blocky fill. */
       background: color-mix(in srgb, var(--glass-tint, transparent) 18%, var(--popup-glass-button-bg));
-      -webkit-backdrop-filter: blur(calc(3px + 14px * var(--popup-glass-tint))) saturate(180%);
-      backdrop-filter: blur(calc(3px + 14px * var(--popup-glass-tint))) saturate(180%);
       box-shadow:
         inset 0 1px 0 var(--popup-glass-button-highlight),
         0 0 0 0.5px var(--glass-rim, var(--popup-glass-button-edge)),
