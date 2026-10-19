@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.0 - 2026-10-19
+
+### Added
+
+- Added Option+Up/Down to jump between dictionary entries in the lookup popup, matching Yomitan. Entry navigation is shared with the gamepad, steps from the current scroll position, pins the headword to the popup top, and accounts for popup scale.
+- Added a popup glass transparency setting with an option to follow the system.
+
+### Changed
+
+- Restyled the settings window after macOS 27 System Settings, aligned its controls with IINA, and made it follow Differentiate Without Color.
+- Gave popup controls a Liquid Glass treatment, and made an inherited popup theme follow the macOS appearance live.
+- Made the popup and settings content scroll natively with elastic bounce, a slimmer popup scroll bar, and no whole-window bounce in settings.
+- Outlined the selected entry only for gamepad input, leaving keyboard navigation unadorned.
+
+### Fixed
+
+- Fixed wide dictionary tables widening the popup.
+- Fixed the popup audio and Anki buttons flashing on hover.
+
 ## 2.1.9 - 2026-10-17
 
 ### Fixed
